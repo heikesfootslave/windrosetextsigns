@@ -2587,10 +2587,13 @@ namespace WindroseTextSigns
         const auto forward = vec_normalize(rotation_to_forward(view.rotation));
         AActor* controller_actor = Cast<AActor>(controller);
         UWorld* controller_world = controller_actor ? controller_actor->GetWorld() : nullptr;
+        const auto controller_world_id = build_world_id_for_actor(controller_actor);
         SelectionCandidate best{};
         double best_dot = -1.0;
         double best_perp = 999999.0;
         size_t candidate_count = 0;
+        size_t strict_candidate_count = 0;
+        size_t loose_candidate_count = 0;
 
         UObjectGlobals::ForEachUObject([&](UObject* object, int32, int32) {
             if (!object || !object->IsA(AActor::StaticClass()))
@@ -2625,11 +2628,6 @@ namespace WindroseTextSigns
 
             const auto dir = vec_normalize(to_actor);
             const auto dot = vec_dot(forward, dir);
-            if (dot <= 0.35)
-            {
-                return LoopAction::Continue;
-            }
-
             const double forward_dist = dot * dist;
             double perp_sq = (dist * dist) - (forward_dist * forward_dist);
             if (perp_sq < 0.0)
@@ -2641,16 +2639,27 @@ namespace WindroseTextSigns
             // Dynamic lateral tolerance:
             // allow slightly wider off-center picks at longer distances but avoid
             // selecting signs far away from crosshair.
-            const double max_perp = std::clamp(dist * 0.30, 110.0, 520.0);
-            if (perp > max_perp)
+            const double max_perp = std::clamp(dist * 0.32, 130.0, 620.0);
+            const bool strict_match = (dot > 0.20) && (perp <= max_perp);
+            const bool loose_close_match = (dot > 0.03) && (dist <= 500.0) && (perp <= 280.0);
+            if (!strict_match && !loose_close_match)
             {
                 return LoopAction::Continue;
             }
 
             ++candidate_count;
+            if (strict_match)
+            {
+                ++strict_candidate_count;
+            }
+            else
+            {
+                ++loose_candidate_count;
+            }
             // Single robust score:
             // prioritize crosshair alignment first, then lateral error, then distance.
             const double score =
+                (strict_match ? 250000.0 : 0.0) +
                 (dot * 1000000.0) -
                 (perp * 1200.0) -
                 (dist * 1.5);
@@ -2671,7 +2680,7 @@ namespace WindroseTextSigns
 
         if (!best.actor)
         {
-            log_line("[target] F8 selection found no Wooden Label candidate candidateCount=0");
+            log_line("[target] F8 selection found no Wooden Label candidate candidateCount=0 worldId=" + controller_world_id);
             return std::nullopt;
         }
 
@@ -2696,6 +2705,8 @@ namespace WindroseTextSigns
                  " dot=" + std::to_string(best_dot) +
                  " perp=" + std::to_string(best_perp) +
                  " candidateCount=" + std::to_string(candidate_count) +
+                 " strictCandidateCount=" + std::to_string(strict_candidate_count) +
+                 " looseCandidateCount=" + std::to_string(loose_candidate_count) +
                  " firstComponent=" + component_summary +
                  " outermost=" + outermost_summary);
         return best;
@@ -4095,6 +4106,7 @@ namespace WindroseTextSigns
         {
             m_last_restore_scan = now;
             std::unordered_set<std::string> present_label_keys{};
+            std::unordered_map<std::string, uint32_t> present_world_counts{};
             UObjectGlobals::ForEachUObject([&](UObject* object, int32, int32) {
                 if (!object || !object->IsA(AActor::StaticClass()))
                 {
@@ -4109,6 +4121,7 @@ namespace WindroseTextSigns
                 const auto world_id = build_world_id_for_actor(actor);
                 const auto key = build_storage_key(world_id, stable_id);
                 present_label_keys.insert(key);
+                ++present_world_counts[world_id];
                 m_seen_live_label_keys.insert(key);
                 m_missing_label_scan_counts.erase(key);
                 restore_known_text_if_any(actor, stable_id);
@@ -4131,11 +4144,17 @@ namespace WindroseTextSigns
             const bool allow_prune = !present_label_keys.empty();
             if (allow_prune)
             {
-                constexpr uint32_t k_prune_missing_scan_threshold = 1;
+                constexpr uint32_t k_prune_missing_scan_threshold = 4;
+                constexpr uint32_t k_min_live_labels_in_world_for_prune = 2;
                 std::unordered_set<std::string> keys_to_prune{};
                 for (const auto& [key, rec] : m_labels)
                 {
                     if (present_label_keys.find(key) != present_label_keys.end())
+                    {
+                        continue;
+                    }
+                    const auto world_it = present_world_counts.find(rec.world_id);
+                    if (world_it == present_world_counts.end() || world_it->second < k_min_live_labels_in_world_for_prune)
                     {
                         continue;
                     }
@@ -4149,6 +4168,14 @@ namespace WindroseTextSigns
                     {
                         keys_to_prune.insert(key);
                     }
+                }
+
+                if (!m_labels.empty() && keys_to_prune.size() == m_labels.size())
+                {
+                    log_line("[save] prune_destroyed_label skipped reason=mass_prune_guard candidateCount=" +
+                             std::to_string(keys_to_prune.size()) +
+                             " presentWorlds=" + std::to_string(present_world_counts.size()));
+                    keys_to_prune.clear();
                 }
 
                 uint32_t pruned_count = 0;

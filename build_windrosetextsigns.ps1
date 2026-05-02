@@ -211,15 +211,16 @@ function Try-CommitAndTagBuild {
         }
 
         $zipName = [System.IO.Path]::GetFileName($DeploymentZipPath)
+        $safeDirectory = $RepoRoot.Replace('\', '/')
         Write-Step "Git snapshot start: repo=`"$RepoRoot`" zip=`"$zipName`" git=`"$resolvedGitExe`""
 
-        & "$resolvedGitExe" -C "$RepoRoot" add -A
+        & "$resolvedGitExe" -c "safe.directory=$safeDirectory" -C "$RepoRoot" add -A
         if ($LASTEXITCODE -ne 0) {
             Write-Step "Git snapshot skipped: `git add -A` failed with exit code $LASTEXITCODE."
             return
         }
 
-        & "$resolvedGitExe" -C "$RepoRoot" diff --cached --quiet
+        & "$resolvedGitExe" -c "safe.directory=$safeDirectory" -C "$RepoRoot" diff --cached --quiet
         if ($LASTEXITCODE -eq 0) {
             Write-Step "Git snapshot skipped: no staged changes to commit."
             return
@@ -229,13 +230,13 @@ function Try-CommitAndTagBuild {
         $commitMessage = "Build snapshot $stamp ($zipName)"
         $tagName = "build_" + $stamp
 
-        & "$resolvedGitExe" -C "$RepoRoot" commit -m "$commitMessage"
+        & "$resolvedGitExe" -c "safe.directory=$safeDirectory" -C "$RepoRoot" commit -m "$commitMessage"
         if ($LASTEXITCODE -ne 0) {
             Write-Step "Git snapshot skipped: commit failed with exit code $LASTEXITCODE."
             return
         }
 
-        & "$resolvedGitExe" -C "$RepoRoot" tag "$tagName"
+        & "$resolvedGitExe" -c "safe.directory=$safeDirectory" -C "$RepoRoot" tag "$tagName"
         if ($LASTEXITCODE -ne 0) {
             Write-Step "Git snapshot partial success: commit created, but tag failed with exit code $LASTEXITCODE."
             return
