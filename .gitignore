@@ -1,0 +1,21 @@
+# Build and runtime outputs
+build_logs/
+Deployments/
+
+# Compiled module outputs
+dlls/*.dll
+dlls/*.pdb
+dlls/*.exp
+dlls/*.lib
+
+# CMake/Ninja transient files if they ever appear in this workspace
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+build.ninja
+.ninja_*
+
+# Editor/OS noise
+.DS_Store
+Thumbs.db
+Desktop.ini
