@@ -5,6 +5,7 @@ param(
     [string]$VsDevCmdPath = "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\Tools\VsDevCmd.bat",
     [string]$CMakeExePath = "C:\Program Files\CMake\bin\cmake.exe",
     [string]$NinjaExePath = "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\Ninja\ninja.exe",
+    [string]$GitExePath = "C:\Program Files\Git\cmd\git.exe",
     [string]$CmdExePath = "C:\WINDOWS\System32\cmd.exe",
     [int]$HeartbeatSeconds = 60,
     [int]$NoProgressLimit = 3,
@@ -173,6 +174,77 @@ function New-DeploymentZip {
     $latestPath = Join-Path $DeploymentsDir "LATEST.txt"
     Set-Content -LiteralPath $latestPath -Value ([System.IO.Path]::GetFileName($zipPath)) -Encoding ascii
     Write-Step "Created deployment zip: `"$zipPath`""
+    return $zipPath
+}
+
+function Try-CommitAndTagBuild {
+    param(
+        [Parameter(Mandatory = $true)][string]$RepoRoot,
+        [Parameter(Mandatory = $true)][string]$DeploymentZipPath,
+        [Parameter(Mandatory = $true)][string]$GitExePath
+    )
+
+    try {
+        $candidateGitPaths = @(
+            $GitExePath,
+            "C:\Program Files\Git\cmd\git.exe",
+            "C:\Program Files\Git\bin\git.exe",
+            "C:\Program Files\Git\mingw64\bin\git.exe",
+            "C:\Users\User\AppData\Local\Programs\Git\cmd\git.exe"
+        )
+        $resolvedGitExe = $null
+        foreach ($candidate in $candidateGitPaths) {
+            if ($candidate -and (Test-Path -LiteralPath $candidate)) {
+                $resolvedGitExe = $candidate
+                break
+            }
+        }
+        if (-not $resolvedGitExe) {
+            Write-Step "Git snapshot skipped: git executable not found at absolute paths. Checked: $($candidateGitPaths -join '; ')"
+            return
+        }
+
+        $gitDir = Join-Path $RepoRoot ".git"
+        if (!(Test-Path -LiteralPath $gitDir)) {
+            Write-Step "Git snapshot skipped: no repository at `"$RepoRoot`"."
+            return
+        }
+
+        $zipName = [System.IO.Path]::GetFileName($DeploymentZipPath)
+        Write-Step "Git snapshot start: repo=`"$RepoRoot`" zip=`"$zipName`" git=`"$resolvedGitExe`""
+
+        & "$resolvedGitExe" -C "$RepoRoot" add -A
+        if ($LASTEXITCODE -ne 0) {
+            Write-Step "Git snapshot skipped: `git add -A` failed with exit code $LASTEXITCODE."
+            return
+        }
+
+        & "$resolvedGitExe" -C "$RepoRoot" diff --cached --quiet
+        if ($LASTEXITCODE -eq 0) {
+            Write-Step "Git snapshot skipped: no staged changes to commit."
+            return
+        }
+
+        $stamp = Get-Date -Format "yyyyMMdd_HHmmss"
+        $commitMessage = "Build snapshot $stamp ($zipName)"
+        $tagName = "build_" + $stamp
+
+        & "$resolvedGitExe" -C "$RepoRoot" commit -m "$commitMessage"
+        if ($LASTEXITCODE -ne 0) {
+            Write-Step "Git snapshot skipped: commit failed with exit code $LASTEXITCODE."
+            return
+        }
+
+        & "$resolvedGitExe" -C "$RepoRoot" tag "$tagName"
+        if ($LASTEXITCODE -ne 0) {
+            Write-Step "Git snapshot partial success: commit created, but tag failed with exit code $LASTEXITCODE."
+            return
+        }
+
+        Write-Step "Git snapshot complete: commit+tag created tag=`"$tagName`""
+    } catch {
+        Write-Step "Git snapshot skipped due to exception: $($_.Exception.Message)"
+    }
 }
 
 function Get-ShortPathOrSame {
@@ -624,7 +696,8 @@ if (-not $builtDll) {
 Write-Step "Copying built DLL to runtime staging: `"$runtimeDll`""
 Copy-Item -LiteralPath $builtDll -Destination $runtimeDll -Force
 
-New-DeploymentZip -ModRoot $RootDir -DeploymentsDir $deploymentsDir -BuiltDllPath $builtDll -BuildStartedUtc $buildPhaseStartUtc
+$deploymentZipPath = New-DeploymentZip -ModRoot $RootDir -DeploymentsDir $deploymentsDir -BuiltDllPath $builtDll -BuildStartedUtc $buildPhaseStartUtc
+Try-CommitAndTagBuild -RepoRoot $RootDir -DeploymentZipPath $deploymentZipPath -GitExePath $GitExePath
 
 Write-Step "Direct game/client deployment is disabled in this script by design. Output is build artifacts + Deployments zip only."
 
