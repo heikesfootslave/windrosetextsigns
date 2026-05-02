@@ -84,6 +84,7 @@ namespace WindroseTextSigns
         auto tick_pending_fallback_hotkeys() -> void;
         auto tick_file_triggers() -> void;
         auto run_six_sign_targeting_test() -> void;
+        auto run_buildmenu_asset_probe() -> void;
         auto ensure_selected_label_for_action(const std::string& action_name) -> bool;
         auto is_actor_pointer_live(RC::Unreal::AActor* actor) const -> bool;
         auto ensure_selected_actor_valid(const std::string& reason) -> bool;
@@ -93,6 +94,7 @@ namespace WindroseTextSigns
         auto log_marker_widget_snapshot(RC::Unreal::UObject* widget) -> void;
         auto read_marker_popup_text(RC::Unreal::UObject* popup_widget) -> std::string;
         auto count_live_user_marker_widgets() -> int32_t;
+        auto snapshot_live_user_marker_texts() -> std::vector<std::string>;
         auto tick_marker_ui_state_probe() -> void;
 
         auto is_probable_label_actor(RC::Unreal::AActor* actor) const -> bool;
@@ -140,6 +142,7 @@ namespace WindroseTextSigns
         std::atomic<bool> m_hotkey_requested{false};
         std::atomic<bool> m_clear_hotkey_requested{false};
         std::atomic<bool> m_six_sign_test_requested{false};
+        std::atomic<bool> m_buildmenu_probe_requested{false};
         bool m_ui_open{false};
         bool m_unreal_ready{false};
         bool m_phase7_native_probe_ran{false};
@@ -184,6 +187,7 @@ namespace WindroseTextSigns
         std::string m_marker_popup_text_on_open{};
         std::string m_marker_popup_last_text{};
         int32_t m_marker_popup_user_markers_on_open{0};
+        std::vector<std::string> m_marker_popup_user_marker_texts_on_open{};
         bool m_marker_popup_confirm_clicked{false};
         bool m_marker_popup_cancel_clicked{false};
         bool m_marker_popup_last_confirm_pressed{false};

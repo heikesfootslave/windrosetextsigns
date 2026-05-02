@@ -469,6 +469,101 @@ namespace
         return value;
     }
 
+    auto contains_any_token(const std::string& haystack, std::initializer_list<const char*> tokens) -> bool
+    {
+        for (const auto* token : tokens)
+        {
+            if (!token)
+            {
+                continue;
+            }
+            if (haystack.find(token) != std::string::npos)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    auto try_extract_property_log_value(FProperty* prop, UObject* container) -> std::optional<std::string>
+    {
+        if (!prop || !container)
+        {
+            return std::nullopt;
+        }
+
+        const auto prop_name_lower = lower_copy_ascii(RC::to_string(prop->GetName()));
+        if (!contains_any_token(prop_name_lower, {
+                "icon",
+                "texture",
+                "sprite",
+                "label",
+                "title",
+                "name",
+                "recipe",
+                "build",
+                "construct",
+                "class",
+                "actor",
+                "mesh",
+                "material",
+                "plaque",
+                "wallplaque",
+                "utility",
+                "lables",
+                "wooden"}))
+        {
+            return std::nullopt;
+        }
+
+        const auto prop_hash = prop->GetClass().HashObject();
+        if (prop_hash == FNameProperty::StaticClass().HashObject())
+        {
+            if (auto* value = prop->ContainerPtrToValuePtr<FName>(container))
+            {
+                return "name=" + RC::to_string(value->ToString());
+            }
+            return std::nullopt;
+        }
+        if (prop_hash == FTextProperty::StaticClass().HashObject())
+        {
+            if (auto* value = prop->ContainerPtrToValuePtr<FText>(container))
+            {
+                return "text=" + RC::to_string(value->ToString());
+            }
+            return std::nullopt;
+        }
+        if (prop_hash == FObjectProperty::StaticClass().HashObject())
+        {
+            if (auto* obj_ptr = prop->ContainerPtrToValuePtr<UObject*>(container); obj_ptr && *obj_ptr)
+            {
+                return "obj=" + RC::to_string((*obj_ptr)->GetFullName());
+            }
+            return std::nullopt;
+        }
+        if (prop_hash == FClassProperty::StaticClass().HashObject())
+        {
+            if (auto* class_ptr = prop->ContainerPtrToValuePtr<UClass*>(container); class_ptr && *class_ptr)
+            {
+                return "class=" + RC::to_string((*class_ptr)->GetFullName());
+            }
+            return std::nullopt;
+        }
+        if (prop_hash == FBoolProperty::StaticClass().HashObject())
+        {
+            if (auto* bool_prop = static_cast<FBoolProperty*>(prop))
+            {
+                if (auto* storage = prop->ContainerPtrToValuePtr<void>(container))
+                {
+                    return std::string{"bool="} + (bool_prop->GetPropertyValue(storage) ? "true" : "false");
+                }
+            }
+            return std::nullopt;
+        }
+
+        return std::nullopt;
+    }
+
     auto is_interesting_widget_function_name(const std::string& lower_name) -> bool
     {
         if (lower_name.empty())
@@ -1265,6 +1360,8 @@ namespace
 
 namespace WindroseTextSigns
 {
+    auto read_text_property_value_no_process_event(UObject* context, std::string& out_text) -> bool;
+
     SignTextMod::SignTextMod()
     {
         ModName = STR("WindroseTextSigns");
@@ -1404,7 +1501,7 @@ namespace WindroseTextSigns
         m_sidecar_path = m_data_root / "SignTexts.json";
         m_backup_root = m_data_root / "Backups";
         open_log();
-        log_line(std::string{"[build] version=0.1.2-prototype compiled="} + __DATE__ + " " + __TIME__ + " flags=F8,F10,phase5-atomic-sidecar");
+        log_line(std::string{"[build] version=0.1.2-prototype compiled="} + __DATE__ + " " + __TIME__ + " flags=F8,F9,F10,phase5-atomic-sidecar");
 
         std::error_code mkdir_ec{};
         std::filesystem::create_directories(m_data_root, mkdir_ec);
@@ -1442,7 +1539,10 @@ namespace WindroseTextSigns
         register_keydown_event(Input::Key::F10, [this]() {
             m_clear_hotkey_requested.store(true);
         });
-        log_line("[input] Registered hotkeys: F8=target/open_editor, F10=clear_selected");
+        register_keydown_event(Input::Key::F9, [this]() {
+            m_buildmenu_probe_requested.store(true);
+        });
+        log_line("[input] Registered hotkeys: F8=target/open_editor, F9=buildmenu_asset_probe, F10=clear_selected");
     }
 
     auto SignTextMod::probe_phase7_native_ui_capabilities() -> void
@@ -1975,6 +2075,78 @@ namespace WindroseTextSigns
         return count;
     }
 
+    auto SignTextMod::snapshot_live_user_marker_texts() -> std::vector<std::string>
+    {
+        std::vector<std::string> texts{};
+        std::unordered_set<std::string> dedupe{};
+
+        auto maybe_append = [&](std::string value) {
+            value.erase(value.begin(), std::find_if(value.begin(), value.end(), [](unsigned char ch) {
+                return !std::isspace(ch);
+            }));
+            value.erase(std::find_if(value.rbegin(), value.rend(), [](unsigned char ch) {
+                return !std::isspace(ch);
+            }).base(), value.end());
+            if (value.empty())
+            {
+                return;
+            }
+            if (dedupe.insert(value).second)
+            {
+                texts.push_back(std::move(value));
+            }
+        };
+
+        UObjectGlobals::ForEachUObject([&](UObject* object, int32, int32) {
+            if (!object || !object->GetClassPrivate())
+            {
+                return LoopAction::Continue;
+            }
+
+            const auto full_name = lower_ascii(narrow_ascii(object->GetFullName()));
+            if (full_name.find("default__") != std::string::npos)
+            {
+                return LoopAction::Continue;
+            }
+            const auto class_name = lower_ascii(narrow_ascii(object->GetClassPrivate()->GetFullName()));
+            if (class_name.find("wbp_mapmarker_usercreated_c") == std::string::npos)
+            {
+                return LoopAction::Continue;
+            }
+
+            std::string marker_text{};
+            if (read_text_property_value_no_process_event(object, marker_text))
+            {
+                maybe_append(marker_text);
+            }
+
+            for_each_property_in_chain_compat(object->GetClassPrivate(), [&](FProperty* prop) {
+                if (!prop)
+                {
+                    return;
+                }
+                if (prop->GetClass().HashObject() != FObjectProperty::StaticClass().HashObject())
+                {
+                    return;
+                }
+                auto* value_ptr = prop->ContainerPtrToValuePtr<UObject*>(object);
+                if (!value_ptr || !*value_ptr)
+                {
+                    return;
+                }
+                std::string child_text{};
+                if (read_text_property_value_no_process_event(*value_ptr, child_text))
+                {
+                    maybe_append(child_text);
+                }
+            });
+
+            return LoopAction::Continue;
+        });
+
+        return texts;
+    }
+
     auto read_popup_widget_visibility(UObject* popup_widget, bool& out_visible) -> bool
     {
         if (!popup_widget)
@@ -2264,6 +2436,7 @@ namespace WindroseTextSigns
             }
 
             const int32_t user_markers_on_close = count_live_user_marker_widgets();
+            const auto marker_texts_on_close = snapshot_live_user_marker_texts();
             const int32_t marker_delta = user_markers_on_close - m_marker_popup_user_markers_on_open;
             std::string outcome = "unknown_or_cancel";
             if (m_marker_popup_confirm_clicked && !m_marker_popup_cancel_clicked)
@@ -2283,12 +2456,44 @@ namespace WindroseTextSigns
                 outcome = "text_changed_but_no_marker_delta";
             }
 
+            std::unordered_set<std::string> open_text_set{};
+            for (const auto& text : m_marker_popup_user_marker_texts_on_open)
+            {
+                open_text_set.insert(text);
+            }
+            std::vector<std::string> added_marker_texts{};
+            for (const auto& text : marker_texts_on_close)
+            {
+                if (open_text_set.find(text) == open_text_set.end())
+                {
+                    added_marker_texts.push_back(text);
+                }
+            }
+            if (!added_marker_texts.empty())
+            {
+                m_marker_popup_last_text = added_marker_texts.front();
+            }
+
+            std::string added_marker_texts_joined{};
+            for (size_t i = 0; i < added_marker_texts.size(); ++i)
+            {
+                if (i > 0)
+                {
+                    added_marker_texts_joined += "|";
+                }
+                added_marker_texts_joined += added_marker_texts[i];
+            }
+
             log_line("[phase7-mapui] popup_session_close popup=" + m_marker_popup_active_name +
                      " closeReason=" + close_reason +
                      " textOnOpen=\"" + m_marker_popup_text_on_open + "\"" +
                      " textOnClose=\"" + m_marker_popup_last_text + "\"" +
                      " userMarkersOnClose=" + std::to_string(user_markers_on_close) +
                      " markerDelta=" + std::to_string(marker_delta) +
+                     " markerTextsOpen=" + std::to_string(m_marker_popup_user_marker_texts_on_open.size()) +
+                     " markerTextsClose=" + std::to_string(marker_texts_on_close.size()) +
+                     " markerTextsAdded=" + std::to_string(added_marker_texts.size()) +
+                     " markerTextsAddedList=\"" + added_marker_texts_joined + "\"" +
                      " confirmClicked=" + std::string{m_marker_popup_confirm_clicked ? "true" : "false"} +
                      " cancelClicked=" + std::string{m_marker_popup_cancel_clicked ? "true" : "false"} +
                      " outcome=" + outcome);
@@ -2298,6 +2503,7 @@ namespace WindroseTextSigns
             m_marker_popup_text_on_open.clear();
             m_marker_popup_last_text.clear();
             m_marker_popup_user_markers_on_open = 0;
+            m_marker_popup_user_marker_texts_on_open.clear();
             m_marker_popup_confirm_clicked = false;
             m_marker_popup_cancel_clicked = false;
             m_marker_popup_last_confirm_pressed = false;
@@ -2354,6 +2560,7 @@ namespace WindroseTextSigns
                 m_marker_popup_last_text = "<discovery-safe>";
                 m_marker_popup_last_direct_text.clear();
                 m_marker_popup_user_markers_on_open = count_live_user_marker_widgets();
+                m_marker_popup_user_marker_texts_on_open = snapshot_live_user_marker_texts();
                 m_marker_popup_confirm_clicked = false;
                 m_marker_popup_cancel_clicked = false;
                 m_marker_popup_last_confirm_pressed = false;
@@ -2379,7 +2586,8 @@ namespace WindroseTextSigns
                 }
                 log_line("[phase7-mapui] popup_session_open popup=" + m_marker_popup_active_name +
                          " textOnOpen=\"" + m_marker_popup_text_on_open + "\"" +
-                         " userMarkersOnOpen=" + std::to_string(m_marker_popup_user_markers_on_open));
+                         " userMarkersOnOpen=" + std::to_string(m_marker_popup_user_markers_on_open) +
+                         " markerTextsOnOpen=" + std::to_string(m_marker_popup_user_marker_texts_on_open.size()));
                 log_line("[phase7-mapui] popup_fn_probe popup=" + m_marker_popup_active_name +
                          " markerGetText=" + std::string{m_marker_popup_gettext_fn_available ? "true" : "false"} +
                          " markerSetText=" + std::string{m_marker_popup_settext_fn_available ? "true" : "false"} +
@@ -2877,6 +3085,10 @@ namespace WindroseTextSigns
                 }
             }
         }
+        if (m_buildmenu_probe_requested.exchange(false))
+        {
+            run_buildmenu_asset_probe();
+        }
     }
 
     auto SignTextMod::run_six_sign_targeting_test() -> void
@@ -2942,22 +3154,152 @@ namespace WindroseTextSigns
         }
     }
 
+    auto SignTextMod::run_buildmenu_asset_probe() -> void
+    {
+        log_line("[buildmenu-probe] start");
+
+        std::vector<UObject*> wooden_items{};
+        wooden_items.reserve(32);
+        std::vector<std::string> widget_candidates{};
+        widget_candidates.reserve(32);
+        std::vector<std::string> function_candidates{};
+        function_candidates.reserve(64);
+
+        UObjectGlobals::ForEachUObject([&](UObject* object, int32, int32) {
+            if (!object)
+            {
+                return LoopAction::Continue;
+            }
+
+            const auto full_name = narrow_ascii(object->GetFullName());
+            const auto lower_full_name = lower_ascii(full_name);
+
+            if (lower_full_name.find("da_bi_utilities_lables_wooden_") != std::string::npos)
+            {
+                wooden_items.push_back(object);
+            }
+
+            if (contains_any_token(lower_full_name, {"wbp_", "widgetblueprintgeneratedclass"}) &&
+                contains_any_token(lower_full_name, {"build", "menu", "craft", "storage", "beds", "lables", "plaque"}))
+            {
+                if (widget_candidates.size() < 64)
+                {
+                    widget_candidates.push_back(full_name);
+                }
+            }
+
+            if (object->IsA(UFunction::StaticClass()))
+            {
+                if (contains_any_token(lower_full_name, {
+                        "makeconstructcommand",
+                        "finishconstruction",
+                        "onbuildingaddedtoisland",
+                        "buildmenu",
+                        "buildingmenu",
+                        "craft",
+                        "recipe",
+                        "lables",
+                        "wallplaque"}))
+                {
+                    if (function_candidates.size() < 128)
+                    {
+                        function_candidates.push_back(full_name);
+                    }
+                }
+            }
+
+            return LoopAction::Continue;
+        });
+
+        log_line("[buildmenu-probe] wooden_items_found=" + std::to_string(wooden_items.size()));
+        for (size_t i = 0; i < wooden_items.size() && i < 32; ++i)
+        {
+            auto* item = wooden_items[i];
+            if (!item)
+            {
+                continue;
+            }
+
+            const auto item_full_name = narrow_ascii(item->GetFullName());
+            const auto class_name = item->GetClassPrivate()
+                ? narrow_ascii(item->GetClassPrivate()->GetFullName())
+                : std::string{"unknown"};
+            const auto outer_name = item->GetOuterPrivate()
+                ? narrow_ascii(item->GetOuterPrivate()->GetFullName())
+                : std::string{"none"};
+
+            log_line("[buildmenu-probe] wooden_item index=" + std::to_string(i) +
+                     " object=" + item_full_name +
+                     " class=" + class_name +
+                     " outer=" + outer_name);
+
+            uint32_t logged_fields = 0;
+            for_each_property_in_chain_compat(item->GetClassPrivate(), [&](FProperty* prop) {
+                if (!prop || logged_fields >= 48)
+                {
+                    return;
+                }
+                auto value = try_extract_property_log_value(prop, item);
+                if (!value.has_value() || value->empty())
+                {
+                    return;
+                }
+                ++logged_fields;
+                log_line("[buildmenu-probe] wooden_item_field index=" + std::to_string(i) +
+                         " prop=" + lower_ascii(RC::to_string(prop->GetName())) +
+                         " value=" + *value);
+            });
+
+            log_line("[buildmenu-probe] wooden_item_field_count index=" + std::to_string(i) +
+                     " count=" + std::to_string(logged_fields));
+        }
+
+        log_line("[buildmenu-probe] widget_candidates_found=" + std::to_string(widget_candidates.size()));
+        for (size_t i = 0; i < widget_candidates.size() && i < 40; ++i)
+        {
+            log_line("[buildmenu-probe] widget_candidate index=" + std::to_string(i) +
+                     " value=" + widget_candidates[i]);
+        }
+
+        log_line("[buildmenu-probe] function_candidates_found=" + std::to_string(function_candidates.size()));
+        for (size_t i = 0; i < function_candidates.size() && i < 80; ++i)
+        {
+            log_line("[buildmenu-probe] function_candidate index=" + std::to_string(i) +
+                     " value=" + function_candidates[i]);
+        }
+
+        log_line("[buildmenu-probe] complete");
+    }
+
     auto SignTextMod::tick_file_triggers() -> void
     {
         const auto trigger_path = m_mod_root / "Config" / "run_test6.flag";
-        if (!std::filesystem::exists(trigger_path))
+        if (std::filesystem::exists(trigger_path))
         {
-            return;
+            log_line("[test6] trigger file detected path=" + trigger_path.string());
+            m_six_sign_test_requested.store(true);
+
+            std::error_code remove_ec{};
+            std::filesystem::remove(trigger_path, remove_ec);
+            if (remove_ec)
+            {
+                log_line("[test6] trigger file remove failed path=" + trigger_path.string() + " error=" + remove_ec.message());
+            }
         }
 
-        log_line("[test6] trigger file detected path=" + trigger_path.string());
-        m_six_sign_test_requested.store(true);
-
-        std::error_code remove_ec{};
-        std::filesystem::remove(trigger_path, remove_ec);
-        if (remove_ec)
+        const auto buildmenu_trigger_path = m_mod_root / "Config" / "run_buildmenu_probe.flag";
+        if (std::filesystem::exists(buildmenu_trigger_path))
         {
-            log_line("[test6] trigger file remove failed path=" + trigger_path.string() + " error=" + remove_ec.message());
+            log_line("[buildmenu-probe] trigger file detected path=" + buildmenu_trigger_path.string());
+            m_buildmenu_probe_requested.store(true);
+
+            std::error_code remove_ec{};
+            std::filesystem::remove(buildmenu_trigger_path, remove_ec);
+            if (remove_ec)
+            {
+                log_line("[buildmenu-probe] trigger file remove failed path=" + buildmenu_trigger_path.string() +
+                         " error=" + remove_ec.message());
+            }
         }
     }
 
@@ -4239,8 +4581,9 @@ namespace WindroseTextSigns
         ImGui::Text("WindroseTextSigns prototype");
         ImGui::Separator();
         ImGui::Text("Hotkey: F8");
+        ImGui::Text("Build-menu probe hotkey: F9");
         ImGui::Text("Clear hotkey: F10");
-        ImGui::Text("Test: button below or create Config/run_test6.flag");
+        ImGui::Text("Tests: Config/run_test6.flag, Config/run_buildmenu_probe.flag");
         ImGui::Text("Probe events: %llu", static_cast<unsigned long long>(m_probe_event_count));
         ImGui::Text("Label hits: %llu", static_cast<unsigned long long>(m_probe_label_hit_count));
         ImGui::Text("Saved records: %zu", m_labels.size());
@@ -4287,6 +4630,11 @@ namespace WindroseTextSigns
         if (ImGui::Button("Run Test (6 Signs)"))
         {
             m_six_sign_test_requested.store(true);
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Run BuildMenu Asset Probe (F9)"))
+        {
+            m_buildmenu_probe_requested.store(true);
         }
 
         if (!m_selected.has_value())

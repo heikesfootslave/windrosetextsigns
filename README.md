@@ -116,6 +116,17 @@ No native Windrose label interaction was added in this prototype.
   - close-outcome heuristic is logged (`outcome=...`) using button-edge capture plus marker-count delta fallback.
   - close reason is logged (`closeReason=visibility_off|popup_not_found|popup_instance_swapped`).
 
+8. Phase 8 (Build-menu asset discovery for no-icon Wooden Label): **Implemented diagnostic probe, pending runtime verification**
+- Added BuildMenu discovery probe trigger paths:
+  - Hotkey `F9`
+  - file trigger `Config\run_buildmenu_probe.flag`
+- Probe logs:
+  - loaded `DA_BI_Utilities_Lables_Wooden_*` item objects,
+  - high-signal property values for recipe/icon/class/build references,
+  - candidate build-menu widget classes,
+  - candidate construct/build functions for runtime injection hooks.
+- Logs are emitted with prefix `[buildmenu-probe]` in `WindroseTextSigns.log`.
+
 ## Important Facts / Assumptions
 
 - The internal spelling `Lables` is treated as canonical in asset matching.
