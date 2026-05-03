@@ -143,6 +143,8 @@ namespace WindroseTextSigns
         std::atomic<bool> m_clear_hotkey_requested{false};
         std::atomic<bool> m_six_sign_test_requested{false};
         std::atomic<bool> m_buildmenu_probe_requested{false};
+        uint32_t m_hotkey_retry_remaining{0};
+        std::chrono::steady_clock::time_point m_hotkey_retry_next{};
         bool m_ui_open{false};
         bool m_unreal_ready{false};
         bool m_phase7_native_probe_ran{false};

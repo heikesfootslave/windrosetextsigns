@@ -2,12 +2,20 @@ param(
     [string]$InputRoot = "C:\Users\User\Documents\Windrose Addons\WindroseTextSigns\build_logs\WoodenLabel_Text_SBMTemplate_stage",
     [bool]$AutoPrepare = $true,
     [string]$SourceLegacyRoot = "C:\Users\User\Documents\Windrose Addons\Output\WoodenLabel_Legacy",
+    [string]$SbmZipPath = "C:\Users\User\Downloads\SBM_ContainersChest_P.zip",
+    [string]$SbmPakPath = "",
+    [ValidateSet("NoIconTexture", "ShipIcon")]
+    [string]$LabelIconMode = "NoIconTexture",
+    [ValidateSet("WoodenLabels", "StorageProbe", "StorageOverrideProbe")]
+    [string]$PrepareMode = "WoodenLabels",
     [string]$PackageBaseName = "WoodenLabel_Text_SBMTemplate_P",
     [string]$ModsDir = "C:\SteamLibrary\steamapps\common\Windrose\R5\Content\Paks\~mods",
+    [string]$ServerModsDir = "C:\Games\WindowsServer\R5\Content\Paks\~mods",
     [string]$DeploySubfolderName = "",
     [string]$ExpectedAssetToken = "DA_BI_Utilities_Lables_Wooden_Text",
     [string]$SourceAssetRelativePath = "Gameplay\Building\BuildingUtilities\DA_BI_Utilities_Lables_Wooden_Text.uasset",
     [string]$EngineVersion = "UE5_6",
+    [switch]$SkipServerDeploy,
     [switch]$SkipDeploy
 )
 
@@ -67,9 +75,172 @@ function Invoke-Retoc {
     }
 }
 
+function Invoke-Repak {
+    param([Parameter(Mandatory = $true)][string[]]$Args)
+    & repak @Args
+    if ($LASTEXITCODE -ne 0) {
+        throw "repak failed (exit $LASTEXITCODE): repak $($Args -join ' ')"
+    }
+}
+
+function Resolve-SbmPakPath {
+    param(
+        [string]$ExplicitPakPath,
+        [Parameter(Mandatory = $true)][string]$ZipPath,
+        [Parameter(Mandatory = $true)][string]$WorkingRoot
+    )
+
+    if (-not [string]::IsNullOrWhiteSpace($ExplicitPakPath)) {
+        if (-not (Test-Path -LiteralPath $ExplicitPakPath)) {
+            throw "SBM pak not found: $ExplicitPakPath"
+        }
+        return $ExplicitPakPath
+    }
+
+    if (-not (Test-Path -LiteralPath $ZipPath)) {
+        throw "SBM reference zip not found: $ZipPath"
+    }
+
+    $zipExtractRoot = Join-Path $WorkingRoot "_reference_sbm_zip"
+    if (Test-Path -LiteralPath $zipExtractRoot) {
+        Remove-Item -LiteralPath $zipExtractRoot -Recurse -Force
+    }
+    Ensure-Directory -Path $zipExtractRoot
+    Expand-Archive -LiteralPath $ZipPath -DestinationPath $zipExtractRoot -Force
+
+    $pakPath = Join-Path $zipExtractRoot "SBM_ContainersChest_P\SBM_ContainersChest_P.pak"
+    if (-not (Test-Path -LiteralPath $pakPath)) {
+        throw "SBM pak not found after extracting zip: $pakPath"
+    }
+    return $pakPath
+}
+
+function Add-BuildMenuCategoryJson {
+    param(
+        [Parameter(Mandatory = $true)][string]$SourcePakPath,
+        [Parameter(Mandatory = $true)][string]$OutputContentRoot,
+        [Parameter(Mandatory = $true)][string]$WorkingRoot,
+        [Parameter(Mandatory = $true)][string]$Mode
+    )
+
+    $categoryExtractRoot = Join-Path $WorkingRoot "_category_json"
+    if (Test-Path -LiteralPath $categoryExtractRoot) {
+        Remove-Item -LiteralPath $categoryExtractRoot -Recurse -Force
+    }
+    Ensure-Directory -Path $categoryExtractRoot
+
+    Invoke-Repak -Args @(
+        "unpack", "-q", "-f",
+        "-o", $categoryExtractRoot,
+        "-i", "R5/Content/UI/HUD/Building/DA_BuildingUICategories.json",
+        $SourcePakPath
+    )
+
+    $sourceCategoryJsonPath = Join-Path $categoryExtractRoot "R5\Content\UI\HUD\Building\DA_BuildingUICategories.json"
+    if (-not (Test-Path -LiteralPath $sourceCategoryJsonPath)) {
+        throw "Could not extract DA_BuildingUICategories.json from $SourcePakPath"
+    }
+
+    $categoryJson = Get-Content -LiteralPath $sourceCategoryJsonPath -Raw | ConvertFrom-Json
+    $utilitiesCategory = ($categoryJson.CategoriesMap.PSObject.Properties | Where-Object { $_.Name -eq '{"TagName": "UI.Building.Utilities"}' } | Select-Object -First 1).Value
+    if ($null -eq $utilitiesCategory) {
+        throw "Could not find UI.Building.Utilities category in DA_BuildingUICategories.json"
+    }
+
+    $storageGroup = ($utilitiesCategory.Groups.PSObject.Properties | Where-Object { $_.Name -eq '{"TagName": "ComfortType.Utilities.Storage"}' } | Select-Object -First 1).Value
+    if ($null -ne $storageGroup) {
+        $storageGroup.Items = @($storageGroup.Items | Where-Object {
+            $_ -notmatch "DA_BI_Utilities_Storage_WoodenChest_(Alchemy|Clothing|Food|FoodIngridients|Ore|Ship|Trade|Treasure|Weapons|Wood)"
+        })
+    }
+
+    if ($Mode -eq "WoodenLabels") {
+        $woodLabelsGroup = ($utilitiesCategory.Groups.PSObject.Properties | Where-Object { $_.Name -eq '{"TagName": "UI.Building.Lables.Wood"}' } | Select-Object -First 1).Value
+        if ($null -eq $woodLabelsGroup) {
+            throw "Could not find UI.Building.Lables.Wood group in DA_BuildingUICategories.json"
+        }
+
+        $labelEntry = "/Game/Gameplay/Building/BuildingUtilities/DA_BI_Utilities_Lables_Wooden_Text.DA_BI_Utilities_Lables_Wooden_Text"
+        $woodLabelsGroup.Items = @($woodLabelsGroup.Items | Where-Object { $_ -ne $labelEntry })
+        $woodLabelsGroup.Items += $labelEntry
+    } elseif ($Mode -eq "StorageProbe") {
+        if ($null -eq $storageGroup) {
+            throw "Could not find ComfortType.Utilities.Storage group in DA_BuildingUICategories.json"
+        }
+        $storageEntry = "/Game/Gameplay/Building/BuildingUtilities/DA_BI_Utilities_Storage_WoodenChest_11.DA_BI_Utilities_Storage_WoodenChest_11"
+        $storageGroup.Items = @($storageGroup.Items | Where-Object { $_ -ne $storageEntry })
+        $storageGroup.Items += $storageEntry
+    }
+
+    $targetCategoryJsonPath = Join-Path $OutputContentRoot "UI\HUD\Building\DA_BuildingUICategories.json"
+    Ensure-Directory -Path (Split-Path -Parent $targetCategoryJsonPath)
+    $categoryJson | ConvertTo-Json -Depth 32 | Set-Content -LiteralPath $targetCategoryJsonPath -Encoding ASCII
+    return $targetCategoryJsonPath
+}
+
+function Deploy-PackageToMods {
+    param(
+        [Parameter(Mandatory = $true)][string]$TargetModsDir,
+        [Parameter(Mandatory = $true)][string]$SubfolderName,
+        [Parameter(Mandatory = $true)][string]$PackageName,
+        [Parameter(Mandatory = $true)][string]$SourceRoot
+    )
+
+    Assert-ExpectedModsPath -Path $TargetModsDir
+    Ensure-Directory -Path $TargetModsDir
+    $targetDir = Join-Path $TargetModsDir $SubfolderName
+    Ensure-Directory -Path $targetDir
+
+    foreach ($ext in @("utoc", "ucas", "pak")) {
+        $rootLevelStale = Join-Path $TargetModsDir ($PackageName + "." + $ext)
+        if (Test-Path -LiteralPath $rootLevelStale) {
+            Write-Step "Removing legacy root-level file: $rootLevelStale"
+            Remove-Item -LiteralPath $rootLevelStale -Force
+        }
+
+        $target = Join-Path $targetDir ($PackageName + "." + $ext)
+        if (Test-Path -LiteralPath $target) {
+            Write-Step "Removing existing file: $target"
+            Remove-Item -LiteralPath $target -Force
+        }
+
+        $source = Join-Path $SourceRoot ($PackageName + "." + $ext)
+        Copy-Item -LiteralPath $source -Destination $target -Force
+        if (-not (Test-Path -LiteralPath $target)) {
+            throw "Deploy verification failed (missing target): $target"
+        }
+    }
+
+    Write-Host "Deployed files:"
+    foreach ($ext in @("utoc", "ucas", "pak")) {
+        Write-Host ("  " + (Join-Path $targetDir ($PackageName + "." + $ext)))
+    }
+}
+
 Write-Step "Starting build/verify/deploy for SBM-template Wooden Label"
 $retocPath = Ensure-Command -Name "retoc"
 Write-Step "Using retoc: $retocPath"
+$repakPath = Ensure-Command -Name "repak"
+Write-Step "Using repak: $repakPath"
+
+$effectiveExpectedToken = $ExpectedAssetToken
+$effectiveSourceAssetRelativePath = $SourceAssetRelativePath
+if ($PrepareMode -eq "StorageProbe") {
+    if ($effectiveExpectedToken -eq "DA_BI_Utilities_Lables_Wooden_Text") {
+        $effectiveExpectedToken = "DA_BI_Utilities_Storage_WoodenChest_11"
+    }
+    if ($effectiveSourceAssetRelativePath -eq "Gameplay\Building\BuildingUtilities\DA_BI_Utilities_Lables_Wooden_Text.uasset") {
+        $effectiveSourceAssetRelativePath = "Gameplay\Building\BuildingUtilities\DA_BI_Utilities_Storage_WoodenChest_11.uasset"
+    }
+}
+if ($PrepareMode -eq "StorageOverrideProbe") {
+    if ($effectiveExpectedToken -eq "DA_BI_Utilities_Lables_Wooden_Text") {
+        $effectiveExpectedToken = "DA_BI_Utilities_Storage_WoodenChest_01"
+    }
+    if ($effectiveSourceAssetRelativePath -eq "Gameplay\Building\BuildingUtilities\DA_BI_Utilities_Lables_Wooden_Text.uasset") {
+        $effectiveSourceAssetRelativePath = "Gameplay\Building\BuildingUtilities\DA_BI_Utilities_Storage_WoodenChest_01.uasset"
+    }
+}
 
 if ($AutoPrepare) {
     $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -78,7 +249,10 @@ if ($AutoPrepare) {
         throw "AutoPrepare enabled but script is missing: $prepareScript"
     }
     Write-Step "AutoPrepare enabled: regenerating template asset payload"
-    & $prepareScript -SourceLegacyRoot $SourceLegacyRoot -OutputRoot $InputRoot
+    & $prepareScript -SourceLegacyRoot $SourceLegacyRoot -OutputRoot $InputRoot -PrepareMode $PrepareMode -LabelIconMode $LabelIconMode
+    if (-not $?) {
+        throw "prepare_label_text_sbm_template.ps1 reported failure."
+    }
 }
 
 if (-not (Test-Path -LiteralPath $InputRoot)) {
@@ -92,7 +266,12 @@ if (Test-Path -LiteralPath $contentRootCandidate) {
     $packSourceRoot = $contentRootCandidate
 }
 
-$sourceAssetPath = Join-Path $packSourceRoot $SourceAssetRelativePath
+$sbmPakForCategoryJson = Resolve-SbmPakPath -ExplicitPakPath $SbmPakPath -ZipPath $SbmZipPath -WorkingRoot $InputRoot
+Write-Step "Adding build-menu category JSON"
+$categoryJsonPath = Add-BuildMenuCategoryJson -SourcePakPath $sbmPakForCategoryJson -OutputContentRoot $packSourceRoot -WorkingRoot $InputRoot -Mode $PrepareMode
+Write-Step "Category JSON staged: $categoryJsonPath"
+
+$sourceAssetPath = Join-Path $packSourceRoot $effectiveSourceAssetRelativePath
 if (-not (Test-Path -LiteralPath $sourceAssetPath)) {
     throw "Expected source asset missing: $sourceAssetPath"
 }
@@ -116,6 +295,12 @@ foreach ($stale in @($outUtoc, $outUcas, $outPak)) {
 }
 Invoke-Retoc -Args @("to-zen", "--version", $EngineVersion, $packSourceRoot, $outUtoc)
 
+Write-Step "Replacing retoc pak with SBM-style pak that includes category JSON"
+if (Test-Path -LiteralPath $outPak) {
+    Remove-Item -LiteralPath $outPak -Force
+}
+Invoke-Repak -Args @("pack", "-q", "--version", "V3", "--compression", "Zlib", "-m", "../../../R5/Content/", $packSourceRoot, $outPak)
+
 foreach ($f in @($outUtoc, $outUcas, $outPak)) {
     if (-not (Test-Path -LiteralPath $f)) {
         throw "Build output missing: $f"
@@ -133,10 +318,32 @@ if ($LASTEXITCODE -ne 0) {
     throw "retoc list failed (exit $LASTEXITCODE) for '$outUtoc'"
 }
 $joined = ($listOutput | Out-String)
-if (-not ($joined -match [Regex]::Escape($ExpectedAssetToken))) {
-    throw "Verification failed: token '$ExpectedAssetToken' not found in container listing."
+if (-not ($joined -match [Regex]::Escape($effectiveExpectedToken))) {
+    throw "Verification failed: token '$effectiveExpectedToken' not found in container listing."
 }
-Write-Step "Verification passed: found token '$ExpectedAssetToken'"
+Write-Step "Verification passed: found token '$effectiveExpectedToken'"
+
+Write-Step "Verifying pak-side category registry"
+$pakListOutput = & repak list $outPak 2>&1
+if ($LASTEXITCODE -ne 0) {
+    throw "repak list failed (exit $LASTEXITCODE) for '$outPak'"
+}
+$pakListText = $pakListOutput | Out-String
+if (-not ($pakListText -match [Regex]::Escape("R5/Content/UI/HUD/Building/DA_BuildingUICategories.json"))) {
+    throw "Pak verification failed: category JSON missing from pak."
+}
+if (-not ($pakListText -match [Regex]::Escape($effectiveExpectedToken))) {
+    throw "Pak verification failed: asset token '$effectiveExpectedToken' missing from pak."
+}
+
+$categoryText = (& repak get $outPak "R5/Content/UI/HUD/Building/DA_BuildingUICategories.json" | Out-String)
+if ($PrepareMode -eq "WoodenLabels" -and -not $categoryText.Contains("DA_BI_Utilities_Lables_Wooden_Text")) {
+    throw "Category JSON verification failed: Label Text entry missing."
+}
+if ($categoryText.Contains("DA_BI_Utilities_Storage_WoodenChest_Ship")) {
+    throw "Category JSON verification failed: SBM Ship chest probe entry still present."
+}
+Write-Step "Pak category verification passed"
 
 if ($SkipDeploy) {
     Write-Step "SkipDeploy enabled; stopping before deployment."
@@ -147,49 +354,12 @@ if ($SkipDeploy) {
     exit 0
 }
 
-Write-Step "Step 3/3: Clean deploy to ~mods"
-Assert-ExpectedModsPath -Path $ModsDir
-Ensure-Directory -Path $ModsDir
-Ensure-Directory -Path $modTargetDir
+Write-Step "Step 3/3: Clean deploy to client ~mods"
+Deploy-PackageToMods -TargetModsDir $ModsDir -SubfolderName $deploySubfolderName -PackageName $PackageBaseName -SourceRoot $InputRoot
 
-$legacyRootTargets = @(
-    (Join-Path $ModsDir ($PackageBaseName + ".utoc")),
-    (Join-Path $ModsDir ($PackageBaseName + ".ucas")),
-    (Join-Path $ModsDir ($PackageBaseName + ".pak"))
-)
-
-foreach ($legacy in $legacyRootTargets) {
-    if (Test-Path -LiteralPath $legacy) {
-        Write-Step "Removing legacy root-level file: $legacy"
-        Remove-Item -LiteralPath $legacy -Force
-    }
-}
-
-$removeTargets = @(
-    $modUtoc,
-    $modUcas,
-    $modPak
-)
-
-foreach ($target in $removeTargets) {
-    if (Test-Path -LiteralPath $target) {
-        Write-Step "Removing existing file: $target"
-        Remove-Item -LiteralPath $target -Force
-    }
-}
-
-Copy-Item -LiteralPath $outUtoc -Destination $modUtoc -Force
-Copy-Item -LiteralPath $outUcas -Destination $modUcas -Force
-Copy-Item -LiteralPath $outPak -Destination $modPak -Force
-
-foreach ($target in $removeTargets) {
-    if (-not (Test-Path -LiteralPath $target)) {
-        throw "Deploy verification failed (missing target): $target"
-    }
+if (-not $SkipServerDeploy) {
+    Write-Step "Deploying same package to server ~mods"
+    Deploy-PackageToMods -TargetModsDir $ServerModsDir -SubfolderName $deploySubfolderName -PackageName $PackageBaseName -SourceRoot $InputRoot
 }
 
 Write-Step "Deploy complete."
-Write-Host "Deployed files:"
-Write-Host ("  " + $modUtoc)
-Write-Host ("  " + $modUcas)
-Write-Host ("  " + $modPak)
