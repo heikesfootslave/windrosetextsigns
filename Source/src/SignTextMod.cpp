@@ -1399,6 +1399,7 @@ namespace
 
 namespace WindroseTextSigns
 {
+    auto invoke_get_text_value(UObject* context, std::string& out_text) -> bool;
     auto read_text_property_value_no_process_event(UObject* context, std::string& out_text) -> bool;
 
     SignTextMod::SignTextMod()
@@ -2070,6 +2071,7 @@ namespace WindroseTextSigns
         bool bridge_text_get = false;
         bool bridge_text_set = false;
         bool bridge_text_focus = false;
+        UObject* bridge_text_widget = nullptr;
         for_each_property_in_chain_compat(widget->GetClassPrivate(), [&](FProperty* prop) {
             if (!prop || prop->GetClass().HashObject() != FObjectProperty::StaticClass().HashObject())
             {
@@ -2086,6 +2088,7 @@ namespace WindroseTextSigns
             if (prop_name.find("markername") != std::string::npos || class_name.find("editabletext") != std::string::npos)
             {
                 bridge_has_text = true;
+                bridge_text_widget = *value_ptr;
                 bridge_text_get = ((*value_ptr)->GetClassPrivate()->GetFunctionByNameInChain(STR("GetText")) != nullptr);
                 bridge_text_set = ((*value_ptr)->GetClassPrivate()->GetFunctionByNameInChain(STR("SetText")) != nullptr);
                 bridge_text_focus =
@@ -2102,11 +2105,24 @@ namespace WindroseTextSigns
             }
         });
 
+        bool bridge_text_read_ok = false;
+        std::string bridge_text_preview{};
+        if (bridge_text_widget)
+        {
+            bridge_text_read_ok = invoke_get_text_value(bridge_text_widget, bridge_text_preview);
+            if (!bridge_text_read_ok)
+            {
+                bridge_text_read_ok = read_text_property_value_no_process_event(bridge_text_widget, bridge_text_preview);
+            }
+        }
+
         log_line("[phase7-mapui] bridge_probe popup=" + lower_ascii(narrow_ascii(widget->GetFullName())) +
                  " text=" + std::string{bridge_has_text ? "1" : "0"} +
                  " getText=" + std::string{bridge_text_get ? "1" : "0"} +
                  " setText=" + std::string{bridge_text_set ? "1" : "0"} +
                  " textFocus=" + std::string{bridge_text_focus ? "1" : "0"} +
+                 " readText=" + std::string{bridge_text_read_ok ? "1" : "0"} +
+                 " readTextLen=" + std::to_string(bridge_text_preview.size()) +
                  " confirm=" + std::string{bridge_has_confirm ? "1" : "0"} +
                  " cancel=" + std::string{bridge_has_cancel ? "1" : "0"});
 
@@ -2955,85 +2971,21 @@ namespace WindroseTextSigns
             const auto stable_id = extract_stable_id(actor);
             const auto actor_loc = actor->K2_GetActorLocation();
 
-            std::vector<FVector> anchor_points{};
-            anchor_points.reserve(24);
-            anchor_points.push_back(actor_loc);
-            auto components = actor->GetComponentsByClass(UActorComponent::StaticClass());
-            for (int32_t i = 0; i < components.Num(); ++i)
-            {
-                auto* component = components[i];
-                if (!component || !component->GetClassPrivate())
-                {
-                    continue;
-                }
-                const auto component_class = lower_ascii(narrow_ascii(component->GetClassPrivate()->GetFullName()));
-                if (component_class.find("scenecomponent") == std::string::npos &&
-                    component_class.find("meshcomponent") == std::string::npos)
-                {
-                    continue;
-                }
-
-                FVector component_loc{};
-                if (!invoke_vector_return_no_param(
-                        component,
-                        STR("K2_GetComponentLocation"),
-                        STR("/Script/Engine.SceneComponent:K2_GetComponentLocation"),
-                        component_loc))
-                {
-                    if (!invoke_vector_return_no_param(
-                            component,
-                            STR("GetComponentLocation"),
-                            STR("/Script/Engine.SceneComponent:GetComponentLocation"),
-                            component_loc))
-                    {
-                        continue;
-                    }
-                }
-                anchor_points.push_back(component_loc);
-                if (anchor_points.size() >= 24)
-                {
-                    break;
-                }
-            }
-
-            double dist = 0.0;
-            double dot = -1.0;
-            double perp = 999999.0;
-            double anchor_score = -999999999.0;
-            for (const auto& anchor : anchor_points)
-            {
-                const auto to_anchor = vec_sub(anchor, view.location);
-                const auto anchor_dist = vec_len(to_anchor);
-                if (anchor_dist <= 1.0 || anchor_dist > 8000.0)
-                {
-                    continue;
-                }
-                const auto dir = vec_normalize(to_anchor);
-                const auto anchor_dot = vec_dot(forward, dir);
-                const double forward_dist = anchor_dot * anchor_dist;
-                double perp_sq = (anchor_dist * anchor_dist) - (forward_dist * forward_dist);
-                if (perp_sq < 0.0)
-                {
-                    perp_sq = 0.0;
-                }
-                const double anchor_perp = std::sqrt(perp_sq);
-                const double point_score =
-                    (anchor_dot * 1000000.0) -
-                    (anchor_perp * 1800.0) -
-                    (anchor_dist * 1.5);
-                if (point_score > anchor_score)
-                {
-                    anchor_score = point_score;
-                    dist = anchor_dist;
-                    dot = anchor_dot;
-                    perp = anchor_perp;
-                }
-            }
-
-            if (anchor_score <= -999999998.0)
+            const auto to_actor = vec_sub(actor_loc, view.location);
+            const auto dist = vec_len(to_actor);
+            if (dist <= 1.0 || dist > 8000.0)
             {
                 return LoopAction::Continue;
             }
+            const auto dir = vec_normalize(to_actor);
+            const auto dot = vec_dot(forward, dir);
+            const double forward_dist = dot * dist;
+            double perp_sq = (dist * dist) - (forward_dist * forward_dist);
+            if (perp_sq < 0.0)
+            {
+                perp_sq = 0.0;
+            }
+            const double perp = std::sqrt(perp_sq);
 
             // Dynamic lateral tolerance:
             // allow slightly wider off-center picks at longer distances but avoid
@@ -3058,8 +3010,10 @@ namespace WindroseTextSigns
             // Single robust score:
             // prioritize crosshair alignment first, then lateral error, then distance.
             const double score =
-                (strict_match ? 250000.0 : 0.0) +
-                anchor_score +
+                (strict_match ? 500000.0 : 0.0) +
+                (dot * 1000000.0) -
+                (perp * 1500.0) -
+                (dist * 1.5) +
                 ((m_selected.has_value() && m_selected->stable_id == stable_id) ? 3000.0 : 0.0);
             if (!best.actor || score > best.score)
             {
@@ -3071,7 +3025,7 @@ namespace WindroseTextSigns
                 best.asset = detect_label_asset(actor);
                 best_dot = dot;
                 best_perp = perp;
-                best_anchor_sample_count = anchor_points.size();
+                best_anchor_sample_count = 1;
             }
 
             return LoopAction::Continue;
