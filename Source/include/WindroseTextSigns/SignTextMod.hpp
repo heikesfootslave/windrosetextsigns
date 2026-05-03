@@ -85,7 +85,6 @@ namespace WindroseTextSigns
         auto tick_file_triggers() -> void;
         auto run_six_sign_targeting_test() -> void;
         auto run_buildmenu_asset_probe() -> void;
-        auto try_apply_runtime_buildmenu_text_label_patch() -> void;
         auto ensure_selected_label_for_action(const std::string& action_name) -> bool;
         auto is_actor_pointer_live(RC::Unreal::AActor* actor) const -> bool;
         auto ensure_selected_actor_valid(const std::string& reason) -> bool;

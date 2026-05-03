@@ -48,6 +48,75 @@ function Replace-AsciiTokenInBytes {
     return $count
 }
 
+function Replace-LengthPrefixedAnsiTokenInBytes {
+    param(
+        [byte[]]$Bytes,
+        [string]$OldToken,
+        [string]$NewToken
+    )
+
+    $old = [Text.Encoding]::ASCII.GetBytes($OldToken)
+    $new = [Text.Encoding]::ASCII.GetBytes($NewToken)
+    $oldLenField = $old.Length + 1
+    $newLenField = $new.Length + 1
+
+    $count = 0
+    for ($i = 4; $i -le $Bytes.Length - $old.Length - 1; $i++) {
+        $match = $true
+        for ($j = 0; $j -lt $old.Length; $j++) {
+            if ($Bytes[$i + $j] -ne $old[$j]) {
+                $match = $false
+                break
+            }
+        }
+        if (-not $match) { continue }
+
+        if ($Bytes[$i + $old.Length] -ne 0) { continue }
+
+        $lenBytes = [BitConverter]::GetBytes([int]$oldLenField)
+        $isLenMatch = $true
+        for ($j = 0; $j -lt 4; $j++) {
+            if ($Bytes[($i - 4) + $j] -ne $lenBytes[$j]) {
+                $isLenMatch = $false
+                break
+            }
+        }
+        if (-not $isLenMatch) { continue }
+
+        if ($new.Length -gt $old.Length) {
+            $extra = $new.Length - $old.Length
+            $hasPadding = $true
+            for ($k = 1; $k -le $extra; $k++) {
+                $padIndex = $i + $old.Length + $k
+                if ($padIndex -ge $Bytes.Length -or $Bytes[$padIndex] -ne 0) {
+                    $hasPadding = $false
+                    break
+                }
+            }
+            if (-not $hasPadding) { continue }
+        }
+
+        $newLenBytes = [BitConverter]::GetBytes([int]$newLenField)
+        for ($j = 0; $j -lt 4; $j++) {
+            $Bytes[($i - 4) + $j] = $newLenBytes[$j]
+        }
+        for ($j = 0; $j -lt $new.Length; $j++) {
+            $Bytes[$i + $j] = $new[$j]
+        }
+        $Bytes[$i + $new.Length] = 0
+
+        if ($new.Length -lt $old.Length) {
+            for ($j = $i + $new.Length + 1; $j -le $i + $old.Length; $j++) {
+                $Bytes[$j] = 0
+            }
+        }
+
+        $count++
+        $i += $new.Length
+    }
+    return $count
+}
+
 $sourceDir = Join-Path $SourceLegacyRoot "R5\Content\Gameplay\Building\BuildingUtilities"
 $targetDir = Join-Path $OutputRoot "R5\Content\Gameplay\Building\BuildingUtilities"
 New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
@@ -76,8 +145,6 @@ $fullIconShip = "/Game/UI/HUD/Building/Icons/BuildingBits/T_PlaqueT02_Ship"
 $fullIconNone = "/Game/UI/HUD/Building/Icons/BuildingBits/T_PlaqueT02_None"
 Ensure-SameLength -A $fullIconShip -B $fullIconNone -Context "Icon path patch"
 
-Ensure-SameLength -A $LabelKeyFrom -B $LabelKeyTo -Context "Label key patch"
-
 $tokenReplacements = @(
     @{ Old = "DA_BI_Utilities_Lables_Wooden_Ship"; New = "DA_BI_Utilities_Lables_Wooden_Text" },
     @{ Old = $fullPathShip; New = $fullPathText },
@@ -86,7 +153,9 @@ $tokenReplacements = @(
 )
 
 if ($LabelKeyFrom -ne $LabelKeyTo) {
-    $tokenReplacements += @{ Old = $LabelKeyFrom; New = $LabelKeyTo }
+    if ($LabelKeyFrom.Length -eq $LabelKeyTo.Length) {
+        $tokenReplacements += @{ Old = $LabelKeyFrom; New = $LabelKeyTo }
+    }
 }
 
 $report = [System.Collections.Generic.List[string]]::new()
@@ -105,6 +174,16 @@ foreach ($targetFile in @($targetUasset, $targetUexp)) {
         $report.Add(("  {0} -> {1} : {2}" -f $pair.Old, $pair.New, $changes))
     }
     [IO.File]::WriteAllBytes($targetFile, $bytes)
+}
+
+if ($LabelKeyFrom -ne $LabelKeyTo -and $LabelKeyFrom.Length -ne $LabelKeyTo.Length) {
+    $uexpBytes = [IO.File]::ReadAllBytes($targetUexp)
+    $patched = Replace-LengthPrefixedAnsiTokenInBytes -Bytes $uexpBytes -OldToken $LabelKeyFrom -NewToken $LabelKeyTo
+    [IO.File]::WriteAllBytes($targetUexp, $uexpBytes)
+    $report.Add("Length-prefixed label-key patch in .uexp: $LabelKeyFrom -> $LabelKeyTo : $patched")
+    if ($patched -eq 0) {
+        $report.Add("WARN: Length-prefixed label-key patch did not find a writable occurrence.")
+    }
 }
 
 # Verification pass: ensure ship-name token is gone from target pair.

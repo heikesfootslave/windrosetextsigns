@@ -1,7 +1,10 @@
 param(
-    [string]$InputRoot = "C:\Users\User\Documents\Windrose Addons\Output\WoodenLabel_Text_SBMTemplate",
-    [string]$PackageBaseName = "WoodenLabel_Text_SBMTemplate",
+    [string]$InputRoot = "C:\Users\User\Documents\Windrose Addons\WindroseTextSigns\build_logs\WoodenLabel_Text_SBMTemplate_stage",
+    [bool]$AutoPrepare = $true,
+    [string]$SourceLegacyRoot = "C:\Users\User\Documents\Windrose Addons\Output\WoodenLabel_Legacy",
+    [string]$PackageBaseName = "WoodenLabel_Text_SBMTemplate_P",
     [string]$ModsDir = "C:\SteamLibrary\steamapps\common\Windrose\R5\Content\Paks\~mods",
+    [string]$DeploySubfolderName = "",
     [string]$ExpectedAssetToken = "DA_BI_Utilities_Lables_Wooden_Text",
     [string]$SourceAssetRelativePath = "Gameplay\Building\BuildingUtilities\DA_BI_Utilities_Lables_Wooden_Text.uasset",
     [string]$EngineVersion = "UE5_6",
@@ -41,6 +44,21 @@ function Ensure-Directory {
     }
 }
 
+function Resolve-DeploySubfolderName {
+    param(
+        [string]$RawName,
+        [Parameter(Mandatory = $true)][string]$DefaultName
+    )
+    if ([string]::IsNullOrWhiteSpace($RawName)) {
+        return $DefaultName
+    }
+    $trimmed = $RawName.Trim()
+    if ($trimmed.IndexOfAny([IO.Path]::GetInvalidFileNameChars()) -ge 0) {
+        throw "DeploySubfolderName contains invalid path chars: '$trimmed'"
+    }
+    return $trimmed
+}
+
 function Invoke-Retoc {
     param([Parameter(Mandatory = $true)][string[]]$Args)
     & retoc @Args
@@ -53,8 +71,18 @@ Write-Step "Starting build/verify/deploy for SBM-template Wooden Label"
 $retocPath = Ensure-Command -Name "retoc"
 Write-Step "Using retoc: $retocPath"
 
+if ($AutoPrepare) {
+    $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+    $prepareScript = Join-Path $scriptDir "prepare_label_text_sbm_template.ps1"
+    if (-not (Test-Path -LiteralPath $prepareScript)) {
+        throw "AutoPrepare enabled but script is missing: $prepareScript"
+    }
+    Write-Step "AutoPrepare enabled: regenerating template asset payload"
+    & $prepareScript -SourceLegacyRoot $SourceLegacyRoot -OutputRoot $InputRoot
+}
+
 if (-not (Test-Path -LiteralPath $InputRoot)) {
-    throw "InputRoot does not exist: $InputRoot"
+    throw "InputRoot does not exist after preparation: $InputRoot"
 }
 
 $contentRootCandidate = Join-Path $InputRoot "R5\Content"
@@ -72,12 +100,20 @@ if (-not (Test-Path -LiteralPath $sourceAssetPath)) {
 $outUtoc = Join-Path $InputRoot ($PackageBaseName + ".utoc")
 $outUcas = Join-Path $InputRoot ($PackageBaseName + ".ucas")
 $outPak = Join-Path $InputRoot ($PackageBaseName + ".pak")
-$modUtoc = Join-Path $ModsDir ($PackageBaseName + ".utoc")
-$modUcas = Join-Path $ModsDir ($PackageBaseName + ".ucas")
-$modPak = Join-Path $ModsDir ($PackageBaseName + ".pak")
+$deploySubfolderName = Resolve-DeploySubfolderName -RawName $DeploySubfolderName -DefaultName $PackageBaseName
+$modTargetDir = Join-Path $ModsDir $deploySubfolderName
+$modUtoc = Join-Path $modTargetDir ($PackageBaseName + ".utoc")
+$modUcas = Join-Path $modTargetDir ($PackageBaseName + ".ucas")
+$modPak = Join-Path $modTargetDir ($PackageBaseName + ".pak")
 
 Write-Step "Step 1/3: Building zen container"
 Write-Step "Packing source root: $packSourceRoot"
+foreach ($stale in @($outUtoc, $outUcas, $outPak)) {
+    if (Test-Path -LiteralPath $stale) {
+        Write-Step "Removing stale build output: $stale"
+        Remove-Item -LiteralPath $stale -Force
+    }
+}
 Invoke-Retoc -Args @("to-zen", "--version", $EngineVersion, $packSourceRoot, $outUtoc)
 
 foreach ($f in @($outUtoc, $outUcas, $outPak)) {
@@ -114,6 +150,20 @@ if ($SkipDeploy) {
 Write-Step "Step 3/3: Clean deploy to ~mods"
 Assert-ExpectedModsPath -Path $ModsDir
 Ensure-Directory -Path $ModsDir
+Ensure-Directory -Path $modTargetDir
+
+$legacyRootTargets = @(
+    (Join-Path $ModsDir ($PackageBaseName + ".utoc")),
+    (Join-Path $ModsDir ($PackageBaseName + ".ucas")),
+    (Join-Path $ModsDir ($PackageBaseName + ".pak"))
+)
+
+foreach ($legacy in $legacyRootTargets) {
+    if (Test-Path -LiteralPath $legacy) {
+        Write-Step "Removing legacy root-level file: $legacy"
+        Remove-Item -LiteralPath $legacy -Force
+    }
+}
 
 $removeTargets = @(
     $modUtoc,

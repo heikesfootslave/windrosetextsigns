@@ -22,7 +22,7 @@ if (-not (Test-Path -LiteralPath $cloneScript)) {
     -SourceAssetName "DA_BI_Utilities_Lables_Wooden_Ship_NoIcon" `
     -TargetAssetName "DA_BI_Utilities_Lables_Wooden_Text" `
     -LabelKeyFrom "Building_Lable_8" `
-    -LabelKeyTo "Building_Lable_8"
+    -LabelKeyTo "Building_Lable_11"
 
 $targetUasset = Join-Path $OutputRoot "R5\Content\Gameplay\Building\BuildingUtilities\DA_BI_Utilities_Lables_Wooden_Text.uasset"
 $targetUexp = Join-Path $OutputRoot "R5\Content\Gameplay\Building\BuildingUtilities\DA_BI_Utilities_Lables_Wooden_Text.uexp"
@@ -41,7 +41,7 @@ $checks = [ordered]@{
     has_new_asset_path = $uassetText.Contains("/Game/Gameplay/Building/BuildingUtilities/DA_BI_Utilities_Lables_Wooden_Text")
     keeps_shared_recipe = $uassetText.Contains("DA_RD_BuildObject_Utilities_Labels_Wooden_T01")
     keeps_noicon_token = $uassetText.Contains("T_PlaqueT02_None")
-    keeps_label_key_8 = $uexpText.Contains("Building_Lable_8")
+    has_unique_label_key_11 = $uexpText.Contains("Building_Lable_11")
     no_ship_asset_name_remaining = -not $uassetText.Contains("DA_BI_Utilities_Lables_Wooden_Ship")
 }
 
