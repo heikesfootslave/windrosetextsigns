@@ -127,6 +127,21 @@ No native Windrose label interaction was added in this prototype.
   - candidate construct/build functions for runtime injection hooks.
 - Logs are emitted with prefix `[buildmenu-probe]` in `WindroseTextSigns.log`.
 
+## Local-Only Probe Analysis
+
+- Use the local parser to summarize Phase 8 build-menu probe output without building or deploying:
+
+```powershell
+& "C:\Users\User\Documents\Windrose Addons\WindroseTextSigns\tools\analyze_buildmenu_probe.ps1"
+```
+
+- Optional JSON output for offline review:
+
+```powershell
+& "C:\Users\User\Documents\Windrose Addons\WindroseTextSigns\tools\analyze_buildmenu_probe.ps1" `
+  -OutJson "C:\Users\User\Documents\Windrose Addons\WindroseTextSigns\build_logs\buildmenu_probe_summary.json"
+```
+
 ## Important Facts / Assumptions
 
 - The internal spelling `Lables` is treated as canonical in asset matching.
