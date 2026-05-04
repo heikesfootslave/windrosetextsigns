@@ -75,6 +75,65 @@ namespace
         bool authoritative{false};
     };
 
+    auto bridge_role_name(const WindroseTextSigns::BridgeRole role) -> std::string
+    {
+        switch (role)
+        {
+        case WindroseTextSigns::BridgeRole::DedicatedServer: return "DedicatedServer";
+        case WindroseTextSigns::BridgeRole::ListenHost: return "ListenHost";
+        case WindroseTextSigns::BridgeRole::RemoteClient: return "RemoteClient";
+        default: return "Unknown";
+        }
+    }
+
+    auto bridge_message_field(const std::string& payload, const std::string& name) -> std::optional<std::string>
+    {
+        const std::regex rx{"\\\"" + name + "\\\"\\s*:\\s*\\\"((?:\\\\.|[^\\\"\\\\])*)\\\""};
+        std::smatch match{};
+        if (std::regex_search(payload, match, rx) && match.size() > 1)
+        {
+            return match[1].str();
+        }
+        return std::nullopt;
+    }
+
+    auto bridge_message_number(const std::string& payload, const std::string& name) -> std::optional<std::string>
+    {
+        const std::regex rx{"\\\"" + name + "\\\"\\s*:\\s*(-?[0-9]+(?:\\.[0-9]+)?)"};
+        std::smatch match{};
+        if (std::regex_search(payload, match, rx) && match.size() > 1)
+        {
+            return match[1].str();
+        }
+        return std::nullopt;
+    }
+
+    auto parse_bridge_message(const std::string& payload) -> std::unordered_map<std::string, std::string>
+    {
+        std::unordered_map<std::string, std::string> fields{};
+        const std::array<std::string, 12> string_fields = {
+            "mod", "type", "session", "key", "stableId", "worldId",
+            "text", "asset", "lastSeen", "reason", "schema", "writer"};
+        for (const auto& name : string_fields)
+        {
+            if (auto value = bridge_message_field(payload, name); value.has_value())
+            {
+                fields[name] = *value;
+            }
+        }
+        const std::array<std::string, 11> number_fields = {
+            "revision", "surfaceAxis", "surfaceSign", "depthOffset", "alignX",
+            "alignY", "fontSize", "colorR", "colorG", "colorB", "colorA"};
+        for (const auto& name : number_fields)
+        {
+            if (auto value = bridge_message_number(payload, name); value.has_value())
+            {
+                fields[name] = *value;
+            }
+        }
+        return fields;
+    }
+
     auto lower_ascii_path_token(std::string value) -> std::string
     {
         std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
@@ -1924,7 +1983,7 @@ namespace WindroseTextSigns
         }
 
         open_log();
-        log_line(std::string{"[build] version=0.1.2-prototype compiled="} + __DATE__ + " " + __TIME__ + " flags=F8,F9,F10,phase2-role-aware-sidecar,remote-cache-routing,staticconstruct-gated");
+        log_line(std::string{"[build] version=0.1.2-prototype compiled="} + __DATE__ + " " + __TIME__ + " flags=F8,F9,F10,phase2-role-aware-sidecar,remote-cache-routing,staticconstruct-gated,phase6-native-udp-bridge");
         log_line("[role] runtimeRole=" + m_runtime_role +
                  " dataMode=" + m_data_mode +
                  " authorityMode=" + m_authority_mode +
@@ -1935,6 +1994,7 @@ namespace WindroseTextSigns
         log_line("[save] data_root=" + m_data_root.string() +
                  " sidecar=" + m_sidecar_path.string() +
                  " backups=" + m_backup_root.string());
+        configure_bridge_role("startup");
         log_line("[probe] StaticConstructObject post-probe config enabled=" +
                  std::string{m_static_construct_probe_enabled ? "true" : "false"});
 
@@ -3402,6 +3462,7 @@ namespace WindroseTextSigns
             m_prune_deferred_logged = false;
             load_sidecar_json();
         }
+        configure_bridge_role("sidecar_route");
     }
 
     auto SignTextMod::configure_sidecar_for_actor(AActor* actor, const std::string& world_id) -> void
@@ -4761,6 +4822,472 @@ namespace WindroseTextSigns
         log_line("[save] snapshot_write path=" + snapshot_path.string() + " reason=" + reason);
     }
 
+    auto SignTextMod::configure_bridge_role(const std::string& reason) -> void
+    {
+        BridgeRole desired = BridgeRole::Unknown;
+        if (is_dedicated_server_process(std::filesystem::current_path(), m_mod_root))
+        {
+            desired = BridgeRole::DedicatedServer;
+        }
+        else if (m_sidecar_authoritative)
+        {
+            desired = BridgeRole::ListenHost;
+        }
+        else if (lower_ascii(m_runtime_role).find("remote") != std::string::npos)
+        {
+            desired = BridgeRole::RemoteClient;
+        }
+
+        if (desired == m_bridge_role)
+        {
+            return;
+        }
+
+        m_bridge_role = desired;
+        NativeBridge::instance().set_role(desired);
+        m_bridge_snapshot_received = false;
+        m_bridge_next_snapshot_request = std::chrono::steady_clock::now();
+        log_line("[bridge] role_set reason=" + reason +
+                 " role=" + bridge_role_name(m_bridge_role) +
+                 " runtimeRole=" + m_runtime_role +
+                 " authorityMode=" + m_authority_mode +
+                 " sidecarKind=" + m_sidecar_kind +
+                 " authoritative=" + std::string{m_sidecar_authoritative ? "true" : "false"});
+    }
+
+    auto SignTextMod::send_bridge_snapshot_request(const std::string& reason) -> void
+    {
+        if (m_bridge_role != BridgeRole::RemoteClient)
+        {
+            return;
+        }
+        std::ostringstream payload{};
+        payload << "{\"mod\":\"WindroseTextSigns\",\"schema\":\"bridge.v1\",\"type\":\"snapshot_request\""
+                << ",\"session\":\"" << escape_json(m_session_id) << "\""
+                << ",\"worldId\":\"" << escape_json(m_world_folder_id) << "\""
+                << ",\"reason\":\"" << escape_json(reason) << "\""
+                << "}";
+        const bool sent = NativeBridge::instance().send_to_server(payload.str());
+        log_line("[bridge] snapshot_request reason=" + reason +
+                 " sent=" + std::string{sent ? "true" : "false"} +
+                 " role=" + bridge_role_name(m_bridge_role) +
+                 " worldId=" + m_world_folder_id);
+    }
+
+    auto SignTextMod::send_bridge_record_request(const std::string& request_type, const LabelRecord& rec) -> bool
+    {
+        if (m_bridge_role != BridgeRole::RemoteClient)
+        {
+            return false;
+        }
+
+        std::ostringstream axis_value{};
+        axis_value << std::fixed << std::setprecision(2) << std::clamp(rec.surface_axis, 0.0f, 1.0f);
+        std::ostringstream payload{};
+        payload << "{\"mod\":\"WindroseTextSigns\",\"schema\":\"bridge.v1\",\"type\":\"" << escape_json(request_type) << "\""
+                << ",\"session\":\"" << escape_json(m_session_id) << "\""
+                << ",\"stableId\":\"" << escape_json(rec.stable_id) << "\""
+                << ",\"worldId\":\"" << escape_json(rec.world_id) << "\""
+                << ",\"text\":\"" << escape_json(rec.text) << "\""
+                << ",\"asset\":\"" << escape_json(rec.asset) << "\""
+                << ",\"surfaceAxis\":" << axis_value.str()
+                << ",\"surfaceSign\":" << rec.surface_sign
+                << ",\"depthOffset\":" << rec.depth_offset
+                << ",\"alignX\":" << rec.align_x
+                << ",\"alignY\":" << rec.align_y
+                << ",\"fontSize\":" << rec.font_size
+                << ",\"colorR\":" << rec.color_r
+                << ",\"colorG\":" << rec.color_g
+                << ",\"colorB\":" << rec.color_b
+                << ",\"colorA\":" << rec.color_a
+                << ",\"lastSeen\":\"" << escape_json(rec.last_seen_utc) << "\""
+                << "}";
+        const bool sent = NativeBridge::instance().send_to_server(payload.str());
+        log_line("[bridge] client_request type=" + request_type +
+                 " stableId=" + rec.stable_id +
+                 " worldId=" + rec.world_id +
+                 " sent=" + std::string{sent ? "true" : "false"} +
+                 " textChars=" + std::to_string(rec.text.size()));
+        return sent;
+    }
+
+    auto SignTextMod::broadcast_bridge_record(const LabelRecord& rec, const std::string& reason) -> void
+    {
+        if (m_bridge_role != BridgeRole::DedicatedServer && m_bridge_role != BridgeRole::ListenHost)
+        {
+            return;
+        }
+        std::ostringstream axis_value{};
+        axis_value << std::fixed << std::setprecision(2) << std::clamp(rec.surface_axis, 0.0f, 1.0f);
+        std::ostringstream payload{};
+        payload << "{\"mod\":\"WindroseTextSigns\",\"schema\":\"bridge.v1\",\"type\":\"upsert\""
+                << ",\"session\":\"" << escape_json(m_session_id) << "\""
+                << ",\"revision\":" << m_revision
+                << ",\"stableId\":\"" << escape_json(rec.stable_id) << "\""
+                << ",\"worldId\":\"" << escape_json(rec.world_id) << "\""
+                << ",\"text\":\"" << escape_json(rec.text) << "\""
+                << ",\"asset\":\"" << escape_json(rec.asset) << "\""
+                << ",\"surfaceAxis\":" << axis_value.str()
+                << ",\"surfaceSign\":" << rec.surface_sign
+                << ",\"depthOffset\":" << rec.depth_offset
+                << ",\"alignX\":" << rec.align_x
+                << ",\"alignY\":" << rec.align_y
+                << ",\"fontSize\":" << rec.font_size
+                << ",\"colorR\":" << rec.color_r
+                << ",\"colorG\":" << rec.color_g
+                << ",\"colorB\":" << rec.color_b
+                << ",\"colorA\":" << rec.color_a
+                << ",\"lastSeen\":\"" << escape_json(rec.last_seen_utc) << "\""
+                << ",\"reason\":\"" << escape_json(reason) << "\""
+                << "}";
+        const bool sent = NativeBridge::instance().broadcast_to_clients(payload.str());
+        log_line("[bridge] broadcast_upsert reason=" + reason +
+                 " stableId=" + rec.stable_id +
+                 " worldId=" + rec.world_id +
+                 " revision=" + std::to_string(m_revision) +
+                 " sent=" + std::string{sent ? "true" : "false"} +
+                 " knownClients=" + std::to_string(NativeBridge::instance().known_client_count()));
+    }
+
+    auto SignTextMod::broadcast_bridge_clear(const std::string& stable_id, const std::string& world_id, const std::string& reason) -> void
+    {
+        if (m_bridge_role != BridgeRole::DedicatedServer && m_bridge_role != BridgeRole::ListenHost)
+        {
+            return;
+        }
+        std::ostringstream payload{};
+        payload << "{\"mod\":\"WindroseTextSigns\",\"schema\":\"bridge.v1\",\"type\":\"clear\""
+                << ",\"session\":\"" << escape_json(m_session_id) << "\""
+                << ",\"revision\":" << m_revision
+                << ",\"stableId\":\"" << escape_json(stable_id) << "\""
+                << ",\"worldId\":\"" << escape_json(world_id) << "\""
+                << ",\"reason\":\"" << escape_json(reason) << "\""
+                << "}";
+        const bool sent = NativeBridge::instance().broadcast_to_clients(payload.str());
+        log_line("[bridge] broadcast_clear reason=" + reason +
+                 " stableId=" + stable_id +
+                 " worldId=" + world_id +
+                 " revision=" + std::to_string(m_revision) +
+                 " sent=" + std::string{sent ? "true" : "false"} +
+                 " knownClients=" + std::to_string(NativeBridge::instance().known_client_count()));
+    }
+
+    auto SignTextMod::broadcast_bridge_snapshot(const std::string& reason) -> void
+    {
+        if (m_bridge_role != BridgeRole::DedicatedServer && m_bridge_role != BridgeRole::ListenHost)
+        {
+            return;
+        }
+        uint32_t count = 0;
+        for (const auto& [_, rec] : m_labels)
+        {
+            broadcast_bridge_record(rec, reason);
+            ++count;
+        }
+        std::ostringstream payload{};
+        payload << "{\"mod\":\"WindroseTextSigns\",\"schema\":\"bridge.v1\",\"type\":\"snapshot_end\""
+                << ",\"session\":\"" << escape_json(m_session_id) << "\""
+                << ",\"revision\":" << m_revision
+                << ",\"worldId\":\"" << escape_json(m_world_folder_id) << "\""
+                << ",\"reason\":\"" << escape_json(reason) << "\""
+                << "}";
+        const bool sent = NativeBridge::instance().broadcast_to_clients(payload.str());
+        log_line("[bridge] broadcast_snapshot reason=" + reason +
+                 " records=" + std::to_string(count) +
+                 " revision=" + std::to_string(m_revision) +
+                 " sentEnd=" + std::string{sent ? "true" : "false"});
+    }
+
+    auto SignTextMod::server_has_label_stable_id(const std::string& stable_id) -> bool
+    {
+        if (stable_id.empty())
+        {
+            return false;
+        }
+        bool found = false;
+        UObjectGlobals::ForEachUObject([&](UObject* object, int32, int32) {
+            if (found || !object || !object->IsA(AActor::StaticClass()))
+            {
+                return LoopAction::Continue;
+            }
+            auto* actor = Cast<AActor>(object);
+            if (!actor || !is_probable_label_actor(actor))
+            {
+                return LoopAction::Continue;
+            }
+            if (extract_stable_id(actor) == stable_id)
+            {
+                found = true;
+            }
+            return LoopAction::Continue;
+        });
+        return found;
+    }
+
+    auto SignTextMod::handle_bridge_server_set(const std::unordered_map<std::string, std::string>& fields) -> void
+    {
+        if (!m_sidecar_authoritative)
+        {
+            log_line("[bridge] server_set_rejected reason=not_authoritative runtimeRole=" + m_runtime_role);
+            return;
+        }
+        const auto stable_it = fields.find("stableId");
+        if (stable_it == fields.end() || stable_it->second.empty())
+        {
+            log_line("[bridge] server_set_rejected reason=missing_stable_id");
+            return;
+        }
+        const auto stable_id = unescape_json(stable_it->second);
+        if (!server_has_label_stable_id(stable_id))
+        {
+            log_line("[bridge] server_set_rejected reason=stable_id_not_live stableId=" + stable_id);
+            return;
+        }
+
+        LabelRecord rec{};
+        const auto world_id = is_hex_world_id(m_world_folder_id)
+            ? m_world_folder_id
+            : unescape_json(fields.count("worldId") ? fields.at("worldId") : "unknown-world");
+        const auto key = build_storage_key(world_id, stable_id);
+        if (const auto existing = m_labels.find(key); existing != m_labels.end())
+        {
+            rec = existing->second;
+        }
+        rec.stable_id = stable_id;
+        rec.world_id = world_id;
+        rec.text = unescape_json(fields.count("text") ? fields.at("text") : "");
+        rec.asset = unescape_json(fields.count("asset") ? fields.at("asset") : "unknown");
+        rec.surface_axis = fields.count("surfaceAxis") ? std::clamp(safe_stof(fields.at("surfaceAxis"), 0.0f), 0.0f, 1.0f) : rec.surface_axis;
+        rec.surface_sign = (fields.count("surfaceSign") && safe_stoi(fields.at("surfaceSign"), 1) < 0) ? -1 : 1;
+        rec.depth_offset = fields.count("depthOffset") ? safe_stof(fields.at("depthOffset"), 12.0f) : rec.depth_offset;
+        rec.align_x = fields.count("alignX") ? safe_stof(fields.at("alignX"), 0.0f) : rec.align_x;
+        rec.align_y = fields.count("alignY") ? safe_stof(fields.at("alignY"), 1.5f) : rec.align_y;
+        rec.font_size = fields.count("fontSize") ? std::max(1.0f, safe_stof(fields.at("fontSize"), 18.0f)) : rec.font_size;
+        rec.color_r = fields.count("colorR") ? std::clamp(safe_stof(fields.at("colorR"), 0.393822f), 0.0f, 1.0f) : rec.color_r;
+        rec.color_g = fields.count("colorG") ? std::clamp(safe_stof(fields.at("colorG"), 0.393822f), 0.0f, 1.0f) : rec.color_g;
+        rec.color_b = fields.count("colorB") ? std::clamp(safe_stof(fields.at("colorB"), 0.393822f), 0.0f, 1.0f) : rec.color_b;
+        rec.color_a = fields.count("colorA") ? std::clamp(safe_stof(fields.at("colorA"), 1.0f), 0.0f, 1.0f) : rec.color_a;
+        rec.last_seen_utc = now_utc();
+        m_labels[key] = rec;
+        save_sidecar_json("bridge_set", key, stable_id, world_id);
+        broadcast_bridge_record(rec, "bridge_set");
+        log_line("[bridge] server_set_accepted key=" + key +
+                 " stableId=" + stable_id +
+                 " worldId=" + world_id +
+                 " textChars=" + std::to_string(rec.text.size()));
+    }
+
+    auto SignTextMod::handle_bridge_server_clear(const std::unordered_map<std::string, std::string>& fields) -> void
+    {
+        if (!m_sidecar_authoritative)
+        {
+            log_line("[bridge] server_clear_rejected reason=not_authoritative runtimeRole=" + m_runtime_role);
+            return;
+        }
+        const auto stable_it = fields.find("stableId");
+        if (stable_it == fields.end() || stable_it->second.empty())
+        {
+            log_line("[bridge] server_clear_rejected reason=missing_stable_id");
+            return;
+        }
+        const auto stable_id = unescape_json(stable_it->second);
+        const auto world_id = is_hex_world_id(m_world_folder_id) ? m_world_folder_id : unescape_json(fields.count("worldId") ? fields.at("worldId") : "unknown-world");
+        const auto key = build_storage_key(world_id, stable_id);
+        m_labels.erase(key);
+        m_rendered_text_cache.erase(key);
+        m_component_name_cache.erase(key);
+        m_phase4_next_retry.erase(key);
+        save_sidecar_json("bridge_clear", key, stable_id, world_id);
+        broadcast_bridge_clear(stable_id, world_id, "bridge_clear");
+        log_line("[bridge] server_clear_accepted key=" + key +
+                 " stableId=" + stable_id +
+                 " worldId=" + world_id);
+    }
+
+    auto SignTextMod::handle_bridge_client_upsert(const std::unordered_map<std::string, std::string>& fields) -> void
+    {
+        if (m_sidecar_authoritative)
+        {
+            log_line("[bridge] client_upsert_ignored reason=local_authoritative");
+            return;
+        }
+        const auto stable_it = fields.find("stableId");
+        if (stable_it == fields.end() || stable_it->second.empty())
+        {
+            log_line("[bridge] client_upsert_rejected reason=missing_stable_id");
+            return;
+        }
+        const auto stable_id = unescape_json(stable_it->second);
+        const auto local_world_id = (!m_world_folder_id.empty() && m_world_folder_id != "unknown-world")
+            ? m_world_folder_id
+            : unescape_json(fields.count("worldId") ? fields.at("worldId") : "unknown-world");
+        const auto key = build_storage_key(local_world_id, stable_id);
+
+        LabelRecord rec{};
+        if (const auto existing = m_labels.find(key); existing != m_labels.end())
+        {
+            rec = existing->second;
+        }
+        rec.stable_id = stable_id;
+        rec.world_id = local_world_id;
+        rec.text = unescape_json(fields.count("text") ? fields.at("text") : "");
+        rec.asset = unescape_json(fields.count("asset") ? fields.at("asset") : "unknown");
+        rec.surface_axis = fields.count("surfaceAxis") ? std::clamp(safe_stof(fields.at("surfaceAxis"), 0.0f), 0.0f, 1.0f) : rec.surface_axis;
+        rec.surface_sign = (fields.count("surfaceSign") && safe_stoi(fields.at("surfaceSign"), 1) < 0) ? -1 : 1;
+        rec.depth_offset = fields.count("depthOffset") ? safe_stof(fields.at("depthOffset"), 12.0f) : rec.depth_offset;
+        rec.align_x = fields.count("alignX") ? safe_stof(fields.at("alignX"), 0.0f) : rec.align_x;
+        rec.align_y = fields.count("alignY") ? safe_stof(fields.at("alignY"), 1.5f) : rec.align_y;
+        rec.font_size = fields.count("fontSize") ? std::max(1.0f, safe_stof(fields.at("fontSize"), 18.0f)) : rec.font_size;
+        rec.color_r = fields.count("colorR") ? std::clamp(safe_stof(fields.at("colorR"), 0.393822f), 0.0f, 1.0f) : rec.color_r;
+        rec.color_g = fields.count("colorG") ? std::clamp(safe_stof(fields.at("colorG"), 0.393822f), 0.0f, 1.0f) : rec.color_g;
+        rec.color_b = fields.count("colorB") ? std::clamp(safe_stof(fields.at("colorB"), 0.393822f), 0.0f, 1.0f) : rec.color_b;
+        rec.color_a = fields.count("colorA") ? std::clamp(safe_stof(fields.at("colorA"), 1.0f), 0.0f, 1.0f) : rec.color_a;
+        rec.last_seen_utc = now_utc();
+
+        m_labels[key] = rec;
+        if (fields.count("revision"))
+        {
+            m_revision = std::max<uint64_t>(m_revision, static_cast<uint64_t>(safe_stoi(fields.at("revision"), static_cast<int>(m_revision))));
+        }
+        save_sidecar_json("bridge_cache_upsert", key, stable_id, local_world_id);
+        UObjectGlobals::ForEachUObject([&](UObject* object, int32, int32) {
+            if (!object || !object->IsA(AActor::StaticClass()))
+            {
+                return LoopAction::Continue;
+            }
+            auto* actor = Cast<AActor>(object);
+            if (actor && is_probable_label_actor(actor) && extract_stable_id(actor) == stable_id)
+            {
+                (void)apply_text_to_actor_component(actor, rec.text);
+            }
+            return LoopAction::Continue;
+        });
+        m_bridge_snapshot_received = true;
+        log_line("[bridge] client_upsert_applied key=" + key +
+                 " stableId=" + stable_id +
+                 " localWorldId=" + local_world_id +
+                 " textChars=" + std::to_string(rec.text.size()));
+    }
+
+    auto SignTextMod::handle_bridge_client_clear(const std::unordered_map<std::string, std::string>& fields) -> void
+    {
+        if (m_sidecar_authoritative)
+        {
+            log_line("[bridge] client_clear_ignored reason=local_authoritative");
+            return;
+        }
+        const auto stable_it = fields.find("stableId");
+        if (stable_it == fields.end() || stable_it->second.empty())
+        {
+            log_line("[bridge] client_clear_rejected reason=missing_stable_id");
+            return;
+        }
+        const auto stable_id = unescape_json(stable_it->second);
+        const auto local_world_id = (!m_world_folder_id.empty() && m_world_folder_id != "unknown-world")
+            ? m_world_folder_id
+            : unescape_json(fields.count("worldId") ? fields.at("worldId") : "unknown-world");
+        const auto key = build_storage_key(local_world_id, stable_id);
+        m_labels.erase(key);
+        m_rendered_text_cache.erase(key);
+        m_component_name_cache.erase(key);
+        m_phase4_next_retry.erase(key);
+        save_sidecar_json("bridge_cache_clear", key, stable_id, local_world_id);
+        UObjectGlobals::ForEachUObject([&](UObject* object, int32, int32) {
+            if (!object || !object->IsA(AActor::StaticClass()))
+            {
+                return LoopAction::Continue;
+            }
+            auto* actor = Cast<AActor>(object);
+            if (actor && is_probable_label_actor(actor) && extract_stable_id(actor) == stable_id)
+            {
+                (void)destroy_managed_text_component(actor, key);
+            }
+            return LoopAction::Continue;
+        });
+        m_bridge_snapshot_received = true;
+        log_line("[bridge] client_clear_applied key=" + key +
+                 " stableId=" + stable_id +
+                 " localWorldId=" + local_world_id);
+    }
+
+    auto SignTextMod::handle_bridge_payload(const std::string& payload) -> void
+    {
+        if (payload.find("\"mod\":\"WindroseTextSigns\"") == std::string::npos)
+        {
+            return;
+        }
+        const auto fields = parse_bridge_message(payload);
+        const auto type_it = fields.find("type");
+        if (type_it == fields.end())
+        {
+            log_line("[bridge] payload_rejected reason=missing_type bytes=" + std::to_string(payload.size()));
+            return;
+        }
+        const auto type = unescape_json(type_it->second);
+        if (type == "snapshot_request")
+        {
+            log_line("[bridge] snapshot_request_received fromSession=" + unescape_json(fields.count("session") ? fields.at("session") : ""));
+            broadcast_bridge_snapshot("snapshot_request");
+            return;
+        }
+        if (type == "set")
+        {
+            handle_bridge_server_set(fields);
+            return;
+        }
+        if (type == "clear_request")
+        {
+            handle_bridge_server_clear(fields);
+            return;
+        }
+        if (type == "upsert")
+        {
+            handle_bridge_client_upsert(fields);
+            return;
+        }
+        if (type == "clear")
+        {
+            handle_bridge_client_clear(fields);
+            return;
+        }
+        if (type == "snapshot_end")
+        {
+            m_bridge_snapshot_received = true;
+            if (fields.count("revision"))
+            {
+                m_revision = std::max<uint64_t>(m_revision, static_cast<uint64_t>(safe_stoi(fields.at("revision"), static_cast<int>(m_revision))));
+            }
+            log_line("[bridge] snapshot_end revision=" + std::to_string(m_revision) +
+                     " role=" + bridge_role_name(m_bridge_role));
+            return;
+        }
+        log_line("[bridge] payload_ignored type=" + type +
+                 " role=" + bridge_role_name(m_bridge_role));
+    }
+
+    auto SignTextMod::tick_bridge() -> void
+    {
+        configure_bridge_role("tick");
+        const auto payloads = NativeBridge::instance().poll_incoming();
+        for (const auto& payload : payloads)
+        {
+            handle_bridge_payload(payload);
+        }
+
+        const auto now = std::chrono::steady_clock::now();
+        if (m_bridge_role == BridgeRole::RemoteClient && now >= m_bridge_next_snapshot_request)
+        {
+            send_bridge_snapshot_request(m_bridge_snapshot_received ? "periodic_sync" : "initial_sync");
+            m_bridge_next_snapshot_request = now + (m_bridge_snapshot_received ? std::chrono::seconds(30) : std::chrono::seconds(5));
+        }
+
+        if (now - m_bridge_last_status > std::chrono::seconds(20))
+        {
+            m_bridge_last_status = now;
+            log_line("[bridge] status " + NativeBridge::instance().status_json());
+        }
+    }
+
     auto SignTextMod::make_managed_component_name(const std::string& storage_key) const -> std::string
     {
         const auto hash_value = std::hash<std::string>{}(storage_key);
@@ -5254,7 +5781,20 @@ namespace WindroseTextSigns
         log_line("[apply] request key=" + key + " stableId=" + rec.stable_id +
                  " worldId=" + rec.world_id + " textChars=" + std::to_string(rec.text.size()) +
                  " path=" + m_sidecar_path.string());
+        if (!m_sidecar_authoritative)
+        {
+            configure_bridge_role("remote_apply");
+            const bool sent = send_bridge_record_request("set", rec);
+            const bool rendered = apply_text_to_actor_component(actor, rec.text);
+            log_line("[bridge] remote_apply_pending key=" + key +
+                     " stableId=" + rec.stable_id +
+                     " sent=" + std::string{sent ? "true" : "false"} +
+                     " renderedOptimistic=" + std::string{rendered ? "true" : "false"} +
+                     " cacheWrite=deferred_until_server_ack");
+            return;
+        }
         save_sidecar_json("apply", key, rec.stable_id, rec.world_id);
+        broadcast_bridge_record(rec, "apply");
         const bool rendered = apply_text_to_actor_component(actor, rec.text);
         log_line("[apply] done key=" + key + " stableId=" + rec.stable_id +
                  " worldId=" + rec.world_id + " rendered=" +
@@ -5284,7 +5824,23 @@ namespace WindroseTextSigns
         m_phase4_next_retry.erase(key);
         m_seen_live_label_keys.erase(key);
         m_missing_label_scan_counts.erase(key);
+        if (!m_sidecar_authoritative)
+        {
+            configure_bridge_role("remote_clear");
+            LabelRecord rec{};
+            rec.stable_id = m_selected->stable_id;
+            rec.world_id = world_id;
+            const bool sent = send_bridge_record_request("clear_request", rec);
+            const bool removed = destroy_managed_text_component(m_selected->actor, key);
+            log_line("[bridge] remote_clear_pending key=" + key +
+                     " stableId=" + m_selected->stable_id +
+                     " sent=" + std::string{sent ? "true" : "false"} +
+                     " removedOptimistic=" + std::string{removed ? "true" : "false"} +
+                     " cacheWrite=deferred_until_server_ack");
+            return;
+        }
         save_sidecar_json("clear", key, m_selected->stable_id, world_id);
+        broadcast_bridge_clear(m_selected->stable_id, world_id, "clear");
         const bool removed = destroy_managed_text_component(m_selected->actor, key);
         log_line("[phase4] clear_component key=" + key + " removed=" + std::string{removed ? "true" : "false"});
         log_line("[apply] clear_done key=" + key + " stableId=" + m_selected->stable_id +
@@ -5500,6 +6056,7 @@ namespace WindroseTextSigns
         tick_pending_hotkey();
         tick_pending_fallback_hotkeys();
         tick_file_triggers();
+        tick_bridge();
         tick_marker_ui_state_probe();
         if (m_six_sign_test_requested.exchange(false))
         {
@@ -5560,6 +6117,10 @@ namespace WindroseTextSigns
                                      " stableId=" + found->second.stable_id +
                                      " worldId=" + found->second.world_id +
                                      " reason=actor_instance_changed");
+                            if (m_sidecar_authoritative)
+                            {
+                                broadcast_bridge_clear(found->second.stable_id, found->second.world_id, "prune_rebuilt_label");
+                            }
                             m_labels.erase(found);
                             m_rendered_text_cache.erase(key);
                             m_component_name_cache.erase(key);
@@ -5650,6 +6211,10 @@ namespace WindroseTextSigns
                     log_line("[save] prune_destroyed_label key=" + key +
                              " stableId=" + found->second.stable_id +
                              " worldId=" + found->second.world_id);
+                    if (m_sidecar_authoritative)
+                    {
+                        broadcast_bridge_clear(found->second.stable_id, found->second.world_id, "prune_destroyed_label");
+                    }
                     m_labels.erase(found);
                     m_rendered_text_cache.erase(key);
                     m_component_name_cache.erase(key);

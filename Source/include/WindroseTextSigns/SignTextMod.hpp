@@ -22,6 +22,8 @@
 #include <Unreal/UFunction.hpp>
 #include <Unreal/UObject.hpp>
 
+#include <WindroseTextSigns/NativeBridge.hpp>
+
 namespace WindroseTextSigns
 {
     struct LabelRecord
@@ -145,6 +147,20 @@ namespace WindroseTextSigns
         auto maybe_write_backup_snapshot(const std::string& reason, const std::string& payload) -> void;
         auto sanitize_backup_reason(std::string reason) const -> std::string;
 
+        auto configure_bridge_role(const std::string& reason) -> void;
+        auto tick_bridge() -> void;
+        auto send_bridge_snapshot_request(const std::string& reason) -> void;
+        auto send_bridge_record_request(const std::string& request_type, const LabelRecord& rec) -> bool;
+        auto broadcast_bridge_record(const LabelRecord& rec, const std::string& reason) -> void;
+        auto broadcast_bridge_clear(const std::string& stable_id, const std::string& world_id, const std::string& reason) -> void;
+        auto broadcast_bridge_snapshot(const std::string& reason) -> void;
+        auto handle_bridge_payload(const std::string& payload) -> void;
+        auto handle_bridge_server_set(const std::unordered_map<std::string, std::string>& fields) -> void;
+        auto handle_bridge_server_clear(const std::unordered_map<std::string, std::string>& fields) -> void;
+        auto handle_bridge_client_upsert(const std::unordered_map<std::string, std::string>& fields) -> void;
+        auto handle_bridge_client_clear(const std::unordered_map<std::string, std::string>& fields) -> void;
+        auto server_has_label_stable_id(const std::string& stable_id) -> bool;
+
         auto escape_json(std::string_view s) const -> std::string;
         auto unescape_json(std::string_view s) const -> std::string;
 
@@ -169,6 +185,10 @@ namespace WindroseTextSigns
         bool m_sidecar_authoritative{false};
         uint64_t m_revision{0};
         std::string m_session_id{};
+        BridgeRole m_bridge_role{BridgeRole::Unknown};
+        std::chrono::steady_clock::time_point m_bridge_next_snapshot_request{};
+        std::chrono::steady_clock::time_point m_bridge_last_status{};
+        bool m_bridge_snapshot_received{false};
 
         std::atomic<bool> m_hotkey_requested{false};
         std::atomic<bool> m_clear_hotkey_requested{false};
