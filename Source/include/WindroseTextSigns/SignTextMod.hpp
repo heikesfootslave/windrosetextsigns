@@ -136,6 +136,7 @@ namespace WindroseTextSigns
         std::filesystem::path m_log_path{};
         std::filesystem::path m_sidecar_path{};
         std::filesystem::path m_legacy_sidecar_path{};
+        std::vector<std::filesystem::path> m_legacy_sidecar_paths{};
         std::filesystem::path m_backup_root{};
         std::ofstream m_log{};
 

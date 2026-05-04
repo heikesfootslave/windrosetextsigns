@@ -3,8 +3,29 @@ param(
     [string]$DeploymentsDir = "C:\Users\User\Documents\Windrose Addons\WindroseTextSigns\Deployments",
     [string]$ClientModsRoot = "C:\SteamLibrary\steamapps\common\Windrose\R5\Binaries\Win64\ue4ss\Mods",
     [string]$ServerModsRoot = "C:\Games\WindowsServer\R5\Binaries\Win64\ue4ss\Mods",
+    [string]$ContentBuildScript = "C:\Users\User\Documents\Windrose Addons\WindroseTextSigns\tools\build_and_deploy_label_text_sbm.ps1",
+    [string]$ContentPackageStageRoot = "C:\Users\User\Documents\Windrose Addons\WindroseTextSigns\build_logs\WoodenLabel_Text_SBMTemplate_stage",
+    [string]$ContentPackageBaseName = "WindroseTextSigns_Content_P",
+    [string]$ClientPakModsRoot = "C:\SteamLibrary\steamapps\common\Windrose\R5\Content\Paks\~mods",
+    [string]$ServerPakModsRoot = "C:\Games\WindowsServer\R5\Content\Paks\~mods",
+    [string]$ContentDeploySubfolderName = "",
+    [string[]]$CleanPakPackageNames = @(
+        "WoodenLabel_Text_SBMTemplate",
+        "WoodenLabel_Text_SBMTemplate_P",
+        "WoodenLabel_Text_MinimalCloneProbe_P",
+        "WoodenLabel_Text_NoIconProbe_P",
+        "WoodenLabel_CategoryNativeProbe_P",
+        "pakchunk999-LabelDiag_P",
+        "SBM_OneChest_Ship_P",
+        "WindroseTextSigns_Content_P"
+    ),
+    [string[]]$StaleUe4ssModNames = @(
+        "WindroseTextSignsAssetLoader"
+    ),
     [switch]$SkipClient,
-    [switch]$SkipServer
+    [switch]$SkipServer,
+    [switch]$SkipContentBuild,
+    [switch]$SkipContentDeploy
 )
 
 Set-StrictMode -Version Latest
@@ -20,6 +41,84 @@ function Ensure-Directory {
     param([Parameter(Mandatory = $true)][string]$Path)
     if (!(Test-Path -LiteralPath $Path)) {
         New-Item -ItemType Directory -Path $Path -Force | Out-Null
+    }
+}
+
+function Assert-ExpectedPakModsPath {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    $normalized = [IO.Path]::GetFullPath($Path).TrimEnd('\')
+    $expectedSuffix = "\R5\Content\Paks\~mods"
+    if (-not $normalized.EndsWith($expectedSuffix, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "Refusing content deploy: pak Mods path must end with '$expectedSuffix'. Got '$normalized'"
+    }
+}
+
+function Assert-SafePackageName {
+    param([Parameter(Mandatory = $true)][string]$Name)
+    if ([string]::IsNullOrWhiteSpace($Name)) {
+        throw "Package name cannot be blank."
+    }
+    if ($Name.IndexOfAny([IO.Path]::GetInvalidFileNameChars()) -ge 0) {
+        throw "Package name contains invalid path chars: '$Name'"
+    }
+}
+
+function Assert-ExpectedUe4ssModsPath {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    $normalized = [IO.Path]::GetFullPath($Path).TrimEnd('\')
+    $expectedSuffix = "\R5\Binaries\Win64\ue4ss\Mods"
+    if (-not $normalized.EndsWith($expectedSuffix, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "Refusing runtime deploy: UE4SS Mods path must end with '$expectedSuffix'. Got '$normalized'"
+    }
+}
+
+function Assert-SafeModFolderName {
+    param([Parameter(Mandatory = $true)][string]$Name)
+    if ([string]::IsNullOrWhiteSpace($Name)) {
+        throw "Mod folder name cannot be blank."
+    }
+    if ($Name.IndexOfAny([IO.Path]::GetInvalidFileNameChars()) -ge 0) {
+        throw "Mod folder name contains invalid path chars: '$Name'"
+    }
+}
+
+function Resolve-ContentDeploySubfolderName {
+    param(
+        [string]$RawName,
+        [Parameter(Mandatory = $true)][string]$DefaultName
+    )
+
+    if ([string]::IsNullOrWhiteSpace($RawName)) {
+        return $DefaultName
+    }
+
+    $trimmed = $RawName.Trim()
+    Assert-SafePackageName -Name $trimmed
+    return $trimmed
+}
+
+function Remove-StaleUe4ssModFolders {
+    param(
+        [Parameter(Mandatory = $true)][string]$ModsRoot,
+        [Parameter(Mandatory = $true)][string[]]$ModNames
+    )
+
+    Assert-ExpectedUe4ssModsPath -Path $ModsRoot
+    if (-not (Test-Path -LiteralPath $ModsRoot)) {
+        return
+    }
+
+    $modsRootFull = [System.IO.Path]::GetFullPath($ModsRoot).TrimEnd('\')
+    foreach ($modName in ($ModNames | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique)) {
+        Assert-SafeModFolderName -Name $modName
+        $target = Join-Path $ModsRoot $modName
+        $targetFull = [System.IO.Path]::GetFullPath($target).TrimEnd('\')
+        if ($targetFull.StartsWith($modsRootFull, [System.StringComparison]::OrdinalIgnoreCase) -and
+            [System.IO.Path]::GetFileName($targetFull) -eq $modName -and
+            (Test-Path -LiteralPath $target)) {
+            Write-Step "Removing stale UE4SS mod folder: `"$target`""
+            Remove-Item -LiteralPath $target -Recurse -Force -ErrorAction Stop
+        }
     }
 }
 
@@ -46,6 +145,97 @@ function Resolve-LatestZipPath {
         throw "No deployment zip found in `"$Root`"."
     }
     return $zip.FullName
+}
+
+function Invoke-ContentPackageBuild {
+    param(
+        [Parameter(Mandatory = $true)][string]$BuildScript,
+        [Parameter(Mandatory = $true)][string]$StageRoot,
+        [Parameter(Mandatory = $true)][string]$PackageBaseName
+    )
+
+    if (-not (Test-Path -LiteralPath $BuildScript)) {
+        throw "Content build script not found: `"$BuildScript`""
+    }
+
+    Write-Step "Packaging Label Text content pak"
+    & $BuildScript -InputRoot $StageRoot -PackageBaseName $PackageBaseName -SkipDeploy
+    if (-not $?) {
+        throw "Content build script reported failure: `"$BuildScript`""
+    }
+}
+
+function Remove-PakPackageIfPresent {
+    param(
+        [Parameter(Mandatory = $true)][string]$TargetPakModsRoot,
+        [Parameter(Mandatory = $true)][string]$PackageName
+    )
+
+    Assert-ExpectedPakModsPath -Path $TargetPakModsRoot
+    Assert-SafePackageName -Name $PackageName
+
+    if (-not (Test-Path -LiteralPath $TargetPakModsRoot)) {
+        return
+    }
+
+    $modsRootFull = [System.IO.Path]::GetFullPath($TargetPakModsRoot).TrimEnd('\')
+    $packageDir = Join-Path $TargetPakModsRoot $PackageName
+    $packageDirFull = [System.IO.Path]::GetFullPath($packageDir).TrimEnd('\')
+
+    if ($packageDirFull.StartsWith($modsRootFull, [System.StringComparison]::OrdinalIgnoreCase) -and
+        [System.IO.Path]::GetFileName($packageDirFull) -eq $PackageName -and
+        (Test-Path -LiteralPath $packageDir)) {
+        Write-Step "Removing stale pak package folder: `"$packageDir`""
+        Remove-Item -LiteralPath $packageDir -Recurse -Force -ErrorAction Stop
+    }
+
+    foreach ($ext in @("pak", "utoc", "ucas")) {
+        $rootFile = Join-Path $TargetPakModsRoot ($PackageName + "." + $ext)
+        if (Test-Path -LiteralPath $rootFile) {
+            Write-Step "Removing stale root-level pak file: `"$rootFile`""
+            Remove-Item -LiteralPath $rootFile -Force -ErrorAction Stop
+        }
+    }
+}
+
+function Deploy-ContentPackageToTarget {
+    param(
+        [Parameter(Mandatory = $true)][string]$StageRoot,
+        [Parameter(Mandatory = $true)][string]$PackageBaseName,
+        [Parameter(Mandatory = $true)][string]$TargetPakModsRoot,
+        [Parameter(Mandatory = $true)][string]$SubfolderName,
+        [Parameter(Mandatory = $true)][string[]]$CleanPackageNames
+    )
+
+    Assert-ExpectedPakModsPath -Path $TargetPakModsRoot
+    Assert-SafePackageName -Name $PackageBaseName
+    Assert-SafePackageName -Name $SubfolderName
+    Ensure-Directory -Path $TargetPakModsRoot
+
+    $cleanupNames = @($CleanPackageNames + @($PackageBaseName, $SubfolderName) |
+        Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+        Select-Object -Unique)
+    foreach ($name in $cleanupNames) {
+        Remove-PakPackageIfPresent -TargetPakModsRoot $TargetPakModsRoot -PackageName $name
+    }
+
+    $targetDir = Join-Path $TargetPakModsRoot $SubfolderName
+    Ensure-Directory -Path $targetDir
+
+    foreach ($ext in @("utoc", "ucas", "pak")) {
+        $source = Join-Path $StageRoot ($PackageBaseName + "." + $ext)
+        if (-not (Test-Path -LiteralPath $source)) {
+            throw "Content deploy source missing: `"$source`""
+        }
+
+        $target = Join-Path $targetDir ($PackageBaseName + "." + $ext)
+        Copy-Item -LiteralPath $source -Destination $target -Force
+        if (-not (Test-Path -LiteralPath $target)) {
+            throw "Content deploy verification failed. Missing `"$target`""
+        }
+    }
+
+    Write-Step "Verified content pak deployment: `"$targetDir`""
 }
 
 function Assert-SafeTargetPath {
@@ -88,6 +278,10 @@ function Deploy-ToTarget {
     )
 
     Ensure-Directory -Path $ModsRoot
+    if ($StaleUe4ssModNames.Count -gt 0) {
+        Remove-StaleUe4ssModFolders -ModsRoot $ModsRoot -ModNames $StaleUe4ssModNames
+    }
+
     $target = Join-Path $ModsRoot "WindroseTextSigns"
     Remove-TargetModDir -TargetPath $target -ModsRoot $ModsRoot
 
@@ -104,13 +298,33 @@ function Deploy-ToTarget {
             throw "Deployment verification failed. Missing `"$req`""
         }
     }
+    Set-Content -LiteralPath (Join-Path $target "enabled.txt") -Value "1" -Encoding ASCII
     Write-Step "Verified deployment target: `"$target`""
 }
 
-Write-Step "Starting clean deployment from latest package"
+Write-Step "Starting clean WindroseTextSigns deployment"
 
 if (!(Test-Path -LiteralPath $DeploymentsDir)) {
     throw "Deployments directory not found: `"$DeploymentsDir`""
+}
+
+$contentSubfolderName = Resolve-ContentDeploySubfolderName -RawName $ContentDeploySubfolderName -DefaultName $ContentPackageBaseName
+
+if (-not $SkipContentBuild) {
+    Invoke-ContentPackageBuild -BuildScript $ContentBuildScript -StageRoot $ContentPackageStageRoot -PackageBaseName $ContentPackageBaseName
+} else {
+    Write-Step "SkipContentBuild set; using existing content package outputs"
+}
+
+if (-not $SkipContentDeploy) {
+    foreach ($ext in @("utoc", "ucas", "pak")) {
+        $source = Join-Path $ContentPackageStageRoot ($ContentPackageBaseName + "." + $ext)
+        if (-not (Test-Path -LiteralPath $source)) {
+            throw "Content package output missing before deployment: `"$source`""
+        }
+    }
+} else {
+    Write-Step "SkipContentDeploy set; content pak deployment skipped"
 }
 
 $zipPath = Resolve-LatestZipPath -Root $DeploymentsDir
@@ -142,14 +356,30 @@ try {
 
     if (-not $SkipClient) {
         Deploy-ToTarget -ExtractedModDir $extractedModDir -ModsRoot $ClientModsRoot
+        if (-not $SkipContentDeploy) {
+            Deploy-ContentPackageToTarget `
+                -StageRoot $ContentPackageStageRoot `
+                -PackageBaseName $ContentPackageBaseName `
+                -TargetPakModsRoot $ClientPakModsRoot `
+                -SubfolderName $contentSubfolderName `
+                -CleanPackageNames $CleanPakPackageNames
+        }
     } else {
-        Write-Step "SkipClient set; client deployment skipped"
+        Write-Step "SkipClient set; client runtime/content deployment skipped"
     }
 
     if (-not $SkipServer) {
         Deploy-ToTarget -ExtractedModDir $extractedModDir -ModsRoot $ServerModsRoot
+        if (-not $SkipContentDeploy) {
+            Deploy-ContentPackageToTarget `
+                -StageRoot $ContentPackageStageRoot `
+                -PackageBaseName $ContentPackageBaseName `
+                -TargetPakModsRoot $ServerPakModsRoot `
+                -SubfolderName $contentSubfolderName `
+                -CleanPackageNames $CleanPakPackageNames
+        }
     } else {
-        Write-Step "SkipServer set; server deployment skipped"
+        Write-Step "SkipServer set; server runtime/content deployment skipped"
     }
 }
 finally {

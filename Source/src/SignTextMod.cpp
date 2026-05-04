@@ -6,6 +6,7 @@
 #include <cctype>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <ctime>
 #include <iomanip>
 #include <ios>
@@ -59,6 +60,221 @@ namespace
         int char_limit{12};
         bool truncated{false};
     };
+
+    auto lower_ascii_path_token(std::string value) -> std::string
+    {
+        std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        return value;
+    }
+
+    auto is_hex_world_id(const std::string& value) -> bool
+    {
+        if (value.size() != 32)
+        {
+            return false;
+        }
+        return std::all_of(value.begin(), value.end(), [](unsigned char c) {
+            return std::isxdigit(c) != 0;
+        });
+    }
+
+    auto normalized_path_for_compare(const std::filesystem::path& path) -> std::string
+    {
+        std::error_code ec{};
+        auto value = std::filesystem::weakly_canonical(path, ec);
+        if (ec)
+        {
+            value = std::filesystem::absolute(path, ec);
+        }
+        auto out = value.string();
+        std::replace(out.begin(), out.end(), '/', '\\');
+        return lower_ascii_path_token(out);
+    }
+
+    auto append_unique_path(std::vector<std::filesystem::path>& paths, const std::filesystem::path& path) -> void
+    {
+        const auto candidate_key = normalized_path_for_compare(path);
+        for (const auto& existing : paths)
+        {
+            if (normalized_path_for_compare(existing) == candidate_key)
+            {
+                return;
+            }
+        }
+        paths.push_back(path);
+    }
+
+    auto get_env_var(const char* name) -> std::string
+    {
+        if (!name || !*name)
+        {
+            return {};
+        }
+#if defined(_WIN32)
+        char* value = nullptr;
+        size_t value_size = 0;
+        if (_dupenv_s(&value, &value_size, name) != 0 || !value)
+        {
+            return {};
+        }
+        std::string out{value};
+        std::free(value);
+        return out;
+#else
+        if (const char* value = std::getenv(name); value && *value)
+        {
+            return value;
+        }
+        return {};
+#endif
+    }
+
+    auto find_r5_root_from_path(std::filesystem::path start) -> std::optional<std::filesystem::path>
+    {
+        if (start.empty())
+        {
+            return std::nullopt;
+        }
+        std::error_code ec{};
+        if (!std::filesystem::is_directory(start, ec))
+        {
+            start = start.parent_path();
+        }
+
+        for (auto current = start; !current.empty(); current = current.parent_path())
+        {
+            if (std::filesystem::exists(current / "Saved" / "SaveProfiles"))
+            {
+                return current;
+            }
+            if (current == current.parent_path())
+            {
+                break;
+            }
+        }
+        return std::nullopt;
+    }
+
+    auto collect_save_profile_roots(const std::filesystem::path& cwd, const std::filesystem::path& mod_root) -> std::vector<std::filesystem::path>
+    {
+        std::vector<std::filesystem::path> roots{};
+
+        if (auto r5_root = find_r5_root_from_path(cwd); r5_root.has_value())
+        {
+            append_unique_path(roots, *r5_root / "Saved" / "SaveProfiles" / "Default");
+        }
+        if (auto r5_root = find_r5_root_from_path(mod_root); r5_root.has_value())
+        {
+            append_unique_path(roots, *r5_root / "Saved" / "SaveProfiles" / "Default");
+        }
+
+        const auto local_app_data = get_env_var("LOCALAPPDATA");
+        if (!local_app_data.empty())
+        {
+            const auto appdata_profiles = std::filesystem::path(local_app_data) / "R5" / "Saved" / "SaveProfiles";
+            if (std::filesystem::exists(appdata_profiles))
+            {
+                std::error_code iter_ec{};
+                for (const auto& entry : std::filesystem::directory_iterator(appdata_profiles, iter_ec))
+                {
+                    if (!iter_ec && entry.is_directory())
+                    {
+                        append_unique_path(roots, entry.path());
+                    }
+                }
+            }
+        }
+
+        roots.erase(
+            std::remove_if(roots.begin(), roots.end(), [](const auto& path) { return !std::filesystem::exists(path); }),
+            roots.end());
+        return roots;
+    }
+
+    auto choose_world_id_from_worlds_root(const std::filesystem::path& worlds_root) -> std::optional<std::string>
+    {
+        if (!std::filesystem::exists(worlds_root))
+        {
+            return std::nullopt;
+        }
+
+        std::vector<std::filesystem::directory_entry> world_dirs{};
+        std::error_code iter_ec{};
+        for (const auto& entry : std::filesystem::directory_iterator(worlds_root, iter_ec))
+        {
+            if (iter_ec || !entry.is_directory())
+            {
+                continue;
+            }
+            const auto name = entry.path().filename().string();
+            if (is_hex_world_id(name))
+            {
+                world_dirs.push_back(entry);
+            }
+        }
+
+        if (world_dirs.empty())
+        {
+            return std::nullopt;
+        }
+
+        std::sort(world_dirs.begin(), world_dirs.end(), [](const auto& lhs, const auto& rhs) {
+            std::error_code lhs_ec{};
+            std::error_code rhs_ec{};
+            return std::filesystem::last_write_time(lhs.path(), lhs_ec) > std::filesystem::last_write_time(rhs.path(), rhs_ec);
+        });
+        return world_dirs.front().path().filename().string();
+    }
+
+    auto choose_world_id_for_profile(const std::filesystem::path& profile_root) -> std::optional<std::string>
+    {
+        const std::vector<std::filesystem::path> worlds_roots = {
+            profile_root / "RocksDB_v2" / "0.10.0" / "Worlds",
+            profile_root / "RocksDB_v2_Backups" / "Worlds",
+            profile_root / "RocksDB" / "0.10.0" / "Worlds"};
+
+        for (const auto& worlds_root : worlds_roots)
+        {
+            if (auto world_id = choose_world_id_from_worlds_root(worlds_root); world_id.has_value())
+            {
+                return world_id;
+            }
+        }
+        return std::nullopt;
+    }
+
+    auto resolve_save_profile_data_root(const std::filesystem::path& cwd, const std::filesystem::path& mod_root) -> std::optional<std::filesystem::path>
+    {
+        for (const auto& profile_root : collect_save_profile_roots(cwd, mod_root))
+        {
+            if (auto world_id = choose_world_id_for_profile(profile_root); world_id.has_value())
+            {
+                return profile_root / "WindroseTextSigns" / *world_id;
+            }
+        }
+        return std::nullopt;
+    }
+
+    auto collect_moddata_roots(const std::filesystem::path& cwd, const std::filesystem::path& mod_root) -> std::vector<std::filesystem::path>
+    {
+        std::vector<std::filesystem::path> roots{};
+        if (!mod_root.empty())
+        {
+            auto mods_dir = mod_root.parent_path();
+            if (!mods_dir.empty() && lower_ascii_path_token(mods_dir.filename().string()) == "mods")
+            {
+                auto ue4ss_dir = mods_dir.parent_path();
+                if (!ue4ss_dir.empty())
+                {
+                    append_unique_path(roots, ue4ss_dir / "ModData" / "WindroseTextSigns");
+                }
+            }
+        }
+
+        append_unique_path(roots, cwd / "ue4ss" / "ModData" / "WindroseTextSigns");
+        append_unique_path(roots, cwd / "ModData" / "WindroseTextSigns");
+        return roots;
+    }
 
     auto normalize_spaces(std::string_view text) -> std::string
     {
@@ -1490,23 +1706,12 @@ namespace WindroseTextSigns
     auto SignTextMod::resolve_data_root() const -> std::filesystem::path
     {
         const auto cwd = std::filesystem::current_path();
-        std::vector<std::filesystem::path> candidates = {
-            cwd / "ue4ss" / "ModData" / "WindroseTextSigns",
-            cwd / "ModData" / "WindroseTextSigns"};
-
-        if (!m_mod_root.empty())
+        if (auto save_profile_root = resolve_save_profile_data_root(cwd, m_mod_root); save_profile_root.has_value())
         {
-            auto mods_dir = m_mod_root.parent_path();
-            if (!mods_dir.empty() && lower_ascii(mods_dir.filename().string()) == "mods")
-            {
-                auto ue4ss_dir = mods_dir.parent_path();
-                if (!ue4ss_dir.empty())
-                {
-                    candidates.insert(candidates.begin(), ue4ss_dir / "ModData" / "WindroseTextSigns");
-                }
-            }
+            return *save_profile_root;
         }
 
+        const auto candidates = collect_moddata_roots(cwd, m_mod_root);
         for (const auto& path : candidates)
         {
             if (std::filesystem::exists(path))
@@ -1542,8 +1747,18 @@ namespace WindroseTextSigns
         m_legacy_sidecar_path = m_mod_root / "SignTexts.json";
         m_sidecar_path = m_data_root / "SignTexts.json";
         m_backup_root = m_data_root / "Backups";
+        m_legacy_sidecar_paths.clear();
+        append_unique_path(m_legacy_sidecar_paths, m_legacy_sidecar_path);
+        for (const auto& root : collect_moddata_roots(std::filesystem::current_path(), m_mod_root))
+        {
+            append_unique_path(m_legacy_sidecar_paths, root / "SignTexts.json");
+        }
+
         open_log();
-        log_line(std::string{"[build] version=0.1.2-prototype compiled="} + __DATE__ + " " + __TIME__ + " flags=F8,F9,F10,phase5-atomic-sidecar");
+        log_line(std::string{"[build] version=0.1.2-prototype compiled="} + __DATE__ + " " + __TIME__ + " flags=F8,F9,F10,phase2-save-profile-sidecar");
+        log_line("[save] data_root=" + m_data_root.string() +
+                 " sidecar=" + m_sidecar_path.string() +
+                 " backups=" + m_backup_root.string());
 
         std::error_code mkdir_ec{};
         std::filesystem::create_directories(m_data_root, mkdir_ec);
@@ -1765,35 +1980,62 @@ namespace WindroseTextSigns
 
     auto SignTextMod::migrate_legacy_sidecar_if_needed() -> void
     {
-        if (m_legacy_sidecar_path.empty() || m_sidecar_path.empty())
-        {
-            return;
-        }
-        if (m_legacy_sidecar_path == m_sidecar_path)
+        if (m_sidecar_path.empty())
         {
             return;
         }
         if (std::filesystem::exists(m_sidecar_path))
         {
-            log_line("[save] using ModData sidecar path=" + m_sidecar_path.string());
-            return;
-        }
-        if (!std::filesystem::exists(m_legacy_sidecar_path))
-        {
-            log_line("[save] no legacy sidecar to migrate legacyPath=" + m_legacy_sidecar_path.string() +
-                     " newPath=" + m_sidecar_path.string());
+            log_line("[save] using sidecar path=" + m_sidecar_path.string());
             return;
         }
 
+        std::vector<std::filesystem::path> existing_legacy_paths{};
+        for (const auto& legacy_path : m_legacy_sidecar_paths)
+        {
+            if (legacy_path.empty() || normalized_path_for_compare(legacy_path) == normalized_path_for_compare(m_sidecar_path))
+            {
+                continue;
+            }
+            if (std::filesystem::exists(legacy_path))
+            {
+                existing_legacy_paths.push_back(legacy_path);
+            }
+        }
+
+        if (existing_legacy_paths.empty())
+        {
+            log_line("[save] no legacy sidecar to migrate newPath=" + m_sidecar_path.string());
+            return;
+        }
+
+        std::sort(existing_legacy_paths.begin(), existing_legacy_paths.end(), [](const auto& lhs, const auto& rhs) {
+            std::error_code lhs_ec{};
+            std::error_code rhs_ec{};
+            return std::filesystem::last_write_time(lhs, lhs_ec) > std::filesystem::last_write_time(rhs, rhs_ec);
+        });
+
+        const auto& source_path = existing_legacy_paths.front();
         std::error_code copy_ec{};
-        std::filesystem::copy_file(m_legacy_sidecar_path, m_sidecar_path, std::filesystem::copy_options::overwrite_existing, copy_ec);
+        std::filesystem::copy_file(source_path, m_sidecar_path, std::filesystem::copy_options::overwrite_existing, copy_ec);
         if (copy_ec)
         {
-            log_line("[save] legacy sidecar migration failed legacyPath=" + m_legacy_sidecar_path.string() +
+            log_line("[save] legacy sidecar migration failed legacyPath=" + source_path.string() +
                      " newPath=" + m_sidecar_path.string() + " error=" + copy_ec.message());
             return;
         }
-        log_line("[save] migrated legacy sidecar legacyPath=" + m_legacy_sidecar_path.string() +
+
+        const auto marker_path = source_path.parent_path() / "MIGRATED_TO.txt";
+        std::ofstream marker(marker_path, std::ios::out | std::ios::trunc);
+        if (marker.is_open())
+        {
+            marker << "WindroseTextSigns sidecar migrated at " << now_utc() << "\n";
+            marker << "from=" << source_path.string() << "\n";
+            marker << "to=" << m_sidecar_path.string() << "\n";
+            marker.close();
+        }
+
+        log_line("[save] migrated legacy sidecar legacyPath=" + source_path.string() +
                  " newPath=" + m_sidecar_path.string());
     }
 

@@ -8,13 +8,24 @@ param(
     [string]$LabelIconMode = "NoIconTexture",
     [ValidateSet("WoodenLabels", "StorageProbe", "StorageOverrideProbe")]
     [string]$PrepareMode = "WoodenLabels",
-    [string]$PackageBaseName = "WoodenLabel_Text_SBMTemplate_P",
+    [string]$PackageBaseName = "WindroseTextSigns_Content_P",
     [string]$ModsDir = "C:\SteamLibrary\steamapps\common\Windrose\R5\Content\Paks\~mods",
     [string]$ServerModsDir = "C:\Games\WindowsServer\R5\Content\Paks\~mods",
     [string]$DeploySubfolderName = "",
+    [string[]]$CleanPackageNames = @(
+        "WoodenLabel_Text_SBMTemplate",
+        "WoodenLabel_Text_SBMTemplate_P",
+        "WoodenLabel_Text_MinimalCloneProbe_P",
+        "WoodenLabel_Text_NoIconProbe_P",
+        "WoodenLabel_CategoryNativeProbe_P",
+        "pakchunk999-LabelDiag_P",
+        "SBM_OneChest_Ship_P",
+        "WindroseTextSigns_Content_P"
+    ),
     [string]$ExpectedAssetToken = "DA_BI_Utilities_Lables_Wooden_Text",
     [string]$SourceAssetRelativePath = "Gameplay\Building\BuildingUtilities\DA_BI_Utilities_Lables_Wooden_Text.uasset",
     [string]$EngineVersion = "UE5_6",
+    [switch]$SkipClientDeploy,
     [switch]$SkipServerDeploy,
     [switch]$SkipDeploy
 )
@@ -67,6 +78,16 @@ function Resolve-DeploySubfolderName {
     return $trimmed
 }
 
+function Assert-SafePackageName {
+    param([Parameter(Mandatory = $true)][string]$Name)
+    if ([string]::IsNullOrWhiteSpace($Name)) {
+        throw "Package name cannot be blank."
+    }
+    if ($Name.IndexOfAny([IO.Path]::GetInvalidFileNameChars()) -ge 0) {
+        throw "Package name contains invalid path chars: '$Name'"
+    }
+}
+
 function Invoke-Retoc {
     param([Parameter(Mandatory = $true)][string[]]$Args)
     & retoc @Args
@@ -80,6 +101,54 @@ function Invoke-Repak {
     & repak @Args
     if ($LASTEXITCODE -ne 0) {
         throw "repak failed (exit $LASTEXITCODE): repak $($Args -join ' ')"
+    }
+}
+
+function Remove-PakPackageIfPresent {
+    param(
+        [Parameter(Mandatory = $true)][string]$TargetModsDir,
+        [Parameter(Mandatory = $true)][string]$PackageName
+    )
+
+    Assert-ExpectedModsPath -Path $TargetModsDir
+    Assert-SafePackageName -Name $PackageName
+
+    if (-not (Test-Path -LiteralPath $TargetModsDir)) {
+        return
+    }
+
+    $modsRootFull = [IO.Path]::GetFullPath($TargetModsDir).TrimEnd('\')
+    $packageDir = Join-Path $TargetModsDir $PackageName
+    $packageDirFull = [IO.Path]::GetFullPath($packageDir).TrimEnd('\')
+
+    if ($packageDirFull.StartsWith($modsRootFull, [StringComparison]::OrdinalIgnoreCase) -and
+        [IO.Path]::GetFileName($packageDirFull) -eq $PackageName -and
+        (Test-Path -LiteralPath $packageDir)) {
+        Write-Step "Removing stale package folder: $packageDir"
+        Remove-Item -LiteralPath $packageDir -Recurse -Force
+    }
+
+    foreach ($ext in @("utoc", "ucas", "pak")) {
+        $rootLevelFile = Join-Path $TargetModsDir ($PackageName + "." + $ext)
+        if (Test-Path -LiteralPath $rootLevelFile) {
+            Write-Step "Removing stale root-level package file: $rootLevelFile"
+            Remove-Item -LiteralPath $rootLevelFile -Force
+        }
+    }
+}
+
+function Clean-PakDeployTarget {
+    param(
+        [Parameter(Mandatory = $true)][string]$TargetModsDir,
+        [Parameter(Mandatory = $true)][string[]]$PackageNames
+    )
+
+    Assert-ExpectedModsPath -Path $TargetModsDir
+    Ensure-Directory -Path $TargetModsDir
+
+    $uniqueNames = @($PackageNames | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique)
+    foreach ($name in $uniqueNames) {
+        Remove-PakPackageIfPresent -TargetModsDir $TargetModsDir -PackageName $name
     }
 }
 
@@ -183,28 +252,23 @@ function Deploy-PackageToMods {
         [Parameter(Mandatory = $true)][string]$TargetModsDir,
         [Parameter(Mandatory = $true)][string]$SubfolderName,
         [Parameter(Mandatory = $true)][string]$PackageName,
-        [Parameter(Mandatory = $true)][string]$SourceRoot
+        [Parameter(Mandatory = $true)][string]$SourceRoot,
+        [Parameter(Mandatory = $true)][string[]]$CleanPackageNames
     )
 
     Assert-ExpectedModsPath -Path $TargetModsDir
     Ensure-Directory -Path $TargetModsDir
+    Clean-PakDeployTarget -TargetModsDir $TargetModsDir -PackageNames ($CleanPackageNames + @($SubfolderName, $PackageName))
+
     $targetDir = Join-Path $TargetModsDir $SubfolderName
     Ensure-Directory -Path $targetDir
 
     foreach ($ext in @("utoc", "ucas", "pak")) {
-        $rootLevelStale = Join-Path $TargetModsDir ($PackageName + "." + $ext)
-        if (Test-Path -LiteralPath $rootLevelStale) {
-            Write-Step "Removing legacy root-level file: $rootLevelStale"
-            Remove-Item -LiteralPath $rootLevelStale -Force
-        }
-
-        $target = Join-Path $targetDir ($PackageName + "." + $ext)
-        if (Test-Path -LiteralPath $target) {
-            Write-Step "Removing existing file: $target"
-            Remove-Item -LiteralPath $target -Force
-        }
-
         $source = Join-Path $SourceRoot ($PackageName + "." + $ext)
+        if (-not (Test-Path -LiteralPath $source)) {
+            throw "Deploy source missing: $source"
+        }
+        $target = Join-Path $targetDir ($PackageName + "." + $ext)
         Copy-Item -LiteralPath $source -Destination $target -Force
         if (-not (Test-Path -LiteralPath $target)) {
             throw "Deploy verification failed (missing target): $target"
@@ -216,6 +280,8 @@ function Deploy-PackageToMods {
         Write-Host ("  " + (Join-Path $targetDir ($PackageName + "." + $ext)))
     }
 }
+
+$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 
 Write-Step "Starting build/verify/deploy for SBM-template Wooden Label"
 $retocPath = Ensure-Command -Name "retoc"
@@ -243,7 +309,6 @@ if ($PrepareMode -eq "StorageOverrideProbe") {
 }
 
 if ($AutoPrepare) {
-    $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
     $prepareScript = Join-Path $scriptDir "prepare_label_text_sbm_template.ps1"
     if (-not (Test-Path -LiteralPath $prepareScript)) {
         throw "AutoPrepare enabled but script is missing: $prepareScript"
@@ -351,15 +416,21 @@ if ($SkipDeploy) {
     Write-Host "  $outUtoc"
     Write-Host "  $outUcas"
     Write-Host "  $outPak"
-    exit 0
+    return
 }
 
-Write-Step "Step 3/3: Clean deploy to client ~mods"
-Deploy-PackageToMods -TargetModsDir $ModsDir -SubfolderName $deploySubfolderName -PackageName $PackageBaseName -SourceRoot $InputRoot
+if (-not $SkipClientDeploy) {
+    Write-Step "Step 3/3: Clean deploy content package to client ~mods"
+    Deploy-PackageToMods -TargetModsDir $ModsDir -SubfolderName $deploySubfolderName -PackageName $PackageBaseName -SourceRoot $InputRoot -CleanPackageNames $CleanPackageNames
+} else {
+    Write-Step "Step 3/3: SkipClientDeploy set; client content package deploy skipped"
+}
 
 if (-not $SkipServerDeploy) {
     Write-Step "Deploying same package to server ~mods"
-    Deploy-PackageToMods -TargetModsDir $ServerModsDir -SubfolderName $deploySubfolderName -PackageName $PackageBaseName -SourceRoot $InputRoot
+    Deploy-PackageToMods -TargetModsDir $ServerModsDir -SubfolderName $deploySubfolderName -PackageName $PackageBaseName -SourceRoot $InputRoot -CleanPackageNames $CleanPackageNames
+} else {
+    Write-Step "SkipServerDeploy set; server content package deploy skipped"
 }
 
 Write-Step "Deploy complete."
