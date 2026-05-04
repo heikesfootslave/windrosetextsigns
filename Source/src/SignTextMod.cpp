@@ -1911,6 +1911,7 @@ namespace WindroseTextSigns
     {
         m_mod_root = resolve_mod_root();
         m_static_construct_probe_enabled = is_static_construct_probe_enabled();
+        m_session_id = now_utc() + "-" + sanitize_path_segment(current_executable_path().filename().string());
         configure_data_root();
         m_legacy_sidecar_path = m_mod_root / "SignTexts.json";
         m_sidecar_path = m_data_root / "SignTexts.json";
@@ -3908,7 +3909,9 @@ namespace WindroseTextSigns
         m_hotkey_retry_remaining = 0;
         m_selected = selected;
         m_selected->world_id = selected->world_id;
-        const auto world_id = m_selected->world_id;
+        const auto actor_world_id = m_selected->world_id.empty() ? build_world_id_for_actor(m_selected->actor) : m_selected->world_id;
+        configure_sidecar_for_actor(m_selected->actor, actor_world_id);
+        const auto world_id = active_storage_world_id(actor_world_id);
         const auto key = build_storage_key(world_id, selected->stable_id);
         if (const auto found = m_labels.find(key); found != m_labels.end())
         {
@@ -3918,6 +3921,7 @@ namespace WindroseTextSigns
         {
             m_text_buffer.fill('\0');
         }
+        m_text_buffer_bound_key = key;
 
         const bool native_opened = open_phase7_native_editor_for_selection();
         if (native_opened)
@@ -3950,6 +3954,20 @@ namespace WindroseTextSigns
 
         m_selected = selected;
         m_selected->world_id = selected->world_id;
+        {
+            const auto actor_world_id = m_selected->world_id.empty() ? build_world_id_for_actor(m_selected->actor) : m_selected->world_id;
+            configure_sidecar_for_actor(m_selected->actor, actor_world_id);
+            const auto key = build_storage_key(active_storage_world_id(actor_world_id), m_selected->stable_id);
+            if (const auto found = m_labels.find(key); found != m_labels.end())
+            {
+                std::snprintf(m_text_buffer.data(), m_text_buffer.size(), "%s", found->second.text.c_str());
+            }
+            else
+            {
+                m_text_buffer.fill('\0');
+            }
+            m_text_buffer_bound_key = key;
+        }
         log_line("[input] " + action_name + " auto-selected stableId=" + m_selected->stable_id +
                  " actor=" + narrow_ascii(m_selected->actor->GetFullName()));
         return true;
@@ -4270,6 +4288,7 @@ namespace WindroseTextSigns
             std::filesystem::path path{};
             std::unordered_map<std::string, LabelRecord> labels{};
             size_t parsed_rows{0};
+            uint64_t revision{0};
         };
 
         std::vector<ParsedCandidate> parsed_candidates{};
@@ -4294,6 +4313,17 @@ namespace WindroseTextSigns
 
             ParsedCandidate parsed{};
             parsed.path = path;
+            if (std::smatch revision_match{}; std::regex_search(content, revision_match, std::regex{R"("revision"\s*:\s*([0-9]+))"}) && revision_match.size() > 1)
+            {
+                try
+                {
+                    parsed.revision = static_cast<uint64_t>(std::stoull(revision_match[1].str()));
+                }
+                catch (...)
+                {
+                    parsed.revision = 0;
+                }
+            }
             size_t parsed_rows = 0;
             for (std::sregex_iterator it(content.begin(), content.end(), row_rx), end; it != end; ++it)
             {
@@ -4318,6 +4348,16 @@ namespace WindroseTextSigns
                     rec.color_b = ((*it)[12].matched) ? std::clamp(safe_stof((*it)[12].str(), 0.393822f), 0.0f, 1.0f) : 0.393822f;
                     rec.color_a = ((*it)[13].matched) ? std::clamp(safe_stof((*it)[13].str(), 1.0f), 0.0f, 1.0f) : 1.0f;
                     rec.last_seen_utc = ((*it)[14].matched) ? unescape_json((*it)[14].str()) : std::string{};
+                    if (m_sidecar_authoritative &&
+                        is_hex_world_id(m_world_folder_id) &&
+                        rec.world_id != m_world_folder_id)
+                    {
+                        log_line("[save] load_record_skipped key=" + key +
+                                 " reason=world_mismatch expectedWorld=" + m_world_folder_id +
+                                 " recordWorld=" + rec.world_id +
+                                 " path=" + path.string());
+                        continue;
+                    }
                     parsed.labels.emplace(key, std::move(rec));
                     ++parsed_rows;
                 }
@@ -4398,6 +4438,7 @@ namespace WindroseTextSigns
         }
 
         m_labels = std::move(chosen->labels);
+        m_revision = chosen->revision;
         for (const auto& [k, rec] : m_labels)
         {
             log_line("[save] load_record key=" + k + " stableId=" + rec.stable_id +
@@ -4405,6 +4446,7 @@ namespace WindroseTextSigns
         }
         log_line("[save] load_done records=" + std::to_string(m_labels.size()) +
                  " parsedRows=" + std::to_string(chosen->parsed_rows) +
+                 " revision=" + std::to_string(m_revision) +
                  " path=" + chosen->path.string());
 
         if (restored_from_backup)
@@ -4416,8 +4458,89 @@ namespace WindroseTextSigns
         }
     }
 
+    auto SignTextMod::sidecar_record_count_on_disk() const -> std::optional<size_t>
+    {
+        std::string content{};
+        if (!std::filesystem::exists(m_sidecar_path) || !read_text_file(m_sidecar_path, content))
+        {
+            return std::nullopt;
+        }
+        if (std::count(content.begin(), content.end(), '{') <= 0)
+        {
+            return 0;
+        }
+        const std::regex key_rx{"\"[^\"\\r\\n]+/BuildingBlock\\|"};
+        return static_cast<size_t>(std::distance(std::sregex_iterator(content.begin(), content.end(), key_rx), std::sregex_iterator{}));
+    }
+
+    auto SignTextMod::is_authoritative_write_allowed() const -> bool
+    {
+        if (!m_sidecar_authoritative)
+        {
+            return false;
+        }
+        const auto role = lower_ascii(m_runtime_role);
+        if (role.find("remote") != std::string::npos || role.find("pending") != std::string::npos || role.find("unknown") != std::string::npos)
+        {
+            return false;
+        }
+        const auto mode = lower_ascii(m_authority_mode);
+        if (mode.find("pending") != std::string::npos)
+        {
+            return false;
+        }
+        const auto path = normalized_path_for_compare(m_sidecar_path);
+        return path.find("\\saveprofiles\\") != std::string::npos &&
+            path.find("\\remotecache\\") == std::string::npos &&
+            path.find("\\startupcache\\") == std::string::npos;
+    }
+
+    auto SignTextMod::is_cache_path_allowed() const -> bool
+    {
+        const auto path = normalized_path_for_compare(m_sidecar_path);
+        return path.find("\\remotecache\\") != std::string::npos ||
+            path.find("\\startupcache\\") != std::string::npos ||
+            path.find("\\moddata\\") != std::string::npos ||
+            path.find("\\cache\\") != std::string::npos;
+    }
+
     auto SignTextMod::save_sidecar_json(const std::string& reason, const std::string& key, const std::string& stable_id, const std::string& world_id) -> void
     {
+        if (m_sidecar_authoritative && !is_authoritative_write_allowed())
+        {
+            log_line("[guardrail] write_refused reason=" + reason +
+                     " key=" + key +
+                     " cause=authoritative_role_or_path_not_confirmed runtimeRole=" + m_runtime_role +
+                     " authorityMode=" + m_authority_mode +
+                     " path=" + m_sidecar_path.string());
+            return;
+        }
+        if (!m_sidecar_authoritative && !is_cache_path_allowed())
+        {
+            log_line("[guardrail] write_refused reason=" + reason +
+                     " key=" + key +
+                     " cause=cache_path_not_confirmed runtimeRole=" + m_runtime_role +
+                     " sidecarKind=" + m_sidecar_kind +
+                     " path=" + m_sidecar_path.string());
+            return;
+        }
+        const bool explicit_empty_allowed =
+            reason == "clear" ||
+            reason.find("prune_") == 0;
+        if (const auto disk_count = sidecar_record_count_on_disk(); disk_count.has_value() && *disk_count > 0 && m_labels.empty() && !explicit_empty_allowed)
+        {
+            log_line("[guardrail] write_refused reason=" + reason +
+                     " key=" + key +
+                     " cause=nonempty_file_to_empty_memory diskRecords=" + std::to_string(*disk_count) +
+                     " path=" + m_sidecar_path.string());
+            return;
+        }
+
+        if (m_sidecar_authoritative)
+        {
+            ++m_revision;
+        }
+
         std::error_code ec{};
         std::filesystem::create_directories(m_sidecar_path.parent_path(), ec);
         if (ec)
@@ -4430,14 +4553,20 @@ namespace WindroseTextSigns
 
         std::ostringstream payload{};
         payload << "{\n";
-        payload << "  \"version\": 1,\n";
+        payload << "  \"version\": 2,\n";
+        payload << "  \"schema\": \"WindroseTextSigns.SignTexts.v2\",\n";
         payload << "  \"runtimeRole\": \"" << escape_json(m_runtime_role) << "\",\n";
         payload << "  \"dataMode\": \"" << escape_json(m_data_mode) << "\",\n";
         payload << "  \"authorityMode\": \"" << escape_json(m_authority_mode) << "\",\n";
+        payload << "  \"authority\": \"" << escape_json(m_sidecar_authoritative ? "authoritative" : "cache") << "\",\n";
         payload << "  \"sidecarKind\": \"" << escape_json(m_sidecar_kind) << "\",\n";
         payload << "  \"authoritative\": " << (m_sidecar_authoritative ? "true" : "false") << ",\n";
+        payload << "  \"revision\": " << m_revision << ",\n";
         payload << "  \"profileRoot\": \"" << escape_json(m_save_profile_root) << "\",\n";
+        payload << "  \"worldIslandId\": \"" << escape_json(m_world_folder_id) << "\",\n";
         payload << "  \"worldFolderId\": \"" << escape_json(m_world_folder_id) << "\",\n";
+        payload << "  \"writerSessionId\": \"" << escape_json(m_session_id) << "\",\n";
+        payload << "  \"writerProcessKind\": \"" << escape_json(m_runtime_role) << "\",\n";
         payload << "  \"lastWriteUtc\": \"" << escape_json(now_utc()) << "\",\n";
         payload << "  \"labels\": {\n";
         bool first = true;
@@ -4515,6 +4644,7 @@ namespace WindroseTextSigns
                  " runtimeRole=" + m_runtime_role +
                  " authorityMode=" + m_authority_mode +
                  " sidecarKind=" + m_sidecar_kind +
+                 " revision=" + std::to_string(m_revision) +
                  " path=" + m_sidecar_path.string() +
                  " backup=" + sidecar_bak_path.string());
         maybe_write_backup_snapshot(reason, payload_str);
@@ -5383,6 +5513,10 @@ namespace WindroseTextSigns
             if (!is_restore_scan_world_active())
             {
                 m_consecutive_empty_label_scans = 0;
+                m_restore_scan_has_seen_live_labels = false;
+                m_live_label_actor_ptrs.clear();
+                m_missing_label_scan_counts.clear();
+                m_seen_live_label_keys.clear();
                 if (!m_restore_scan_wait_logged)
                 {
                     log_line("[save] restore_scan waiting reason=no_active_world");
@@ -5431,6 +5565,11 @@ namespace WindroseTextSigns
                             m_component_name_cache.erase(key);
                             m_phase4_next_retry.erase(key);
                             m_missing_label_scan_counts.erase(key);
+                            if (m_text_buffer_bound_key == key)
+                            {
+                                m_text_buffer.fill('\0');
+                                m_text_buffer_bound_key.clear();
+                            }
                             save_sidecar_json("prune_rebuilt_label", key, stable_id, world_id);
                             pruned_rebuilt_label = true;
                         }
@@ -5518,6 +5657,11 @@ namespace WindroseTextSigns
                     m_seen_live_label_keys.erase(key);
                     m_live_label_actor_ptrs.erase(key);
                     m_missing_label_scan_counts.erase(key);
+                    if (m_text_buffer_bound_key == key)
+                    {
+                        m_text_buffer.fill('\0');
+                        m_text_buffer_bound_key.clear();
+                    }
                     ++pruned_count;
                 }
 
@@ -5650,6 +5794,18 @@ namespace WindroseTextSigns
         configure_sidecar_for_actor(m_selected->actor, actor_world_id);
         const auto world_id = active_storage_world_id(actor_world_id);
         const auto key = build_storage_key(world_id, m_selected->stable_id);
+        if (m_text_buffer_bound_key != key)
+        {
+            if (const auto found = m_labels.find(key); found != m_labels.end())
+            {
+                std::snprintf(m_text_buffer.data(), m_text_buffer.size(), "%s", found->second.text.c_str());
+            }
+            else
+            {
+                m_text_buffer.fill('\0');
+            }
+            m_text_buffer_bound_key = key;
+        }
         if (auto found = m_labels.find(key); found != m_labels.end())
         {
             static bool live_surface_tune = true;

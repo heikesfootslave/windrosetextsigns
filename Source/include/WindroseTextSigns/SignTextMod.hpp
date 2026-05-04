@@ -139,6 +139,9 @@ namespace WindroseTextSigns
 
         auto load_sidecar_json() -> void;
         auto save_sidecar_json(const std::string& reason, const std::string& key, const std::string& stable_id, const std::string& world_id) -> void;
+        auto sidecar_record_count_on_disk() const -> std::optional<size_t>;
+        auto is_authoritative_write_allowed() const -> bool;
+        auto is_cache_path_allowed() const -> bool;
         auto maybe_write_backup_snapshot(const std::string& reason, const std::string& payload) -> void;
         auto sanitize_backup_reason(std::string reason) const -> std::string;
 
@@ -164,6 +167,8 @@ namespace WindroseTextSigns
         std::string m_save_profile_root{};
         std::string m_world_folder_id{};
         bool m_sidecar_authoritative{false};
+        uint64_t m_revision{0};
+        std::string m_session_id{};
 
         std::atomic<bool> m_hotkey_requested{false};
         std::atomic<bool> m_clear_hotkey_requested{false};
@@ -184,6 +189,7 @@ namespace WindroseTextSigns
 
         std::optional<SelectionCandidate> m_selected{};
         std::array<char, 257> m_text_buffer{};
+        std::string m_text_buffer_bound_key{};
 
         RC::Unreal::Hook::GlobalCallbackId m_process_event_probe_id{RC::Unreal::Hook::ERROR_ID};
         RC::Unreal::Hook::GlobalCallbackId m_static_construct_probe_id{RC::Unreal::Hook::ERROR_ID};
