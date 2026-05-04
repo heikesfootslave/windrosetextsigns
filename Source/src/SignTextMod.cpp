@@ -302,11 +302,11 @@ namespace
     {
         DataRootResolution out{};
         const bool dedicated_server = is_dedicated_server_process(cwd, mod_root);
-        out.runtime_role = dedicated_server ? "DedicatedServer" : "LocalClient";
-        out.authority_mode = dedicated_server ? "DedicatedServerAuthoritative" : "LocalClientSoloOrHostedAuthoritative";
-        out.data_mode = dedicated_server ? "ServerAuthoritative" : "LocalProfileAuthoritative";
-        out.sidecar_kind = "authoritative";
-        out.authoritative = true;
+        out.runtime_role = dedicated_server ? "DedicatedServer" : "LocalClientPending";
+        out.authority_mode = dedicated_server ? "DedicatedServerAuthoritative" : "WorldAuthorityPending";
+        out.data_mode = dedicated_server ? "ServerAuthoritative" : "LocalClientStartupCache";
+        out.sidecar_kind = dedicated_server ? "authoritative" : "cache";
+        out.authoritative = dedicated_server;
 
         const auto profile_roots = dedicated_server
             ? collect_dedicated_save_profile_roots(cwd, mod_root)
@@ -318,7 +318,9 @@ namespace
             {
                 out.profile_root = profile_root;
                 out.world_id = *world_id;
-                out.data_root = profile_root / "WindroseTextSigns" / *world_id;
+                out.data_root = dedicated_server
+                    ? profile_root / "WindroseTextSigns" / *world_id
+                    : profile_root / "WindroseTextSigns" / "StartupCache" / *world_id;
                 return out;
             }
         }
@@ -338,8 +340,13 @@ namespace
         }
         out.profile_root.clear();
         out.world_id = "unknown-world";
-        out.data_mode = dedicated_server ? "ServerAuthoritativeFallbackModData" : "LocalProfileAuthoritativeFallbackModData";
-        out.sidecar_kind = "authoritative-fallback";
+        out.data_mode = dedicated_server ? "ServerAuthoritativeFallbackModData" : "LocalClientStartupCacheFallbackModData";
+        out.sidecar_kind = dedicated_server ? "authoritative-fallback" : "cache-fallback";
+        out.authoritative = dedicated_server;
+        if (!dedicated_server)
+        {
+            out.data_root /= "StartupCache";
+        }
         return out;
     }
 
@@ -773,6 +780,33 @@ namespace
             return static_cast<char>(std::tolower(c));
         });
         return value;
+    }
+
+    auto trim_copy_ascii(std::string value) -> std::string
+    {
+        auto is_not_space = [](unsigned char ch) {
+            return std::isspace(ch) == 0;
+        };
+        value.erase(value.begin(), std::find_if(value.begin(), value.end(), is_not_space));
+        value.erase(std::find_if(value.rbegin(), value.rend(), is_not_space).base(), value.end());
+        return value;
+    }
+
+    auto sanitize_path_segment(std::string value) -> std::string
+    {
+        if (value.empty())
+        {
+            return "unknown";
+        }
+        for (auto& ch : value)
+        {
+            const auto uch = static_cast<unsigned char>(ch);
+            if (std::isalnum(uch) == 0 && ch != '-' && ch != '_' && ch != '.')
+            {
+                ch = '_';
+            }
+        }
+        return value.empty() ? std::string{"unknown"} : value;
     }
 
     auto contains_any_token(const std::string& haystack, std::initializer_list<const char*> tokens) -> bool
@@ -1754,6 +1788,55 @@ namespace WindroseTextSigns
         return value;
     }
 
+    auto SignTextMod::config_bool_value(std::string_view key, bool fallback) const -> bool
+    {
+        if (key.empty())
+        {
+            return fallback;
+        }
+
+        std::string content{};
+        if (!read_text_file(m_mod_root / "Config" / "WindroseTextSigns.ini", content))
+        {
+            return fallback;
+        }
+
+        const auto key_lower = lower_copy_ascii(std::string{key});
+        std::istringstream rows{content};
+        std::string row{};
+        while (std::getline(rows, row))
+        {
+            auto trimmed = trim_copy_ascii(row);
+            if (trimmed.empty() || trimmed.front() == '#' || trimmed.front() == ';' || trimmed.front() == '[')
+            {
+                continue;
+            }
+            const auto eq = trimmed.find('=');
+            if (eq == std::string::npos)
+            {
+                continue;
+            }
+            auto found_key = lower_copy_ascii(trim_copy_ascii(trimmed.substr(0, eq)));
+            if (found_key != key_lower)
+            {
+                continue;
+            }
+            auto value = lower_copy_ascii(trim_copy_ascii(trimmed.substr(eq + 1)));
+            return value == "1" || value == "true" || value == "yes" || value == "on";
+        }
+
+        return fallback;
+    }
+
+    auto SignTextMod::is_static_construct_probe_enabled() const -> bool
+    {
+        if (std::filesystem::exists(m_mod_root / "Config" / "enable_static_construct_probe.flag"))
+        {
+            return true;
+        }
+        return config_bool_value("WTS_STATIC_CONSTRUCT_PROBE", false);
+    }
+
     auto SignTextMod::now_utc() const -> std::string
     {
         const auto now = std::time(nullptr);
@@ -1826,6 +1909,7 @@ namespace WindroseTextSigns
     auto SignTextMod::on_unreal_init() -> void
     {
         m_mod_root = resolve_mod_root();
+        m_static_construct_probe_enabled = is_static_construct_probe_enabled();
         configure_data_root();
         m_legacy_sidecar_path = m_mod_root / "SignTexts.json";
         m_sidecar_path = m_data_root / "SignTexts.json";
@@ -1838,7 +1922,7 @@ namespace WindroseTextSigns
         }
 
         open_log();
-        log_line(std::string{"[build] version=0.1.2-prototype compiled="} + __DATE__ + " " + __TIME__ + " flags=F8,F9,F10,phase2-role-aware-sidecar");
+        log_line(std::string{"[build] version=0.1.2-prototype compiled="} + __DATE__ + " " + __TIME__ + " flags=F8,F9,F10,phase2-role-aware-sidecar,remote-cache-routing,staticconstruct-gated");
         log_line("[role] runtimeRole=" + m_runtime_role +
                  " dataMode=" + m_data_mode +
                  " authorityMode=" + m_authority_mode +
@@ -1849,6 +1933,8 @@ namespace WindroseTextSigns
         log_line("[save] data_root=" + m_data_root.string() +
                  " sidecar=" + m_sidecar_path.string() +
                  " backups=" + m_backup_root.string());
+        log_line("[probe] StaticConstructObject post-probe config enabled=" +
+                 std::string{m_static_construct_probe_enabled ? "true" : "false"});
 
         std::error_code mkdir_ec{};
         std::filesystem::create_directories(m_data_root, mkdir_ec);
@@ -2152,6 +2238,11 @@ namespace WindroseTextSigns
 
     auto SignTextMod::install_static_construct_probe() -> void
     {
+        if (!m_static_construct_probe_enabled)
+        {
+            log_line("[probe] StaticConstructObject post-probe skipped reason=disabled");
+            return;
+        }
         if (m_static_construct_probe_id != Hook::ERROR_ID)
         {
             return;
@@ -3130,6 +3221,206 @@ namespace WindroseTextSigns
             return match[1].str();
         }
         return "unknown";
+    }
+
+    auto SignTextMod::is_world_authoritative(UObject* world_object) const -> bool
+    {
+        if (!world_object)
+        {
+            return false;
+        }
+
+        bool saw_authority_game_mode = false;
+        bool has_authority_game_mode = false;
+        for_each_property_in_chain_compat(world_object->GetClassPrivate(), [&](FProperty* prop) {
+            if (!prop || has_authority_game_mode)
+            {
+                return;
+            }
+            const auto prop_name = lower_ascii(RC::to_string(prop->GetName()));
+            if (prop_name != "authoritygamemode")
+            {
+                return;
+            }
+            saw_authority_game_mode = true;
+            if (prop->GetClass().HashObject() == FObjectProperty::StaticClass().HashObject())
+            {
+                if (auto* value_ptr = prop->ContainerPtrToValuePtr<UObject*>(world_object); value_ptr && *value_ptr)
+                {
+                    has_authority_game_mode = true;
+                }
+            }
+        });
+
+        return saw_authority_game_mode && has_authority_game_mode;
+    }
+
+    auto SignTextMod::set_sidecar_route(
+        const std::filesystem::path& data_root,
+        const std::string& runtime_role,
+        const std::string& data_mode,
+        const std::string& authority_mode,
+        const std::string& sidecar_kind,
+        bool authoritative,
+        const std::filesystem::path& profile_root,
+        const std::string& world_folder_id,
+        const std::string& reason) -> void
+    {
+        if (data_root.empty())
+        {
+            return;
+        }
+
+        const auto next_sidecar_path = data_root / "SignTexts.json";
+        const bool route_changed =
+            m_sidecar_path.empty() ||
+            normalized_path_for_compare(next_sidecar_path) != normalized_path_for_compare(m_sidecar_path);
+        const bool mode_changed =
+            m_runtime_role != runtime_role ||
+            m_data_mode != data_mode ||
+            m_authority_mode != authority_mode ||
+            m_sidecar_kind != sidecar_kind ||
+            m_sidecar_authoritative != authoritative ||
+            m_save_profile_root != profile_root.string() ||
+            m_world_folder_id != world_folder_id;
+
+        if (!route_changed && !mode_changed)
+        {
+            return;
+        }
+
+        const auto old_sidecar = m_sidecar_path.string();
+        m_data_root = data_root;
+        m_sidecar_path = next_sidecar_path;
+        m_backup_root = m_data_root / "Backups";
+        m_runtime_role = runtime_role;
+        m_data_mode = data_mode;
+        m_authority_mode = authority_mode;
+        m_sidecar_kind = sidecar_kind;
+        m_sidecar_authoritative = authoritative;
+        m_save_profile_root = profile_root.string();
+        m_world_folder_id = world_folder_id;
+
+        std::error_code mkdir_ec{};
+        std::filesystem::create_directories(m_data_root, mkdir_ec);
+        std::error_code backup_mkdir_ec{};
+        std::filesystem::create_directories(m_backup_root, backup_mkdir_ec);
+
+        log_line("[role] sidecar_route reason=" + reason +
+                 " runtimeRole=" + m_runtime_role +
+                 " dataMode=" + m_data_mode +
+                 " authorityMode=" + m_authority_mode +
+                 " sidecarKind=" + m_sidecar_kind +
+                 " authoritative=" + std::string{m_sidecar_authoritative ? "true" : "false"} +
+                 " profileRoot=" + (m_save_profile_root.empty() ? "none" : m_save_profile_root) +
+                 " worldFolderId=" + m_world_folder_id +
+                 " oldSidecar=" + (old_sidecar.empty() ? "none" : old_sidecar) +
+                 " newSidecar=" + m_sidecar_path.string());
+
+        if (mkdir_ec)
+        {
+            log_line("[save] failed to create routed data root path=" + m_data_root.string() + " error=" + mkdir_ec.message());
+        }
+        if (backup_mkdir_ec)
+        {
+            log_line("[save] failed to create routed backup root path=" + m_backup_root.string() + " error=" + backup_mkdir_ec.message());
+        }
+
+        if (route_changed)
+        {
+            load_sidecar_json();
+        }
+    }
+
+    auto SignTextMod::configure_sidecar_for_actor(AActor* actor, const std::string& world_id) -> void
+    {
+        if (!actor)
+        {
+            return;
+        }
+
+        if (is_dedicated_server_process(std::filesystem::current_path(), m_mod_root))
+        {
+            return;
+        }
+
+        auto* world = actor->GetWorld();
+        if (!world)
+        {
+            return;
+        }
+
+        std::filesystem::path profile_root{};
+        if (!m_save_profile_root.empty() && std::filesystem::exists(m_save_profile_root))
+        {
+            profile_root = std::filesystem::path{m_save_profile_root};
+        }
+        else
+        {
+            const auto profile_roots = collect_local_client_save_profile_roots();
+            if (!profile_roots.empty())
+            {
+                profile_root = profile_roots.front();
+            }
+        }
+
+        const bool local_authority = is_world_authoritative(world);
+        const auto safe_world_id = sanitize_path_segment(world_id.empty() ? std::string{"unknown-world"} : world_id);
+        if (local_authority)
+        {
+            auto world_folder_id = m_world_folder_id;
+            if (!is_hex_world_id(world_folder_id))
+            {
+                if (!profile_root.empty())
+                {
+                    if (auto chosen = choose_world_id_for_profile(profile_root); chosen.has_value())
+                    {
+                        world_folder_id = *chosen;
+                    }
+                }
+                if (!is_hex_world_id(world_folder_id))
+                {
+                    world_folder_id = safe_world_id;
+                }
+            }
+
+            const auto data_root = !profile_root.empty()
+                ? profile_root / "WindroseTextSigns" / world_folder_id
+                : m_mod_root / "Cache" / "LocalAuthoritative" / world_folder_id;
+            set_sidecar_route(
+                data_root,
+                "LocalClient",
+                profile_root.empty() ? "LocalProfileAuthoritativeFallbackModRoot" : "LocalProfileAuthoritative",
+                "LocalClientSoloOrHostedAuthoritative",
+                profile_root.empty() ? "authoritative-fallback" : "authoritative",
+                true,
+                profile_root,
+                world_folder_id,
+                "world_authority_detected");
+            return;
+        }
+
+        std::filesystem::path cache_base{};
+        if (!profile_root.empty())
+        {
+            cache_base = profile_root / "WindroseTextSigns";
+        }
+        else
+        {
+            const auto moddata_roots = collect_moddata_roots(std::filesystem::current_path(), m_mod_root);
+            cache_base = moddata_roots.empty() ? (m_mod_root / "Cache") : moddata_roots.front();
+        }
+
+        set_sidecar_route(
+            cache_base / "RemoteCache" / safe_world_id,
+            "RemoteClient",
+            "RemoteClientCache",
+            "ServerAuthoritativePendingBridge",
+            "cache",
+            false,
+            profile_root,
+            safe_world_id,
+            "world_authority_absent_remote_cache");
     }
 
     auto SignTextMod::try_extract_guid_from_object(UObject* object) -> std::optional<std::string>
@@ -4538,6 +4829,7 @@ namespace WindroseTextSigns
 
         const auto stable_id = extract_stable_id(actor);
         const auto world_id = build_world_id_for_actor(actor);
+        configure_sidecar_for_actor(actor, world_id);
         const auto key = build_storage_key(world_id, stable_id);
 
         if (text_value.empty())
@@ -4693,6 +4985,7 @@ namespace WindroseTextSigns
         }
         auto* actor = m_selected->actor;
         const auto world_id = m_selected->world_id.empty() ? build_world_id_for_actor(actor) : m_selected->world_id;
+        configure_sidecar_for_actor(actor, world_id);
         const auto key = build_storage_key(world_id, m_selected->stable_id);
 
         LabelRecord rec{};
@@ -4768,6 +5061,7 @@ namespace WindroseTextSigns
             return;
         }
         const auto world_id = m_selected->world_id.empty() ? build_world_id_for_actor(m_selected->actor) : m_selected->world_id;
+        configure_sidecar_for_actor(m_selected->actor, world_id);
         const auto key = build_storage_key(world_id, m_selected->stable_id);
         log_line("[apply] clear_request key=" + key + " stableId=" + m_selected->stable_id +
                  " worldId=" + world_id + " path=" + m_sidecar_path.string());
@@ -4996,6 +5290,7 @@ namespace WindroseTextSigns
                 }
                 const auto stable_id = extract_stable_id(actor);
                 const auto world_id = build_world_id_for_actor(actor);
+                configure_sidecar_for_actor(actor, world_id);
                 const auto key = build_storage_key(world_id, stable_id);
                 present_label_keys.insert(key);
                 ++present_world_counts[world_id];
@@ -5197,6 +5492,7 @@ namespace WindroseTextSigns
         ImGui::Text("Distance: %.1f", m_selected->distance);
 
         const auto world_id = m_selected->world_id.empty() ? build_world_id_for_actor(m_selected->actor) : m_selected->world_id;
+        configure_sidecar_for_actor(m_selected->actor, world_id);
         const auto key = build_storage_key(world_id, m_selected->stable_id);
         if (auto found = m_labels.find(key); found != m_labels.end())
         {
@@ -5302,6 +5598,7 @@ namespace WindroseTextSigns
         if (ImGui::Button("Flip Surface Side"))
         {
             const auto world_id = m_selected->world_id.empty() ? build_world_id_for_actor(m_selected->actor) : m_selected->world_id;
+            configure_sidecar_for_actor(m_selected->actor, world_id);
             const auto key = build_storage_key(world_id, m_selected->stable_id);
             if (auto found = m_labels.find(key); found != m_labels.end())
             {

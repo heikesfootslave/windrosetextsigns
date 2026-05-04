@@ -79,6 +79,8 @@ namespace WindroseTextSigns
         auto install_process_event_probe() -> void;
         auto install_static_construct_probe() -> void;
         auto uninstall_process_event_probe() -> void;
+        auto is_static_construct_probe_enabled() const -> bool;
+        auto config_bool_value(std::string_view key, bool fallback) const -> bool;
 
         auto tick_pending_hotkey() -> void;
         auto tick_pending_fallback_hotkeys() -> void;
@@ -99,6 +101,18 @@ namespace WindroseTextSigns
 
         auto is_probable_label_actor(RC::Unreal::AActor* actor) const -> bool;
         auto detect_label_asset(RC::Unreal::AActor* actor) const -> std::string;
+        auto is_world_authoritative(RC::Unreal::UObject* world_object) const -> bool;
+        auto configure_sidecar_for_actor(RC::Unreal::AActor* actor, const std::string& world_id) -> void;
+        auto set_sidecar_route(
+            const std::filesystem::path& data_root,
+            const std::string& runtime_role,
+            const std::string& data_mode,
+            const std::string& authority_mode,
+            const std::string& sidecar_kind,
+            bool authoritative,
+            const std::filesystem::path& profile_root,
+            const std::string& world_folder_id,
+            const std::string& reason) -> void;
 
         auto build_world_id_for_actor(RC::Unreal::AActor* actor) const -> std::string;
         auto build_storage_key(const std::string& world_id, const std::string& stable_id) const -> std::string;
@@ -159,6 +173,7 @@ namespace WindroseTextSigns
         bool m_phase7_native_supported{false};
         bool m_phase7_native_editor_open{false};
         bool m_phase7_imgui_fallback_enabled{true};
+        bool m_static_construct_probe_enabled{false};
         bool m_f8_poll_was_down{false};
         std::string m_phase7_native_probe_summary{};
         RC::Unreal::UObject* m_phase7_native_widget{};
