@@ -1808,6 +1808,7 @@ namespace WindroseTextSigns
         ModVersion = STR("0.1.2-prototype");
         ModDescription = STR("Wooden Label custom text prototype");
         ModAuthors = STR("Windrose modding prototype");
+        m_phase7_text_editor = std::make_unique<NativeTextEditor>();
 
         register_tab(STR("WindroseTextSigns"), [](CppUserModBase* mod) {
             UE4SS_ENABLE_IMGUI();
@@ -1817,6 +1818,10 @@ namespace WindroseTextSigns
 
     SignTextMod::~SignTextMod()
     {
+        if (m_phase7_text_editor)
+        {
+            m_phase7_text_editor->close();
+        }
         if (m_log.is_open())
         {
             m_log.flush();
@@ -2214,6 +2219,110 @@ namespace WindroseTextSigns
         }
         m_phase7_native_widget = nullptr;
         m_phase7_native_editor_open = false;
+    }
+
+    auto SignTextMod::open_phase7_text_editor_for_selection() -> bool
+    {
+        if (!m_selected.has_value())
+        {
+            return false;
+        }
+        if (!ensure_selected_actor_valid("open_phase7_text_editor_for_selection"))
+        {
+            return false;
+        }
+        if (!m_phase7_text_editor)
+        {
+            m_phase7_text_editor = std::make_unique<NativeTextEditor>();
+        }
+
+        const auto actor_world_id = m_selected->world_id.empty() ? build_world_id_for_actor(m_selected->actor) : m_selected->world_id;
+        configure_sidecar_for_actor(m_selected->actor, actor_world_id);
+        const auto world_id = active_storage_world_id(actor_world_id);
+        const auto key = build_storage_key(world_id, m_selected->stable_id);
+        if (m_text_buffer_bound_key != key)
+        {
+            if (const auto found = m_labels.find(key); found != m_labels.end())
+            {
+                std::snprintf(m_text_buffer.data(), m_text_buffer.size(), "%s", found->second.text.c_str());
+            }
+            else
+            {
+                m_text_buffer.fill('\0');
+            }
+            m_text_buffer_bound_key = key;
+        }
+
+        const bool input_mode = set_phase7_game_and_ui_input_mode(true);
+        const bool opened = m_phase7_text_editor->open("Label: Text", std::string{m_text_buffer.data()});
+        log_line("[phase7-win32] open_text_editor opened=" + std::string{opened ? "true" : "false"} +
+                 " inputModeApplied=" + std::string{input_mode ? "true" : "false"} +
+                 " key=" + key +
+                 " stableId=" + m_selected->stable_id);
+        return opened;
+    }
+
+    auto SignTextMod::tick_phase7_text_editor() -> void
+    {
+        if (!m_phase7_text_editor)
+        {
+            return;
+        }
+        const auto result = m_phase7_text_editor->pump();
+        if (!result.has_value() || result->action == NativeTextEditorAction::None)
+        {
+            return;
+        }
+
+        const auto restore_input = [&]() {
+            const bool restored = set_phase7_game_and_ui_input_mode(false);
+            log_line("[phase7-win32] restore_input restored=" + std::string{restored ? "true" : "false"});
+        };
+
+        if (!m_selected.has_value() || !ensure_selected_actor_valid("tick_phase7_text_editor"))
+        {
+            restore_input();
+            log_line("[phase7-win32] action_ignored reason=no_valid_selection");
+            return;
+        }
+
+        const auto actor_world_id = m_selected->world_id.empty() ? build_world_id_for_actor(m_selected->actor) : m_selected->world_id;
+        configure_sidecar_for_actor(m_selected->actor, actor_world_id);
+        const auto world_id = active_storage_world_id(actor_world_id);
+        const auto key = build_storage_key(world_id, m_selected->stable_id);
+
+        switch (result->action)
+        {
+        case NativeTextEditorAction::Apply:
+            std::snprintf(m_text_buffer.data(), m_text_buffer.size(), "%s", result->text.c_str());
+            m_text_buffer_bound_key = key;
+            log_line("[phase7-win32] apply key=" + key +
+                     " stableId=" + m_selected->stable_id +
+                     " chars=" + std::to_string(result->text.size()));
+            apply_text_to_selected_label(result->text);
+            restore_input();
+            break;
+        case NativeTextEditorAction::Clear:
+            m_text_buffer.fill('\0');
+            m_text_buffer_bound_key = key;
+            log_line("[phase7-win32] clear key=" + key +
+                     " stableId=" + m_selected->stable_id);
+            clear_text_on_selected_label();
+            restore_input();
+            break;
+        case NativeTextEditorAction::Cancel:
+            log_line("[phase7-win32] cancel key=" + key +
+                     " stableId=" + m_selected->stable_id);
+            restore_input();
+            break;
+        case NativeTextEditorAction::Closed:
+            log_line("[phase7-win32] closed key=" + key +
+                     " stableId=" + m_selected->stable_id);
+            restore_input();
+            break;
+        default:
+            break;
+        }
     }
 
     auto SignTextMod::migrate_legacy_sidecar_if_needed() -> void
@@ -3984,6 +4093,13 @@ namespace WindroseTextSigns
         }
         m_text_buffer_bound_key = key;
 
+        const bool text_editor_opened = open_phase7_text_editor_for_selection();
+        if (text_editor_opened)
+        {
+            m_ui_open = false;
+            return;
+        }
+
         const bool native_opened = open_phase7_native_editor_for_selection();
         if (native_opened)
         {
@@ -3993,7 +4109,8 @@ namespace WindroseTextSigns
 
         m_ui_open = m_phase7_imgui_fallback_enabled;
         log_line("[phase7] F8 fallback_to_imgui=" + std::string{m_phase7_imgui_fallback_enabled ? "true" : "false"} +
-                 " nativeSupported=" + std::string{m_phase7_native_supported ? "true" : "false"});
+                 " nativeSupported=" + std::string{m_phase7_native_supported ? "true" : "false"} +
+                 " win32Opened=" + std::string{text_editor_opened ? "true" : "false"});
     }
 
     auto SignTextMod::ensure_selected_label_for_action(const std::string& action_name) -> bool
@@ -5349,9 +5466,6 @@ namespace WindroseTextSigns
             if (rec.world_id == m_world_folder_id && m_bridge_snapshot_seen_keys.find(key) == m_bridge_snapshot_seen_keys.end())
             {
                 removed.emplace(key, rec);
-                m_rendered_text_cache.erase(key);
-                m_component_name_cache.erase(key);
-                m_phase4_next_retry.erase(key);
                 m_seen_live_label_keys.erase(key);
                 m_live_label_actor_ptrs.erase(key);
                 m_missing_label_scan_counts.erase(key);
@@ -5370,8 +5484,43 @@ namespace WindroseTextSigns
 
         if (!removed.empty())
         {
+            uint32_t removed_components = 0;
+            UObjectGlobals::ForEachUObject([&](UObject* object, int32, int32) {
+                if (!object || !object->IsA(AActor::StaticClass()))
+                {
+                    return LoopAction::Continue;
+                }
+                auto* actor = Cast<AActor>(object);
+                if (!actor || !is_probable_label_actor(actor))
+                {
+                    return LoopAction::Continue;
+                }
+                const auto stable_id = extract_stable_id(actor);
+                for (const auto& [key, rec] : removed)
+                {
+                    if (rec.stable_id == stable_id)
+                    {
+                        if (destroy_managed_text_component(actor, key))
+                        {
+                            ++removed_components;
+                        }
+                    }
+                }
+                return LoopAction::Continue;
+            });
+
+            for (const auto& [key, rec] : removed)
+            {
+                (void)rec;
+                m_rendered_text_cache.erase(key);
+                m_component_name_cache.erase(key);
+                m_phase4_next_retry.erase(key);
+            }
+
             write_recovery_candidate(reason, removed);
             save_sidecar_json("bridge_snapshot_reconcile", "batch:" + std::to_string(removed.size()), "batch", m_world_folder_id);
+            log_line("[bridge] snapshot_reconcile_components removedRecords=" + std::to_string(removed.size()) +
+                     " removedComponents=" + std::to_string(removed_components));
         }
 
         log_line("[bridge] snapshot_reconcile reason=" + reason +
@@ -6228,6 +6377,7 @@ namespace WindroseTextSigns
         m_f8_poll_was_down = f8_is_down;
 
         tick_pending_hotkey();
+        tick_phase7_text_editor();
         tick_pending_fallback_hotkeys();
         tick_file_triggers();
         tick_bridge();
