@@ -43,6 +43,7 @@ namespace
     using namespace RC;
     using namespace RC::Unreal;
     extern "C" __declspec(dllimport) short __stdcall GetAsyncKeyState(int vKey);
+    extern "C" __declspec(dllimport) unsigned long __stdcall GetModuleFileNameA(void* hModule, char* lpFilename, unsigned long nSize);
     constexpr int k_vk_f8 = 0x77;
 
     struct Viewpoint
@@ -59,6 +60,18 @@ namespace
         int rows{1};
         int char_limit{12};
         bool truncated{false};
+    };
+
+    struct DataRootResolution
+    {
+        std::filesystem::path data_root{};
+        std::filesystem::path profile_root{};
+        std::string world_id{};
+        std::string runtime_role{"Unknown"};
+        std::string data_mode{"Unknown"};
+        std::string authority_mode{"Unknown"};
+        std::string sidecar_kind{"unknown"};
+        bool authoritative{false};
     };
 
     auto lower_ascii_path_token(std::string value) -> std::string
@@ -129,6 +142,27 @@ namespace
 #endif
     }
 
+    auto current_executable_path() -> std::filesystem::path
+    {
+        std::array<char, 32768> buffer{};
+        const auto len = GetModuleFileNameA(nullptr, buffer.data(), static_cast<unsigned long>(buffer.size()));
+        if (len == 0 || len >= buffer.size())
+        {
+            return {};
+        }
+        return std::filesystem::path(std::string{buffer.data(), len});
+    }
+
+    auto is_dedicated_server_process(const std::filesystem::path& cwd, const std::filesystem::path& mod_root) -> bool
+    {
+        auto combined = current_executable_path().string() + "|" + cwd.string() + "|" + mod_root.string();
+        std::replace(combined.begin(), combined.end(), '/', '\\');
+        combined = lower_ascii_path_token(combined);
+        return combined.find("windroseserver") != std::string::npos ||
+               combined.find("\\windowsserver\\") != std::string::npos ||
+               combined.find("\\serverfiles\\") != std::string::npos;
+    }
+
     auto find_r5_root_from_path(std::filesystem::path start) -> std::optional<std::filesystem::path>
     {
         if (start.empty())
@@ -155,10 +189,9 @@ namespace
         return std::nullopt;
     }
 
-    auto collect_save_profile_roots(const std::filesystem::path& cwd, const std::filesystem::path& mod_root) -> std::vector<std::filesystem::path>
+    auto collect_dedicated_save_profile_roots(const std::filesystem::path& cwd, const std::filesystem::path& mod_root) -> std::vector<std::filesystem::path>
     {
         std::vector<std::filesystem::path> roots{};
-
         if (auto r5_root = find_r5_root_from_path(cwd); r5_root.has_value())
         {
             append_unique_path(roots, *r5_root / "Saved" / "SaveProfiles" / "Default");
@@ -167,27 +200,47 @@ namespace
         {
             append_unique_path(roots, *r5_root / "Saved" / "SaveProfiles" / "Default");
         }
-
-        const auto local_app_data = get_env_var("LOCALAPPDATA");
-        if (!local_app_data.empty())
-        {
-            const auto appdata_profiles = std::filesystem::path(local_app_data) / "R5" / "Saved" / "SaveProfiles";
-            if (std::filesystem::exists(appdata_profiles))
-            {
-                std::error_code iter_ec{};
-                for (const auto& entry : std::filesystem::directory_iterator(appdata_profiles, iter_ec))
-                {
-                    if (!iter_ec && entry.is_directory())
-                    {
-                        append_unique_path(roots, entry.path());
-                    }
-                }
-            }
-        }
-
         roots.erase(
             std::remove_if(roots.begin(), roots.end(), [](const auto& path) { return !std::filesystem::exists(path); }),
             roots.end());
+        return roots;
+    }
+
+    auto collect_local_client_save_profile_roots() -> std::vector<std::filesystem::path>
+    {
+        std::vector<std::filesystem::path> roots{};
+        const auto local_app_data = get_env_var("LOCALAPPDATA");
+        if (local_app_data.empty())
+        {
+            return roots;
+        }
+
+        const auto appdata_profiles = std::filesystem::path(local_app_data) / "R5" / "Saved" / "SaveProfiles";
+        if (!std::filesystem::exists(appdata_profiles))
+        {
+            return roots;
+        }
+
+        std::vector<std::filesystem::directory_entry> profile_dirs{};
+        std::error_code iter_ec{};
+        for (const auto& entry : std::filesystem::directory_iterator(appdata_profiles, iter_ec))
+        {
+            if (!iter_ec && entry.is_directory())
+            {
+                profile_dirs.push_back(entry);
+            }
+        }
+
+        std::sort(profile_dirs.begin(), profile_dirs.end(), [](const auto& lhs, const auto& rhs) {
+            std::error_code lhs_ec{};
+            std::error_code rhs_ec{};
+            return std::filesystem::last_write_time(lhs.path(), lhs_ec) > std::filesystem::last_write_time(rhs.path(), rhs_ec);
+        });
+
+        for (const auto& entry : profile_dirs)
+        {
+            append_unique_path(roots, entry.path());
+        }
         return roots;
     }
 
@@ -243,16 +296,51 @@ namespace
         return std::nullopt;
     }
 
-    auto resolve_save_profile_data_root(const std::filesystem::path& cwd, const std::filesystem::path& mod_root) -> std::optional<std::filesystem::path>
+    auto collect_moddata_roots(const std::filesystem::path& cwd, const std::filesystem::path& mod_root) -> std::vector<std::filesystem::path>;
+
+    auto resolve_data_root_for_role(const std::filesystem::path& cwd, const std::filesystem::path& mod_root) -> DataRootResolution
     {
-        for (const auto& profile_root : collect_save_profile_roots(cwd, mod_root))
+        DataRootResolution out{};
+        const bool dedicated_server = is_dedicated_server_process(cwd, mod_root);
+        out.runtime_role = dedicated_server ? "DedicatedServer" : "LocalClient";
+        out.authority_mode = dedicated_server ? "DedicatedServerAuthoritative" : "LocalClientSoloOrHostedAuthoritative";
+        out.data_mode = dedicated_server ? "ServerAuthoritative" : "LocalProfileAuthoritative";
+        out.sidecar_kind = "authoritative";
+        out.authoritative = true;
+
+        const auto profile_roots = dedicated_server
+            ? collect_dedicated_save_profile_roots(cwd, mod_root)
+            : collect_local_client_save_profile_roots();
+
+        for (const auto& profile_root : profile_roots)
         {
             if (auto world_id = choose_world_id_for_profile(profile_root); world_id.has_value())
             {
-                return profile_root / "WindroseTextSigns" / *world_id;
+                out.profile_root = profile_root;
+                out.world_id = *world_id;
+                out.data_root = profile_root / "WindroseTextSigns" / *world_id;
+                return out;
             }
         }
-        return std::nullopt;
+
+        const auto candidates = collect_moddata_roots(cwd, mod_root);
+        for (const auto& path : candidates)
+        {
+            if (std::filesystem::exists(path))
+            {
+                out.data_root = path;
+                break;
+            }
+        }
+        if (out.data_root.empty() && !candidates.empty())
+        {
+            out.data_root = candidates.front();
+        }
+        out.profile_root.clear();
+        out.world_id = "unknown-world";
+        out.data_mode = dedicated_server ? "ServerAuthoritativeFallbackModData" : "LocalProfileAuthoritativeFallbackModData";
+        out.sidecar_kind = "authoritative-fallback";
+        return out;
     }
 
     auto collect_moddata_roots(const std::filesystem::path& cwd, const std::filesystem::path& mod_root) -> std::vector<std::filesystem::path>
@@ -1703,23 +1791,18 @@ namespace WindroseTextSigns
         return candidates.back();
     }
 
-    auto SignTextMod::resolve_data_root() const -> std::filesystem::path
+    auto SignTextMod::configure_data_root() -> void
     {
         const auto cwd = std::filesystem::current_path();
-        if (auto save_profile_root = resolve_save_profile_data_root(cwd, m_mod_root); save_profile_root.has_value())
-        {
-            return *save_profile_root;
-        }
-
-        const auto candidates = collect_moddata_roots(cwd, m_mod_root);
-        for (const auto& path : candidates)
-        {
-            if (std::filesystem::exists(path))
-            {
-                return path;
-            }
-        }
-        return candidates.front();
+        const auto resolution = resolve_data_root_for_role(cwd, m_mod_root);
+        m_data_root = resolution.data_root;
+        m_runtime_role = resolution.runtime_role;
+        m_data_mode = resolution.data_mode;
+        m_authority_mode = resolution.authority_mode;
+        m_sidecar_kind = resolution.sidecar_kind;
+        m_sidecar_authoritative = resolution.authoritative;
+        m_save_profile_root = resolution.profile_root.string();
+        m_world_folder_id = resolution.world_id;
     }
 
     auto SignTextMod::open_log() -> void
@@ -1743,7 +1826,7 @@ namespace WindroseTextSigns
     auto SignTextMod::on_unreal_init() -> void
     {
         m_mod_root = resolve_mod_root();
-        m_data_root = resolve_data_root();
+        configure_data_root();
         m_legacy_sidecar_path = m_mod_root / "SignTexts.json";
         m_sidecar_path = m_data_root / "SignTexts.json";
         m_backup_root = m_data_root / "Backups";
@@ -1755,7 +1838,14 @@ namespace WindroseTextSigns
         }
 
         open_log();
-        log_line(std::string{"[build] version=0.1.2-prototype compiled="} + __DATE__ + " " + __TIME__ + " flags=F8,F9,F10,phase2-save-profile-sidecar");
+        log_line(std::string{"[build] version=0.1.2-prototype compiled="} + __DATE__ + " " + __TIME__ + " flags=F8,F9,F10,phase2-role-aware-sidecar");
+        log_line("[role] runtimeRole=" + m_runtime_role +
+                 " dataMode=" + m_data_mode +
+                 " authorityMode=" + m_authority_mode +
+                 " sidecarKind=" + m_sidecar_kind +
+                 " authoritative=" + std::string{m_sidecar_authoritative ? "true" : "false"} +
+                 " profileRoot=" + (m_save_profile_root.empty() ? "none" : m_save_profile_root) +
+                 " worldFolderId=" + m_world_folder_id);
         log_line("[save] data_root=" + m_data_root.string() +
                  " sidecar=" + m_sidecar_path.string() +
                  " backups=" + m_backup_root.string());
@@ -3970,6 +4060,14 @@ namespace WindroseTextSigns
         std::ostringstream payload{};
         payload << "{\n";
         payload << "  \"version\": 1,\n";
+        payload << "  \"runtimeRole\": \"" << escape_json(m_runtime_role) << "\",\n";
+        payload << "  \"dataMode\": \"" << escape_json(m_data_mode) << "\",\n";
+        payload << "  \"authorityMode\": \"" << escape_json(m_authority_mode) << "\",\n";
+        payload << "  \"sidecarKind\": \"" << escape_json(m_sidecar_kind) << "\",\n";
+        payload << "  \"authoritative\": " << (m_sidecar_authoritative ? "true" : "false") << ",\n";
+        payload << "  \"profileRoot\": \"" << escape_json(m_save_profile_root) << "\",\n";
+        payload << "  \"worldFolderId\": \"" << escape_json(m_world_folder_id) << "\",\n";
+        payload << "  \"lastWriteUtc\": \"" << escape_json(now_utc()) << "\",\n";
         payload << "  \"labels\": {\n";
         bool first = true;
         for (const auto& [key, rec] : m_labels)
@@ -4043,6 +4141,9 @@ namespace WindroseTextSigns
         log_line("[save] write_done reason=" + reason +
                  " key=" + key + " stableId=" + stable_id + " worldId=" + world_id +
                  " records=" + std::to_string(m_labels.size()) +
+                 " runtimeRole=" + m_runtime_role +
+                 " authorityMode=" + m_authority_mode +
+                 " sidecarKind=" + m_sidecar_kind +
                  " path=" + m_sidecar_path.string() +
                  " backup=" + sidecar_bak_path.string());
         maybe_write_backup_snapshot(reason, payload_str);

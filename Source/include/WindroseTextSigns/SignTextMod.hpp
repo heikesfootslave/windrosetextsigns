@@ -65,7 +65,7 @@ namespace WindroseTextSigns
 
       private:
         auto resolve_mod_root() -> std::filesystem::path;
-        auto resolve_data_root() const -> std::filesystem::path;
+        auto configure_data_root() -> void;
         auto migrate_legacy_sidecar_if_needed() -> void;
         auto open_log() -> void;
         auto log_line(const std::string& line) -> void;
@@ -139,6 +139,13 @@ namespace WindroseTextSigns
         std::vector<std::filesystem::path> m_legacy_sidecar_paths{};
         std::filesystem::path m_backup_root{};
         std::ofstream m_log{};
+        std::string m_runtime_role{"Unknown"};
+        std::string m_data_mode{"Unknown"};
+        std::string m_authority_mode{"Unknown"};
+        std::string m_sidecar_kind{"unknown"};
+        std::string m_save_profile_root{};
+        std::string m_world_folder_id{};
+        bool m_sidecar_authoritative{false};
 
         std::atomic<bool> m_hotkey_requested{false};
         std::atomic<bool> m_clear_hotkey_requested{false};

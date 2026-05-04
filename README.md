@@ -63,10 +63,17 @@ No native Windrose label interaction was added in this prototype.
   - `[phase4] clear_component ...`
 
 5. Phase 5 (Persistence): **Implemented, pending runtime verification**
-- Sidecar JSON in UE4SS ModData path:
+- Sidecar JSON is now save-profile-adjacent and role-aware.
+- Dedicated server authoritative path:
+  - `...\R5\Saved\SaveProfiles\Default\WindroseTextSigns\<worldId>\SignTexts.json`
+- Solo/Hosted local-client authoritative path:
+  - `%LOCALAPPDATA%\R5\Saved\SaveProfiles\<profileId>\WindroseTextSigns\<worldId>\SignTexts.json`
+- Fallback path, used only if no save profile/world can be resolved:
   - `...\ue4ss\ModData\WindroseTextSigns\SignTexts.json`
-- One-time migration attempted from legacy path:
+- One-time migration attempted from legacy UE4SS paths:
+  - `...\ue4ss\ModData\WindroseTextSigns\SignTexts.json`
   - `...\ue4ss\Mods\WindroseTextSigns\SignTexts.json`
+- JSON metadata records `runtimeRole`, `dataMode`, `authorityMode`, `sidecarKind`, `profileRoot`, and `worldFolderId`.
 - Keys are `worldId/stableId`.
 - Records store text, asset, and last-seen timestamp.
 - Sidecar writes are now atomic-style:
@@ -77,7 +84,7 @@ No native Windrose label interaction was added in this prototype.
   - primary `SignTexts.json`
   - backup `SignTexts.json.bak`
   - temp `SignTexts.json.tmp`
-  - newest snapshot backups under `...\ue4ss\ModData\WindroseTextSigns\Backups\SignTexts.backup_*.json` (up to 5)
+  - newest snapshot backups under the active sidecar `Backups\SignTexts.backup_*.json` folder (up to 5)
 - Auto-restore hardening:
   - if primary file parses as empty while a backup/snapshot contains records, mod auto-restores from latest non-empty backup and rewrites primary.
 - Malformed rows are skipped defensively instead of crashing load.
@@ -89,7 +96,10 @@ No native Windrose label interaction was added in this prototype.
   - prune saves are batched in a single sidecar write per scan pass.
 
 6. Phase 6 (Multiplayer): **Not implemented**
-- Behavior is currently local diagnostic/prototype scope only.
+- The same mod package is installed on client and server.
+- Dedicated server owns the authoritative sidecar.
+- Solo/Hosted local worlds use the local client profile as authoritative.
+- Remote clients still need the client/server bridge before their edits can become server-authoritative.
 
 7. Phase 7 (Native in-game text entry UI): **Investigation/Scaffolding started, pending runtime verification**
 - Added native capability probe for UMG/input-mode runtime entry points:

@@ -25,7 +25,8 @@ param(
     [switch]$SkipClient,
     [switch]$SkipServer,
     [switch]$SkipContentBuild,
-    [switch]$SkipContentDeploy
+    [switch]$SkipContentDeploy,
+    [switch]$DisableContentPackage
 )
 
 Set-StrictMode -Version Latest
@@ -238,6 +239,27 @@ function Deploy-ContentPackageToTarget {
     Write-Step "Verified content pak deployment: `"$targetDir`""
 }
 
+function Clean-ContentPackagesFromTarget {
+    param(
+        [Parameter(Mandatory = $true)][string]$TargetPakModsRoot,
+        [Parameter(Mandatory = $true)][string]$PackageBaseName,
+        [Parameter(Mandatory = $true)][string]$SubfolderName,
+        [Parameter(Mandatory = $true)][string[]]$CleanPackageNames
+    )
+
+    Assert-ExpectedPakModsPath -Path $TargetPakModsRoot
+    if (-not (Test-Path -LiteralPath $TargetPakModsRoot)) {
+        return
+    }
+
+    $cleanupNames = @($CleanPackageNames + @($PackageBaseName, $SubfolderName) |
+        Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+        Select-Object -Unique)
+    foreach ($name in $cleanupNames) {
+        Remove-PakPackageIfPresent -TargetPakModsRoot $TargetPakModsRoot -PackageName $name
+    }
+}
+
 function Assert-SafeTargetPath {
     param(
         [Parameter(Mandatory = $true)][string]$TargetPath,
@@ -310,13 +332,17 @@ if (!(Test-Path -LiteralPath $DeploymentsDir)) {
 
 $contentSubfolderName = Resolve-ContentDeploySubfolderName -RawName $ContentDeploySubfolderName -DefaultName $ContentPackageBaseName
 
-if (-not $SkipContentBuild) {
+if ($DisableContentPackage) {
+    Write-Step "DisableContentPackage set; content pak will be cleaned from targets and not rebuilt/deployed"
+} elseif (-not $SkipContentBuild) {
     Invoke-ContentPackageBuild -BuildScript $ContentBuildScript -StageRoot $ContentPackageStageRoot -PackageBaseName $ContentPackageBaseName
 } else {
     Write-Step "SkipContentBuild set; using existing content package outputs"
 }
 
-if (-not $SkipContentDeploy) {
+if ($DisableContentPackage) {
+    Write-Step "DisableContentPackage set; content package output verification skipped"
+} elseif (-not $SkipContentDeploy) {
     foreach ($ext in @("utoc", "ucas", "pak")) {
         $source = Join-Path $ContentPackageStageRoot ($ContentPackageBaseName + "." + $ext)
         if (-not (Test-Path -LiteralPath $source)) {
@@ -356,7 +382,13 @@ try {
 
     if (-not $SkipClient) {
         Deploy-ToTarget -ExtractedModDir $extractedModDir -ModsRoot $ClientModsRoot
-        if (-not $SkipContentDeploy) {
+        if ($DisableContentPackage) {
+            Clean-ContentPackagesFromTarget `
+                -TargetPakModsRoot $ClientPakModsRoot `
+                -PackageBaseName $ContentPackageBaseName `
+                -SubfolderName $contentSubfolderName `
+                -CleanPackageNames $CleanPakPackageNames
+        } elseif (-not $SkipContentDeploy) {
             Deploy-ContentPackageToTarget `
                 -StageRoot $ContentPackageStageRoot `
                 -PackageBaseName $ContentPackageBaseName `
@@ -370,7 +402,13 @@ try {
 
     if (-not $SkipServer) {
         Deploy-ToTarget -ExtractedModDir $extractedModDir -ModsRoot $ServerModsRoot
-        if (-not $SkipContentDeploy) {
+        if ($DisableContentPackage) {
+            Clean-ContentPackagesFromTarget `
+                -TargetPakModsRoot $ServerPakModsRoot `
+                -PackageBaseName $ContentPackageBaseName `
+                -SubfolderName $contentSubfolderName `
+                -CleanPackageNames $CleanPakPackageNames
+        } elseif (-not $SkipContentDeploy) {
             Deploy-ContentPackageToTarget `
                 -StageRoot $ContentPackageStageRoot `
                 -PackageBaseName $ContentPackageBaseName `
