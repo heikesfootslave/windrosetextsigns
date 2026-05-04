@@ -203,6 +203,8 @@ namespace WindroseTextSigns
         std::atomic<bool> m_clear_hotkey_requested{false};
         std::atomic<bool> m_six_sign_test_requested{false};
         std::atomic<bool> m_buildmenu_probe_requested{false};
+        std::atomic<bool> m_phase7_enter_requested{false};
+        std::atomic<bool> m_phase7_escape_requested{false};
         uint32_t m_hotkey_retry_remaining{0};
         std::chrono::steady_clock::time_point m_hotkey_retry_next{};
         bool m_ui_open{false};
@@ -215,6 +217,7 @@ namespace WindroseTextSigns
         bool m_f8_poll_was_down{false};
         bool m_phase7_enter_was_down{false};
         bool m_phase7_escape_was_down{false};
+        std::string m_phase7_umg_last_text{};
         std::string m_phase7_native_probe_summary{};
         RC::Unreal::UObject* m_phase7_native_widget{};
         RC::Unreal::UObject* m_phase7_umg_widget{};
