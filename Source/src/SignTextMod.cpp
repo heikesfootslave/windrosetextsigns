@@ -41,6 +41,8 @@ namespace
 {
     using namespace RC;
     using namespace RC::Unreal;
+    extern "C" __declspec(dllimport) short __stdcall GetAsyncKeyState(int vKey);
+    constexpr int k_vk_f8 = 0x77;
 
     struct Viewpoint
     {
@@ -2940,6 +2942,7 @@ namespace WindroseTextSigns
         SelectionCandidate best{};
         double best_dot = -1.0;
         double best_perp = 999999.0;
+        double best_angle_deg = 999.0;
         size_t candidate_count = 0;
         size_t strict_candidate_count = 0;
         size_t loose_candidate_count = 0;
@@ -2980,19 +2983,25 @@ namespace WindroseTextSigns
             const auto dir = vec_normalize(to_actor);
             const auto dot = vec_dot(forward, dir);
             const double forward_dist = dot * dist;
+            if (forward_dist <= 0.0)
+            {
+                return LoopAction::Continue;
+            }
             double perp_sq = (dist * dist) - (forward_dist * forward_dist);
             if (perp_sq < 0.0)
             {
                 perp_sq = 0.0;
             }
             const double perp = std::sqrt(perp_sq);
+            const double angle_rad = std::atan2(perp, forward_dist);
+            const double angle_deg = angle_rad * (180.0 / 3.14159265358979323846);
 
-            // Dynamic lateral tolerance:
-            // allow slightly wider off-center picks at longer distances but avoid
-            // selecting signs far away from crosshair.
-            const double max_perp = std::clamp(dist * 0.32, 130.0, 620.0);
-            const bool strict_match = (dot > 0.20) && (perp <= max_perp);
-            const bool loose_close_match = (dot > 0.03) && (dist <= 500.0) && (perp <= 280.0);
+            // Crosshair-first gating:
+            // strict pass approximates center-dot hit; loose pass is a small recovery band.
+            constexpr double k_strict_angle_deg = 1.5;
+            constexpr double k_loose_angle_deg = 3.0;
+            const bool strict_match = (angle_deg <= k_strict_angle_deg);
+            const bool loose_close_match = (angle_deg <= k_loose_angle_deg) && (dist <= 700.0);
             if (!strict_match && !loose_close_match)
             {
                 return LoopAction::Continue;
@@ -3007,13 +3016,12 @@ namespace WindroseTextSigns
             {
                 ++loose_candidate_count;
             }
-            // Single robust score:
-            // prioritize crosshair alignment first, then lateral error, then distance.
+            // Score by center-dot alignment first (smallest angle), then distance.
             const double score =
-                (strict_match ? 500000.0 : 0.0) +
-                (dot * 1000000.0) -
-                (perp * 1500.0) -
-                (dist * 1.5) +
+                (strict_match ? 2000000.0 : 0.0) -
+                (angle_deg * 100000.0) -
+                (dist * 6.0) -
+                (perp * 25.0) +
                 ((m_selected.has_value() && m_selected->stable_id == stable_id) ? 3000.0 : 0.0);
             if (!best.actor || score > best.score)
             {
@@ -3025,6 +3033,7 @@ namespace WindroseTextSigns
                 best.asset = detect_label_asset(actor);
                 best_dot = dot;
                 best_perp = perp;
+                best_angle_deg = angle_deg;
                 best_anchor_sample_count = 1;
             }
 
@@ -3058,6 +3067,7 @@ namespace WindroseTextSigns
                  " mode=ranked" +
                  " dot=" + std::to_string(best_dot) +
                  " perp=" + std::to_string(best_perp) +
+                 " angleDeg=" + std::to_string(best_angle_deg) +
                  " anchors=" + std::to_string(best_anchor_sample_count) +
                  " candidateCount=" + std::to_string(candidate_count) +
                  " strictCandidateCount=" + std::to_string(strict_candidate_count) +
@@ -4604,6 +4614,17 @@ namespace WindroseTextSigns
         {
             return;
         }
+
+        // F8 reliability fallback:
+        // capture hardware edge directly in case callback registration misses events
+        // while input focus/context changes.
+        const bool f8_is_down = ((GetAsyncKeyState(k_vk_f8) & 0x8000) != 0);
+        if (f8_is_down && !m_f8_poll_was_down)
+        {
+            m_hotkey_requested.store(true);
+            log_line("[input] F8 polled_edge");
+        }
+        m_f8_poll_was_down = f8_is_down;
 
         tick_pending_hotkey();
         tick_pending_fallback_hotkeys();
