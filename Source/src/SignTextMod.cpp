@@ -1783,7 +1783,12 @@ namespace
             std::transform(prop_name_lower.begin(), prop_name_lower.end(), prop_name_lower.begin(), [](unsigned char c) {
                 return static_cast<char>(std::tolower(c));
             });
-            if ((prop_name_lower == "value" || prop_name_lower.find("size") != std::string::npos || prop_name_lower.find("scale") != std::string::npos)
+            if ((prop_name_lower == "value" ||
+                 prop_name_lower.find("size") != std::string::npos ||
+                 prop_name_lower.find("scale") != std::string::npos ||
+                 prop_name_lower.find("width") != std::string::npos ||
+                 prop_name_lower.find("height") != std::string::npos ||
+                 prop_name_lower.find("opacity") != std::string::npos)
                 && prop->GetSize() == static_cast<int32_t>(sizeof(float)))
             {
                 if (auto* value_ptr = prop->ContainerPtrToValuePtr<float>(params.data()))
@@ -1791,6 +1796,93 @@ namespace
                     *value_ptr = value;
                     assigned = true;
                 }
+            }
+        });
+        if (!assigned)
+        {
+            return false;
+        }
+        context->ProcessEvent(fn, params.data());
+        return true;
+    }
+
+    auto invoke_set_vector2d_value(UObject* context, const TCHAR* in_chain_name, const TCHAR* path_name, float x, float y) -> bool
+    {
+        auto* fn = find_function_by_chain_or_path(context, in_chain_name, path_name);
+        if (!context || !fn)
+        {
+            return false;
+        }
+        std::vector<uint8_t> params(static_cast<size_t>(std::max<int32_t>(fn->GetStructureSize(), 32)), 0);
+        bool assigned = false;
+        for_each_property_in_chain_compat(fn, [&](FProperty* prop) {
+            if (!prop || assigned || prop->HasAnyPropertyFlags(CPF_ReturnParm) || prop->HasAnyPropertyFlags(CPF_OutParm))
+            {
+                return;
+            }
+            if (prop->GetClass().HashObject() != FStructProperty::StaticClass().HashObject())
+            {
+                return;
+            }
+            auto* storage = prop->ContainerPtrToValuePtr<void>(params.data());
+            if (!storage)
+            {
+                return;
+            }
+            if (prop->GetSize() == 8)
+            {
+                auto* values = static_cast<float*>(storage);
+                values[0] = x;
+                values[1] = y;
+                assigned = true;
+            }
+            else if (prop->GetSize() == 16)
+            {
+                auto* values = static_cast<double*>(storage);
+                values[0] = static_cast<double>(x);
+                values[1] = static_cast<double>(y);
+                assigned = true;
+            }
+        });
+        if (!assigned)
+        {
+            return false;
+        }
+        context->ProcessEvent(fn, params.data());
+        return true;
+    }
+
+    auto invoke_set_rgba_value(UObject* context, const TCHAR* in_chain_name, const TCHAR* path_name, float r, float g, float b, float a) -> bool
+    {
+        auto* fn = find_function_by_chain_or_path(context, in_chain_name, path_name);
+        if (!context || !fn)
+        {
+            return false;
+        }
+        std::vector<uint8_t> params(static_cast<size_t>(std::max<int32_t>(fn->GetStructureSize(), 64)), 0);
+        bool assigned = false;
+        for_each_property_in_chain_compat(fn, [&](FProperty* prop) {
+            if (!prop || assigned || prop->HasAnyPropertyFlags(CPF_ReturnParm) || prop->HasAnyPropertyFlags(CPF_OutParm))
+            {
+                return;
+            }
+            if (prop->GetClass().HashObject() != FStructProperty::StaticClass().HashObject())
+            {
+                return;
+            }
+            auto* storage = prop->ContainerPtrToValuePtr<void>(params.data());
+            if (!storage)
+            {
+                return;
+            }
+            if (prop->GetSize() >= 16)
+            {
+                auto* values = static_cast<float*>(storage);
+                values[0] = r;
+                values[1] = g;
+                values[2] = b;
+                values[3] = a;
+                assigned = true;
             }
         });
         if (!assigned)
@@ -2510,20 +2602,28 @@ namespace WindroseTextSigns
         auto* controller = try_get_primary_player_controller();
         auto* user_widget_class = find_uclass_by_path(STR("/Script/UMG.UserWidget"));
         auto* widget_tree_class = find_uclass_by_path(STR("/Script/UMG.WidgetTree"));
-        auto* vertical_box_class = find_uclass_by_path(STR("/Script/UMG.VerticalBox"));
-        auto* text_block_class = find_uclass_by_path(STR("/Script/UMG.TextBlock"));
-        auto* text_box_class = find_uclass_by_path(STR("/Script/UMG.MultiLineEditableTextBox"));
+        auto* canvas_panel_class = find_uclass_by_path(STR("/Script/UMG.CanvasPanel"));
+        auto* size_box_class = find_uclass_by_path(STR("/Script/UMG.SizeBox"));
+        auto* text_box_class = find_uclass_by_path(STR("/Script/UMG.MultiLineEditableText"));
+        if (!text_box_class)
+        {
+            text_box_class = find_uclass_by_path(STR("/Script/UMG.MultiLineEditableTextBox"));
+        }
+        if (!text_box_class)
+        {
+            text_box_class = find_uclass_by_path(STR("/Script/UMG.EditableText"));
+        }
         if (!text_box_class)
         {
             text_box_class = find_uclass_by_path(STR("/Script/UMG.EditableTextBox"));
         }
-        if (!controller || !user_widget_class || !widget_tree_class || !vertical_box_class || !text_block_class || !text_box_class)
+        if (!controller || !user_widget_class || !widget_tree_class || !canvas_panel_class || !size_box_class || !text_box_class)
         {
             log_line("[phase7-umg] open_failed reason=missing_class controller=" + std::string{controller ? "1" : "0"} +
                      " userWidget=" + std::string{user_widget_class ? "1" : "0"} +
                      " widgetTree=" + std::string{widget_tree_class ? "1" : "0"} +
-                     " vbox=" + std::string{vertical_box_class ? "1" : "0"} +
-                     " textBlock=" + std::string{text_block_class ? "1" : "0"} +
+                     " canvas=" + std::string{canvas_panel_class ? "1" : "0"} +
+                     " sizeBox=" + std::string{size_box_class ? "1" : "0"} +
                      " textBox=" + std::string{text_box_class ? "1" : "0"});
             return false;
         }
@@ -2545,14 +2645,14 @@ namespace WindroseTextSigns
             return false;
         }
 
-        auto* root = create_umg_widget_object(tree, vertical_box_class, "WTS_Root");
-        auto* title = create_umg_widget_object(tree, text_block_class, "WTS_Title");
+        auto* root = create_umg_widget_object(tree, canvas_panel_class, "WTS_RootCanvas");
+        auto* editor = create_umg_widget_object(tree, size_box_class, "WTS_EditorSize");
         auto* text_box = create_umg_widget_object(tree, text_box_class, "WTS_TextBox");
 
-        if (!root || !title || !text_box)
+        if (!root || !editor || !text_box)
         {
             log_line("[phase7-umg] open_failed reason=construct_children root=" + std::string{root ? "1" : "0"} +
-                     " title=" + std::string{title ? "1" : "0"} +
+                     " editor=" + std::string{editor ? "1" : "0"} +
                      " textBox=" + std::string{text_box ? "1" : "0"});
             return false;
         }
@@ -2579,11 +2679,22 @@ namespace WindroseTextSigns
         }
 
         const bool root_set = set_object_property_if_present(tree, "RootWidget", root);
-        const bool title_text = invoke_umg_set_text(title, "Label: Text");
         const bool input_text = invoke_umg_set_text(text_box, std::string{m_text_buffer.data()});
+        const bool input_color =
+            invoke_set_rgba_value(text_box, STR("SetColorAndOpacity"), nullptr, 1.0f, 1.0f, 1.0f, 1.0f) ||
+            invoke_set_rgba_value(text_box, STR("SetForegroundColor"), nullptr, 1.0f, 1.0f, 1.0f, 1.0f);
+        const bool editor_width = invoke_set_float_value(editor, STR("SetWidthOverride"), STR("/Script/UMG.SizeBox:SetWidthOverride"), 240.0f);
+        const bool editor_height = invoke_set_float_value(editor, STR("SetHeightOverride"), STR("/Script/UMG.SizeBox:SetHeightOverride"), 120.0f);
+        const bool root_opacity = invoke_set_float_value(root, STR("SetRenderOpacity"), STR("/Script/UMG.Widget:SetRenderOpacity"), 1.0f);
+        const bool editor_opacity = invoke_set_float_value(editor, STR("SetRenderOpacity"), STR("/Script/UMG.Widget:SetRenderOpacity"), 1.0f);
+        const bool input_opacity = invoke_set_float_value(text_box, STR("SetRenderOpacity"), STR("/Script/UMG.Widget:SetRenderOpacity"), 1.0f);
+        const bool editor_scale = invoke_set_vector2d_value(editor, STR("SetRenderScale"), STR("/Script/UMG.Widget:SetRenderScale"), 1.25f, 1.25f);
 
-        const bool add_title = invoke_add_child(root, title) != nullptr;
-        const bool add_text = invoke_add_child(root, text_box) != nullptr;
+        auto* editor_slot = invoke_add_child(root, editor);
+        const bool slot_pos = invoke_set_vector2d_value(editor_slot, STR("SetPosition"), nullptr, 960.0f, 540.0f);
+        const bool slot_size = invoke_set_vector2d_value(editor_slot, STR("SetSize"), nullptr, 240.0f, 120.0f);
+        const bool slot_align = invoke_set_vector2d_value(editor_slot, STR("SetAlignment"), nullptr, 0.5f, 0.5f);
+        const bool set_content = invoke_set_content(editor, text_box);
 
         const bool added = invoke_add_to_viewport(widget, 1000);
         const bool input_mode = set_phase7_game_and_ui_input_mode(true);
@@ -2596,10 +2707,13 @@ namespace WindroseTextSigns
         log_line("[phase7-umg] open_result added=" + std::string{added ? "true" : "false"} +
                  " inputModeApplied=" + std::string{input_mode ? "true" : "false"} +
                  " rootSet=" + std::string{root_set ? "true" : "false"} +
-                 " titleText=" + std::string{title_text ? "true" : "false"} +
                  " inputText=" + std::string{input_text ? "true" : "false"} +
-                 " addTitle=" + std::string{add_title ? "true" : "false"} +
-                 " addText=" + std::string{add_text ? "true" : "false"} +
+                 " color=" + std::string{input_color ? "true" : "false"} +
+                 " editorSize=" + std::string{(editor_width && editor_height) ? "true" : "false"} +
+                 " opacity=" + std::string{(root_opacity && editor_opacity && input_opacity) ? "true" : "false"} +
+                 " scale=" + std::string{editor_scale ? "true" : "false"} +
+                 " slot=" + std::string{(editor_slot && slot_pos && slot_size && slot_align) ? "true" : "false"} +
+                 " content=" + std::string{set_content ? "true" : "false"} +
                  " key=" + key);
 
         if (!added)
@@ -2683,6 +2797,10 @@ namespace WindroseTextSigns
                      " emptyMeansClear=" + std::string{trimmed_for_clear.empty() ? "true" : "false"});
             if (read)
             {
+                if (text.size() > 48)
+                {
+                    text.resize(48);
+                }
                 std::snprintf(m_text_buffer.data(), m_text_buffer.size(), "%s", text.c_str());
                 m_text_buffer_bound_key = key;
                 if (trimmed_for_clear.empty())
