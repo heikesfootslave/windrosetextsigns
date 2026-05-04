@@ -2230,7 +2230,8 @@ namespace WindroseTextSigns
 
         if (m_process_event_probe_id == Hook::ERROR_ID)
         {
-            log_line("[probe] ProcessEvent pre-probe registration failed (hook unavailable). StaticConstructObject probe remains active.");
+            log_line("[probe] ProcessEvent pre-probe registration failed (hook unavailable). StaticConstructObject probe enabled=" +
+                     std::string{m_static_construct_probe_enabled ? "true" : "false"});
             return;
         }
         log_line("[probe] ProcessEvent pre-probe installed id=" + std::to_string(m_process_event_probe_id));
@@ -3421,6 +3422,15 @@ namespace WindroseTextSigns
             profile_root,
             safe_world_id,
             "world_authority_absent_remote_cache");
+    }
+
+    auto SignTextMod::active_storage_world_id(const std::string& actor_world_id) const -> std::string
+    {
+        if (!m_world_folder_id.empty() && m_world_folder_id != "unknown-world")
+        {
+            return m_world_folder_id;
+        }
+        return actor_world_id.empty() ? std::string{"unknown-world"} : actor_world_id;
     }
 
     auto SignTextMod::try_extract_guid_from_object(UObject* object) -> std::optional<std::string>
@@ -4828,8 +4838,9 @@ namespace WindroseTextSigns
         }
 
         const auto stable_id = extract_stable_id(actor);
-        const auto world_id = build_world_id_for_actor(actor);
-        configure_sidecar_for_actor(actor, world_id);
+        const auto actor_world_id = build_world_id_for_actor(actor);
+        configure_sidecar_for_actor(actor, actor_world_id);
+        const auto world_id = active_storage_world_id(actor_world_id);
         const auto key = build_storage_key(world_id, stable_id);
 
         if (text_value.empty())
@@ -4984,8 +4995,9 @@ namespace WindroseTextSigns
             return;
         }
         auto* actor = m_selected->actor;
-        const auto world_id = m_selected->world_id.empty() ? build_world_id_for_actor(actor) : m_selected->world_id;
-        configure_sidecar_for_actor(actor, world_id);
+        const auto actor_world_id = m_selected->world_id.empty() ? build_world_id_for_actor(actor) : m_selected->world_id;
+        configure_sidecar_for_actor(actor, actor_world_id);
+        const auto world_id = active_storage_world_id(actor_world_id);
         const auto key = build_storage_key(world_id, m_selected->stable_id);
 
         LabelRecord rec{};
@@ -5060,8 +5072,9 @@ namespace WindroseTextSigns
         {
             return;
         }
-        const auto world_id = m_selected->world_id.empty() ? build_world_id_for_actor(m_selected->actor) : m_selected->world_id;
-        configure_sidecar_for_actor(m_selected->actor, world_id);
+        const auto actor_world_id = m_selected->world_id.empty() ? build_world_id_for_actor(m_selected->actor) : m_selected->world_id;
+        configure_sidecar_for_actor(m_selected->actor, actor_world_id);
+        const auto world_id = active_storage_world_id(actor_world_id);
         const auto key = build_storage_key(world_id, m_selected->stable_id);
         log_line("[apply] clear_request key=" + key + " stableId=" + m_selected->stable_id +
                  " worldId=" + world_id + " path=" + m_sidecar_path.string());
@@ -5084,7 +5097,8 @@ namespace WindroseTextSigns
         {
             return;
         }
-        const auto key = build_storage_key(build_world_id_for_actor(actor), stable_id);
+        const auto actor_world_id = build_world_id_for_actor(actor);
+        const auto key = build_storage_key(active_storage_world_id(actor_world_id), stable_id);
         const auto found = m_labels.find(key);
         if (found == m_labels.end() || found->second.text.empty())
         {
@@ -5186,7 +5200,9 @@ namespace WindroseTextSigns
         }
 
         const auto stable_id = extract_stable_id(actor);
-        const auto world_id = build_world_id_for_actor(actor);
+        const auto actor_world_id = build_world_id_for_actor(actor);
+        configure_sidecar_for_actor(actor, actor_world_id);
+        const auto world_id = active_storage_world_id(actor_world_id);
         const auto key = build_storage_key(world_id, stable_id);
         const auto now = std::chrono::steady_clock::now();
         if (const auto seen = m_construct_probe_last_seen.find(key); seen != m_construct_probe_last_seen.end())
@@ -5289,8 +5305,9 @@ namespace WindroseTextSigns
                     return LoopAction::Continue;
                 }
                 const auto stable_id = extract_stable_id(actor);
-                const auto world_id = build_world_id_for_actor(actor);
-                configure_sidecar_for_actor(actor, world_id);
+                const auto actor_world_id = build_world_id_for_actor(actor);
+                configure_sidecar_for_actor(actor, actor_world_id);
+                const auto world_id = active_storage_world_id(actor_world_id);
                 const auto key = build_storage_key(world_id, stable_id);
                 present_label_keys.insert(key);
                 ++present_world_counts[world_id];
@@ -5491,8 +5508,9 @@ namespace WindroseTextSigns
         ImGui::Text("Asset: %s", m_selected->asset.c_str());
         ImGui::Text("Distance: %.1f", m_selected->distance);
 
-        const auto world_id = m_selected->world_id.empty() ? build_world_id_for_actor(m_selected->actor) : m_selected->world_id;
-        configure_sidecar_for_actor(m_selected->actor, world_id);
+        const auto actor_world_id = m_selected->world_id.empty() ? build_world_id_for_actor(m_selected->actor) : m_selected->world_id;
+        configure_sidecar_for_actor(m_selected->actor, actor_world_id);
+        const auto world_id = active_storage_world_id(actor_world_id);
         const auto key = build_storage_key(world_id, m_selected->stable_id);
         if (auto found = m_labels.find(key); found != m_labels.end())
         {
@@ -5597,8 +5615,9 @@ namespace WindroseTextSigns
         ImGui::SameLine();
         if (ImGui::Button("Flip Surface Side"))
         {
-            const auto world_id = m_selected->world_id.empty() ? build_world_id_for_actor(m_selected->actor) : m_selected->world_id;
-            configure_sidecar_for_actor(m_selected->actor, world_id);
+            const auto actor_world_id = m_selected->world_id.empty() ? build_world_id_for_actor(m_selected->actor) : m_selected->world_id;
+            configure_sidecar_for_actor(m_selected->actor, actor_world_id);
+            const auto world_id = active_storage_world_id(actor_world_id);
             const auto key = build_storage_key(world_id, m_selected->stable_id);
             if (auto found = m_labels.find(key); found != m_labels.end())
             {
