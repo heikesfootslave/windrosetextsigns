@@ -213,6 +213,8 @@ namespace WindroseTextSigns
         bool m_phase7_imgui_fallback_enabled{true};
         bool m_static_construct_probe_enabled{false};
         bool m_f8_poll_was_down{false};
+        bool m_phase7_enter_was_down{false};
+        bool m_phase7_escape_was_down{false};
         std::string m_phase7_native_probe_summary{};
         RC::Unreal::UObject* m_phase7_native_widget{};
         RC::Unreal::UObject* m_phase7_umg_widget{};

@@ -46,6 +46,8 @@ namespace
     extern "C" __declspec(dllimport) short __stdcall GetAsyncKeyState(int vKey);
     extern "C" __declspec(dllimport) unsigned long __stdcall GetModuleFileNameA(void* hModule, char* lpFilename, unsigned long nSize);
     constexpr int k_vk_f8 = 0x77;
+    constexpr int k_vk_return = 0x0D;
+    constexpr int k_vk_escape = 0x1B;
 
     struct Viewpoint
     {
@@ -2509,23 +2511,20 @@ namespace WindroseTextSigns
         auto* user_widget_class = find_uclass_by_path(STR("/Script/UMG.UserWidget"));
         auto* widget_tree_class = find_uclass_by_path(STR("/Script/UMG.WidgetTree"));
         auto* vertical_box_class = find_uclass_by_path(STR("/Script/UMG.VerticalBox"));
-        auto* horizontal_box_class = find_uclass_by_path(STR("/Script/UMG.HorizontalBox"));
         auto* text_block_class = find_uclass_by_path(STR("/Script/UMG.TextBlock"));
         auto* text_box_class = find_uclass_by_path(STR("/Script/UMG.MultiLineEditableTextBox"));
         if (!text_box_class)
         {
             text_box_class = find_uclass_by_path(STR("/Script/UMG.EditableTextBox"));
         }
-        auto* button_class = find_uclass_by_path(STR("/Script/UMG.Button"));
-        if (!controller || !user_widget_class || !widget_tree_class || !vertical_box_class || !text_block_class || !text_box_class || !button_class)
+        if (!controller || !user_widget_class || !widget_tree_class || !vertical_box_class || !text_block_class || !text_box_class)
         {
             log_line("[phase7-umg] open_failed reason=missing_class controller=" + std::string{controller ? "1" : "0"} +
                      " userWidget=" + std::string{user_widget_class ? "1" : "0"} +
                      " widgetTree=" + std::string{widget_tree_class ? "1" : "0"} +
                      " vbox=" + std::string{vertical_box_class ? "1" : "0"} +
                      " textBlock=" + std::string{text_block_class ? "1" : "0"} +
-                     " textBox=" + std::string{text_box_class ? "1" : "0"} +
-                     " button=" + std::string{button_class ? "1" : "0"});
+                     " textBox=" + std::string{text_box_class ? "1" : "0"});
             return false;
         }
 
@@ -2549,22 +2548,12 @@ namespace WindroseTextSigns
         auto* root = create_umg_widget_object(tree, vertical_box_class, "WTS_Root");
         auto* title = create_umg_widget_object(tree, text_block_class, "WTS_Title");
         auto* text_box = create_umg_widget_object(tree, text_box_class, "WTS_TextBox");
-        auto* button_row = horizontal_box_class ? create_umg_widget_object(tree, horizontal_box_class, "WTS_ButtonRow") : nullptr;
-        auto* apply_button = create_umg_widget_object(tree, button_class, "WTS_ApplyButton");
-        auto* clear_button = create_umg_widget_object(tree, button_class, "WTS_ClearButton");
-        auto* cancel_button = create_umg_widget_object(tree, button_class, "WTS_CancelButton");
-        auto* apply_label = create_umg_widget_object(tree, text_block_class, "WTS_ApplyLabel");
-        auto* clear_label = create_umg_widget_object(tree, text_block_class, "WTS_ClearLabel");
-        auto* cancel_label = create_umg_widget_object(tree, text_block_class, "WTS_CancelLabel");
 
-        if (!root || !title || !text_box || !apply_button || !clear_button || !cancel_button)
+        if (!root || !title || !text_box)
         {
             log_line("[phase7-umg] open_failed reason=construct_children root=" + std::string{root ? "1" : "0"} +
                      " title=" + std::string{title ? "1" : "0"} +
-                     " textBox=" + std::string{text_box ? "1" : "0"} +
-                     " apply=" + std::string{apply_button ? "1" : "0"} +
-                     " clear=" + std::string{clear_button ? "1" : "0"} +
-                     " cancel=" + std::string{cancel_button ? "1" : "0"});
+                     " textBox=" + std::string{text_box ? "1" : "0"});
             return false;
         }
         log_line("[phase7-umg] construct_children_ok rootClass=" +
@@ -2592,37 +2581,16 @@ namespace WindroseTextSigns
         const bool root_set = set_object_property_if_present(tree, "RootWidget", root);
         const bool title_text = invoke_umg_set_text(title, "Label: Text");
         const bool input_text = invoke_umg_set_text(text_box, std::string{m_text_buffer.data()});
-        const bool apply_text = apply_label ? invoke_umg_set_text(apply_label, "Apply") : false;
-        const bool clear_text = clear_label ? invoke_umg_set_text(clear_label, "Clear") : false;
-        const bool cancel_text = cancel_label ? invoke_umg_set_text(cancel_label, "Cancel") : false;
-        const bool apply_content = apply_label ? invoke_set_content(apply_button, apply_label) : false;
-        const bool clear_content = clear_label ? invoke_set_content(clear_button, clear_label) : false;
-        const bool cancel_content = cancel_label ? invoke_set_content(cancel_button, cancel_label) : false;
 
         const bool add_title = invoke_add_child(root, title) != nullptr;
         const bool add_text = invoke_add_child(root, text_box) != nullptr;
-        bool add_buttons = false;
-        if (button_row)
-        {
-            const bool add_row = invoke_add_child(root, button_row) != nullptr;
-            const bool add_apply = invoke_add_child(button_row, apply_button) != nullptr;
-            const bool add_clear = invoke_add_child(button_row, clear_button) != nullptr;
-            const bool add_cancel = invoke_add_child(button_row, cancel_button) != nullptr;
-            add_buttons = add_row && add_apply && add_clear && add_cancel;
-        }
-        else
-        {
-            const bool add_apply = invoke_add_child(root, apply_button) != nullptr;
-            const bool add_clear = invoke_add_child(root, clear_button) != nullptr;
-            const bool add_cancel = invoke_add_child(root, cancel_button) != nullptr;
-            add_buttons = add_apply && add_clear && add_cancel;
-        }
 
         const bool added = invoke_add_to_viewport(widget, 1000);
         const bool input_mode = set_phase7_game_and_ui_input_mode(true);
         if (added)
         {
             (void)invoke_no_param(text_box, STR("SetKeyboardFocus"), STR("/Script/UMG.Widget:SetKeyboardFocus"));
+            (void)invoke_no_param(text_box, STR("SetFocus"), STR("/Script/UMG.Widget:SetFocus"));
         }
 
         log_line("[phase7-umg] open_result added=" + std::string{added ? "true" : "false"} +
@@ -2630,11 +2598,8 @@ namespace WindroseTextSigns
                  " rootSet=" + std::string{root_set ? "true" : "false"} +
                  " titleText=" + std::string{title_text ? "true" : "false"} +
                  " inputText=" + std::string{input_text ? "true" : "false"} +
-                 " labelText=" + std::string{(apply_text && clear_text && cancel_text) ? "true" : "false"} +
-                 " buttonContent=" + std::string{(apply_content && clear_content && cancel_content) ? "true" : "false"} +
                  " addTitle=" + std::string{add_title ? "true" : "false"} +
                  " addText=" + std::string{add_text ? "true" : "false"} +
-                 " addButtons=" + std::string{add_buttons ? "true" : "false"} +
                  " key=" + key);
 
         if (!added)
@@ -2644,9 +2609,11 @@ namespace WindroseTextSigns
 
         m_phase7_umg_widget = widget;
         m_phase7_umg_text_box = text_box;
-        m_phase7_umg_apply_button = apply_button;
-        m_phase7_umg_clear_button = clear_button;
-        m_phase7_umg_cancel_button = cancel_button;
+        m_phase7_umg_apply_button = nullptr;
+        m_phase7_umg_clear_button = nullptr;
+        m_phase7_umg_cancel_button = nullptr;
+        m_phase7_enter_was_down = false;
+        m_phase7_escape_was_down = false;
         return true;
     }
 
@@ -2670,6 +2637,8 @@ namespace WindroseTextSigns
         m_phase7_umg_apply_button = nullptr;
         m_phase7_umg_clear_button = nullptr;
         m_phase7_umg_cancel_button = nullptr;
+        m_phase7_enter_was_down = false;
+        m_phase7_escape_was_down = false;
     }
 
     auto SignTextMod::tick_phase7_umg_editor() -> void
@@ -2679,14 +2648,14 @@ namespace WindroseTextSigns
             return;
         }
 
-        bool apply_pressed = false;
-        bool clear_pressed = false;
-        bool cancel_pressed = false;
-        (void)invoke_bool_return_no_param(m_phase7_umg_apply_button, STR("IsPressed"), STR("/Script/UMG.Button:IsPressed"), apply_pressed);
-        (void)invoke_bool_return_no_param(m_phase7_umg_clear_button, STR("IsPressed"), STR("/Script/UMG.Button:IsPressed"), clear_pressed);
-        (void)invoke_bool_return_no_param(m_phase7_umg_cancel_button, STR("IsPressed"), STR("/Script/UMG.Button:IsPressed"), cancel_pressed);
+        const bool enter_down = ((GetAsyncKeyState(k_vk_return) & 0x8000) != 0);
+        const bool escape_down = ((GetAsyncKeyState(k_vk_escape) & 0x8000) != 0);
+        const bool apply_pressed = enter_down && !m_phase7_enter_was_down;
+        const bool cancel_pressed = escape_down && !m_phase7_escape_was_down;
+        m_phase7_enter_was_down = enter_down;
+        m_phase7_escape_was_down = escape_down;
 
-        if (!apply_pressed && !clear_pressed && !cancel_pressed)
+        if (!apply_pressed && !cancel_pressed)
         {
             return;
         }
@@ -2707,30 +2676,31 @@ namespace WindroseTextSigns
             std::string text{};
             const bool read = invoke_get_text_value(m_phase7_umg_text_box, text) ||
                 read_text_property_value_no_process_event(m_phase7_umg_text_box, text);
-            log_line("[phase7-umg] apply pressed read=" + std::string{read ? "true" : "false"} +
+            const auto trimmed_for_clear = trim_copy_ascii(text);
+            log_line("[phase7-umg] enter pressed read=" + std::string{read ? "true" : "false"} +
                      " key=" + key +
-                     " chars=" + std::to_string(text.size()));
+                     " chars=" + std::to_string(text.size()) +
+                     " emptyMeansClear=" + std::string{trimmed_for_clear.empty() ? "true" : "false"});
             if (read)
             {
                 std::snprintf(m_text_buffer.data(), m_text_buffer.size(), "%s", text.c_str());
                 m_text_buffer_bound_key = key;
-                apply_text_to_selected_label(text);
+                if (trimmed_for_clear.empty())
+                {
+                    m_text_buffer.fill('\0');
+                    clear_text_on_selected_label();
+                }
+                else
+                {
+                    apply_text_to_selected_label(text);
+                }
             }
-            close_phase7_umg_editor(true);
-            return;
-        }
-        if (clear_pressed)
-        {
-            log_line("[phase7-umg] clear pressed key=" + key);
-            m_text_buffer.fill('\0');
-            m_text_buffer_bound_key = key;
-            clear_text_on_selected_label();
             close_phase7_umg_editor(true);
             return;
         }
         if (cancel_pressed)
         {
-            log_line("[phase7-umg] cancel pressed key=" + key);
+            log_line("[phase7-umg] escape cancel key=" + key);
             close_phase7_umg_editor(true);
             return;
         }
