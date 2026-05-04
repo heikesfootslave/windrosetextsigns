@@ -1516,6 +1516,23 @@ namespace
         return out_widget;
     }
 
+    auto create_umg_widget_object(UObject* widget_tree, UClass* widget_class, const std::string& widget_name) -> UObject*
+    {
+        if (!widget_tree || !widget_class)
+        {
+            return nullptr;
+        }
+        if (auto* constructed = invoke_widget_tree_construct_widget(widget_tree, widget_class, widget_name))
+        {
+            return constructed;
+        }
+        return UObjectGlobals::NewObject<UObject>(
+            widget_tree,
+            widget_class,
+            FName(RC::to_wstring(widget_name).c_str(), FNAME_Add),
+            RF_Transient);
+    }
+
     auto invoke_add_child(UObject* panel, UObject* child) -> UObject*
     {
         auto* fn = find_function_by_chain_or_path(
@@ -2529,16 +2546,16 @@ namespace WindroseTextSigns
             return false;
         }
 
-        auto* root = invoke_widget_tree_construct_widget(tree, vertical_box_class, "WTS_Root");
-        auto* title = invoke_widget_tree_construct_widget(tree, text_block_class, "WTS_Title");
-        auto* text_box = invoke_widget_tree_construct_widget(tree, text_box_class, "WTS_TextBox");
-        auto* button_row = horizontal_box_class ? invoke_widget_tree_construct_widget(tree, horizontal_box_class, "WTS_ButtonRow") : nullptr;
-        auto* apply_button = invoke_widget_tree_construct_widget(tree, button_class, "WTS_ApplyButton");
-        auto* clear_button = invoke_widget_tree_construct_widget(tree, button_class, "WTS_ClearButton");
-        auto* cancel_button = invoke_widget_tree_construct_widget(tree, button_class, "WTS_CancelButton");
-        auto* apply_label = invoke_widget_tree_construct_widget(tree, text_block_class, "WTS_ApplyLabel");
-        auto* clear_label = invoke_widget_tree_construct_widget(tree, text_block_class, "WTS_ClearLabel");
-        auto* cancel_label = invoke_widget_tree_construct_widget(tree, text_block_class, "WTS_CancelLabel");
+        auto* root = create_umg_widget_object(tree, vertical_box_class, "WTS_Root");
+        auto* title = create_umg_widget_object(tree, text_block_class, "WTS_Title");
+        auto* text_box = create_umg_widget_object(tree, text_box_class, "WTS_TextBox");
+        auto* button_row = horizontal_box_class ? create_umg_widget_object(tree, horizontal_box_class, "WTS_ButtonRow") : nullptr;
+        auto* apply_button = create_umg_widget_object(tree, button_class, "WTS_ApplyButton");
+        auto* clear_button = create_umg_widget_object(tree, button_class, "WTS_ClearButton");
+        auto* cancel_button = create_umg_widget_object(tree, button_class, "WTS_CancelButton");
+        auto* apply_label = create_umg_widget_object(tree, text_block_class, "WTS_ApplyLabel");
+        auto* clear_label = create_umg_widget_object(tree, text_block_class, "WTS_ClearLabel");
+        auto* cancel_label = create_umg_widget_object(tree, text_block_class, "WTS_CancelLabel");
 
         if (!root || !title || !text_box || !apply_button || !clear_button || !cancel_button)
         {
@@ -2550,6 +2567,10 @@ namespace WindroseTextSigns
                      " cancel=" + std::string{cancel_button ? "1" : "0"});
             return false;
         }
+        log_line("[phase7-umg] construct_children_ok rootClass=" +
+                 narrow_ascii(root->GetClassPrivate() ? root->GetClassPrivate()->GetFullName() : RC::StringType{}) +
+                 " textBoxClass=" +
+                 narrow_ascii(text_box->GetClassPrivate() ? text_box->GetClassPrivate()->GetFullName() : RC::StringType{}));
 
         const auto actor_world_id = m_selected->world_id.empty() ? build_world_id_for_actor(m_selected->actor) : m_selected->world_id;
         configure_sidecar_for_actor(m_selected->actor, actor_world_id);
