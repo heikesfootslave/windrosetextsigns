@@ -5261,6 +5261,24 @@ namespace WindroseTextSigns
                  " asset=" + detect_label_asset(actor));
     }
 
+    auto SignTextMod::is_restore_scan_world_active() -> bool
+    {
+        if (is_dedicated_server_process(std::filesystem::current_path(), m_mod_root))
+        {
+            return true;
+        }
+
+        auto* controller = try_get_primary_player_controller();
+        auto* controller_actor = controller && controller->IsA(AActor::StaticClass()) ? Cast<AActor>(controller) : nullptr;
+        if (!controller_actor || !controller_actor->GetWorld())
+        {
+            return false;
+        }
+
+        const auto world_id = lower_ascii(build_world_id_for_actor(controller_actor));
+        return world_id.find("genlandia") != std::string::npos;
+    }
+
     auto SignTextMod::on_update() -> void
     {
         if (!m_unreal_ready)
@@ -5292,6 +5310,22 @@ namespace WindroseTextSigns
         if (now - m_last_restore_scan > std::chrono::seconds(2))
         {
             m_last_restore_scan = now;
+            if (!is_restore_scan_world_active())
+            {
+                m_consecutive_empty_label_scans = 0;
+                if (!m_restore_scan_wait_logged)
+                {
+                    log_line("[save] restore_scan waiting reason=no_active_world");
+                    m_restore_scan_wait_logged = true;
+                }
+                return;
+            }
+            if (m_restore_scan_wait_logged)
+            {
+                log_line("[save] restore_scan active");
+                m_restore_scan_wait_logged = false;
+            }
+
             std::unordered_set<std::string> present_label_keys{};
             std::unordered_map<std::string, uint32_t> present_world_counts{};
             UObjectGlobals::ForEachUObject([&](UObject* object, int32, int32) {

@@ -87,6 +87,7 @@ namespace WindroseTextSigns
         auto tick_file_triggers() -> void;
         auto run_six_sign_targeting_test() -> void;
         auto run_buildmenu_asset_probe() -> void;
+        auto is_restore_scan_world_active() -> bool;
         auto ensure_selected_label_for_action(const std::string& action_name) -> bool;
         auto is_actor_pointer_live(RC::Unreal::AActor* actor) const -> bool;
         auto ensure_selected_actor_valid(const std::string& reason) -> bool;
@@ -200,6 +201,7 @@ namespace WindroseTextSigns
         std::unordered_set<std::string> m_seen_live_label_keys{};
         std::unordered_map<std::string, uint32_t> m_missing_label_scan_counts{};
         uint32_t m_consecutive_empty_label_scans{0};
+        bool m_restore_scan_wait_logged{false};
         std::unordered_map<std::string, std::chrono::steady_clock::time_point> m_construct_probe_last_seen{};
         std::chrono::steady_clock::time_point m_last_backup_snapshot{};
         std::string m_last_backup_signature{};
