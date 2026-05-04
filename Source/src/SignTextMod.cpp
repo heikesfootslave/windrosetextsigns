@@ -6,6 +6,7 @@
 #include <cctype>
 #include <cmath>
 #include <cstdio>
+#include <cstdint>
 #include <cstdlib>
 #include <ctime>
 #include <iomanip>
@@ -3256,6 +3257,70 @@ namespace WindroseTextSigns
         return saw_authority_game_mode && has_authority_game_mode;
     }
 
+    auto SignTextMod::is_local_hosted_runtime() const -> bool
+    {
+        static auto last_check = std::chrono::steady_clock::time_point{};
+        static bool cached_result = false;
+        const auto now = std::chrono::steady_clock::now();
+        if (last_check.time_since_epoch().count() != 0 && (now - last_check) < std::chrono::seconds(5))
+        {
+            return cached_result;
+        }
+        last_check = now;
+        cached_result = false;
+
+        const auto local_app_data = get_env_var("LOCALAPPDATA");
+        if (local_app_data.empty())
+        {
+            return false;
+        }
+
+        std::string content{};
+        if (!read_text_file(std::filesystem::path{local_app_data} / "R5" / "Saved" / "Logs" / "R5.log", content))
+        {
+            return false;
+        }
+
+        const auto last_host_start = content.rfind("Start Coop Host server");
+        const auto last_find_favorite = content.rfind("FindFavoriteGs");
+        const auto last_dedicated_hosting = content.rfind("\"Hosting\": \"Dedicated\"");
+        size_t last_remote_marker = std::string::npos;
+        if (last_find_favorite != std::string::npos)
+        {
+            last_remote_marker = last_find_favorite;
+        }
+        if (last_dedicated_hosting != std::string::npos &&
+            (last_remote_marker == std::string::npos || last_dedicated_hosting > last_remote_marker))
+        {
+            last_remote_marker = last_dedicated_hosting;
+        }
+        if (last_host_start != std::string::npos &&
+            (last_remote_marker == std::string::npos || last_host_start > last_remote_marker))
+        {
+            cached_result = true;
+            return cached_result;
+        }
+
+        static const std::regex hosting_rx{"\"Hosting\"\\s*:\\s*\"([^\"]+)\"", std::regex::icase};
+        std::string last_hosting{};
+        size_t last_hosting_pos = std::string::npos;
+        for (auto it = std::sregex_iterator(content.begin(), content.end(), hosting_rx);
+             it != std::sregex_iterator{};
+             ++it)
+        {
+            if (it->size() > 1)
+            {
+                last_hosting = lower_ascii((*it)[1].str());
+                last_hosting_pos = static_cast<size_t>(it->position());
+            }
+        }
+
+        cached_result =
+            (last_hosting == "clienthosted" || last_hosting == "hosted" || last_hosting == "listen") &&
+            (last_remote_marker == std::string::npos || last_hosting_pos > last_remote_marker);
+        return cached_result;
+    }
+
     auto SignTextMod::set_sidecar_route(
         const std::filesystem::path& data_root,
         const std::string& runtime_role,
@@ -3329,6 +3394,11 @@ namespace WindroseTextSigns
 
         if (route_changed)
         {
+            m_live_label_actor_ptrs.clear();
+            m_missing_label_scan_counts.clear();
+            m_seen_live_label_keys.clear();
+            m_restore_scan_has_seen_live_labels = false;
+            m_prune_deferred_logged = false;
             load_sidecar_json();
         }
     }
@@ -3365,7 +3435,7 @@ namespace WindroseTextSigns
             }
         }
 
-        const bool local_authority = is_world_authoritative(world);
+        const bool local_authority = is_world_authoritative(world) || is_local_hosted_runtime();
         const auto safe_world_id = sanitize_path_segment(world_id.empty() ? std::string{"unknown-world"} : world_id);
         if (local_authority)
         {
@@ -5343,17 +5413,46 @@ namespace WindroseTextSigns
                 configure_sidecar_for_actor(actor, actor_world_id);
                 const auto world_id = active_storage_world_id(actor_world_id);
                 const auto key = build_storage_key(world_id, stable_id);
+                const auto actor_ptr = reinterpret_cast<uintptr_t>(actor);
+                bool pruned_rebuilt_label = false;
+                if (m_restore_scan_has_seen_live_labels)
+                {
+                    if (const auto ptr_it = m_live_label_actor_ptrs.find(key);
+                        ptr_it != m_live_label_actor_ptrs.end() && ptr_it->second != actor_ptr)
+                    {
+                        if (const auto found = m_labels.find(key); found != m_labels.end())
+                        {
+                            log_line("[save] prune_rebuilt_label key=" + key +
+                                     " stableId=" + found->second.stable_id +
+                                     " worldId=" + found->second.world_id +
+                                     " reason=actor_instance_changed");
+                            m_labels.erase(found);
+                            m_rendered_text_cache.erase(key);
+                            m_component_name_cache.erase(key);
+                            m_phase4_next_retry.erase(key);
+                            m_missing_label_scan_counts.erase(key);
+                            save_sidecar_json("prune_rebuilt_label", key, stable_id, world_id);
+                            pruned_rebuilt_label = true;
+                        }
+                    }
+                }
+                m_live_label_actor_ptrs[key] = actor_ptr;
                 present_label_keys.insert(key);
                 ++present_world_counts[world_id];
                 m_seen_live_label_keys.insert(key);
                 m_missing_label_scan_counts.erase(key);
-                restore_known_text_if_any(actor, stable_id);
+                if (!pruned_rebuilt_label)
+                {
+                    restore_known_text_if_any(actor, stable_id);
+                }
                 return LoopAction::Continue;
             });
 
             if (!present_label_keys.empty())
             {
                 m_consecutive_empty_label_scans = 0;
+                m_restore_scan_has_seen_live_labels = true;
+                m_prune_deferred_logged = false;
             }
             else
             {
@@ -5417,6 +5516,7 @@ namespace WindroseTextSigns
                     m_component_name_cache.erase(key);
                     m_phase4_next_retry.erase(key);
                     m_seen_live_label_keys.erase(key);
+                    m_live_label_actor_ptrs.erase(key);
                     m_missing_label_scan_counts.erase(key);
                     ++pruned_count;
                 }
@@ -5432,8 +5532,12 @@ namespace WindroseTextSigns
             }
             else
             {
-                log_line("[save] prune_destroyed_label deferred reason=no_live_labels_visible count=" +
-                         std::to_string(m_consecutive_empty_label_scans));
+                if (!m_prune_deferred_logged)
+                {
+                    log_line("[save] prune_destroyed_label deferred reason=no_live_labels_visible count=" +
+                             std::to_string(m_consecutive_empty_label_scans));
+                    m_prune_deferred_logged = true;
+                }
             }
         }
 
