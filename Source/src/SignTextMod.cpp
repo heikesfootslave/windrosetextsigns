@@ -4587,7 +4587,8 @@ namespace WindroseTextSigns
         }
         const bool explicit_empty_allowed =
             reason == "clear" ||
-            reason.find("prune_") == 0;
+            reason.find("prune_") == 0 ||
+            reason == "bridge_snapshot_reconcile";
         if (const auto disk_count = sidecar_record_count_on_disk(); disk_count.has_value() && *disk_count > 0 && m_labels.empty() && !explicit_empty_allowed)
         {
             log_line("[guardrail] write_refused reason=" + reason +
@@ -4868,6 +4869,8 @@ namespace WindroseTextSigns
                 << ",\"reason\":\"" << escape_json(reason) << "\""
                 << "}";
         const bool sent = NativeBridge::instance().send_to_server(payload.str());
+        m_bridge_snapshot_active = true;
+        m_bridge_snapshot_seen_keys.clear();
         log_line("[bridge] snapshot_request reason=" + reason +
                  " sent=" + std::string{sent ? "true" : "false"} +
                  " role=" + bridge_role_name(m_bridge_role) +
@@ -5122,9 +5125,14 @@ namespace WindroseTextSigns
             ? m_world_folder_id
             : unescape_json(fields.count("worldId") ? fields.at("worldId") : "unknown-world");
         const auto key = build_storage_key(local_world_id, stable_id);
+        if (m_bridge_snapshot_active)
+        {
+            m_bridge_snapshot_seen_keys.insert(key);
+        }
 
         LabelRecord rec{};
-        if (const auto existing = m_labels.find(key); existing != m_labels.end())
+        const auto existing = m_labels.find(key);
+        if (existing != m_labels.end())
         {
             rec = existing->second;
         }
@@ -5142,14 +5150,37 @@ namespace WindroseTextSigns
         rec.color_g = fields.count("colorG") ? std::clamp(safe_stof(fields.at("colorG"), 0.393822f), 0.0f, 1.0f) : rec.color_g;
         rec.color_b = fields.count("colorB") ? std::clamp(safe_stof(fields.at("colorB"), 0.393822f), 0.0f, 1.0f) : rec.color_b;
         rec.color_a = fields.count("colorA") ? std::clamp(safe_stof(fields.at("colorA"), 1.0f), 0.0f, 1.0f) : rec.color_a;
-        rec.last_seen_utc = now_utc();
+        rec.last_seen_utc = unescape_json(fields.count("lastSeen") ? fields.at("lastSeen") : now_utc());
+
+        const auto same_float = [](const float lhs, const float rhs) {
+            return std::abs(lhs - rhs) < 0.0001f;
+        };
+        const bool changed =
+            existing == m_labels.end() ||
+            existing->second.stable_id != rec.stable_id ||
+            existing->second.world_id != rec.world_id ||
+            existing->second.text != rec.text ||
+            existing->second.asset != rec.asset ||
+            !same_float(existing->second.surface_axis, rec.surface_axis) ||
+            existing->second.surface_sign != rec.surface_sign ||
+            !same_float(existing->second.depth_offset, rec.depth_offset) ||
+            !same_float(existing->second.align_x, rec.align_x) ||
+            !same_float(existing->second.align_y, rec.align_y) ||
+            !same_float(existing->second.font_size, rec.font_size) ||
+            !same_float(existing->second.color_r, rec.color_r) ||
+            !same_float(existing->second.color_g, rec.color_g) ||
+            !same_float(existing->second.color_b, rec.color_b) ||
+            !same_float(existing->second.color_a, rec.color_a);
 
         m_labels[key] = rec;
         if (fields.count("revision"))
         {
             m_revision = std::max<uint64_t>(m_revision, static_cast<uint64_t>(safe_stoi(fields.at("revision"), static_cast<int>(m_revision))));
         }
-        save_sidecar_json("bridge_cache_upsert", key, stable_id, local_world_id);
+        if (changed)
+        {
+            save_sidecar_json("bridge_cache_upsert", key, stable_id, local_world_id);
+        }
         UObjectGlobals::ForEachUObject([&](UObject* object, int32, int32) {
             if (!object || !object->IsA(AActor::StaticClass()))
             {
@@ -5166,6 +5197,7 @@ namespace WindroseTextSigns
         log_line("[bridge] client_upsert_applied key=" + key +
                  " stableId=" + stable_id +
                  " localWorldId=" + local_world_id +
+                 " changed=" + std::string{changed ? "true" : "false"} +
                  " textChars=" + std::to_string(rec.text.size()));
     }
 
@@ -5208,6 +5240,147 @@ namespace WindroseTextSigns
         log_line("[bridge] client_clear_applied key=" + key +
                  " stableId=" + stable_id +
                  " localWorldId=" + local_world_id);
+    }
+
+    auto SignTextMod::write_recovery_candidate(
+        const std::string& reason,
+        const std::unordered_map<std::string, LabelRecord>& records) -> void
+    {
+        if (records.empty())
+        {
+            return;
+        }
+
+        std::filesystem::path recovery_root{};
+        if (!m_save_profile_root.empty())
+        {
+            recovery_root = std::filesystem::path{m_save_profile_root} / "WindroseTextSigns" / "RecoveryCandidates";
+        }
+        else if (!m_data_root.empty())
+        {
+            recovery_root = m_data_root.parent_path() / "RecoveryCandidates";
+        }
+        else
+        {
+            recovery_root = m_mod_root / "RecoveryCandidates";
+        }
+
+        std::error_code mkdir_ec{};
+        std::filesystem::create_directories(recovery_root, mkdir_ec);
+        if (mkdir_ec)
+        {
+            log_line("[bridge] recovery_write_failed reason=mkdir path=" + recovery_root.string() +
+                     " error=" + mkdir_ec.message());
+            return;
+        }
+
+        const auto wall_now = std::time(nullptr);
+        std::tm tm_utc{};
+#if defined(_WIN32)
+        gmtime_s(&tm_utc, &wall_now);
+#else
+        gmtime_r(&wall_now, &tm_utc);
+#endif
+        std::ostringstream stamp{};
+        stamp << std::put_time(&tm_utc, "%Y%m%d_%H%M%S");
+        const auto recovery_path = recovery_root / ("ClientCache_" + stamp.str() + "_" + sanitize_backup_reason(reason) + ".json");
+
+        std::ofstream out(recovery_path, std::ios::out | std::ios::trunc | std::ios::binary);
+        if (!out.is_open())
+        {
+            log_line("[bridge] recovery_write_failed reason=open path=" + recovery_path.string());
+            return;
+        }
+
+        out << "{\n";
+        out << "  \"version\": 1,\n";
+        out << "  \"schema\": \"WindroseTextSigns.RecoveryCandidates.v1\",\n";
+        out << "  \"source\": \"client-cache\",\n";
+        out << "  \"detectedUtc\": \"" << escape_json(now_utc()) << "\",\n";
+        out << "  \"reason\": \"" << escape_json(reason) << "\",\n";
+        out << "  \"serverRevision\": " << m_revision << ",\n";
+        out << "  \"clientWorldId\": \"" << escape_json(m_world_folder_id) << "\",\n";
+        out << "  \"records\": {\n";
+        bool first = true;
+        for (const auto& [key, rec] : records)
+        {
+            if (!first) { out << ",\n"; }
+            first = false;
+            std::ostringstream axis_value{};
+            axis_value << std::fixed << std::setprecision(2) << std::clamp(rec.surface_axis, 0.0f, 1.0f);
+            out << "    \"" << escape_json(key) << "\": { \"text\": \"" << escape_json(rec.text)
+                << "\", \"asset\": \"" << escape_json(rec.asset)
+                << "\", \"stableId\": \"" << escape_json(rec.stable_id)
+                << "\", \"worldId\": \"" << escape_json(rec.world_id)
+                << "\", \"surfaceAxis\": " << axis_value.str()
+                << ", \"surfaceSign\": " << rec.surface_sign
+                << ", \"depthOffset\": " << rec.depth_offset
+                << ", \"alignX\": " << rec.align_x
+                << ", \"alignY\": " << rec.align_y
+                << ", \"fontSize\": " << rec.font_size
+                << ", \"colorR\": " << rec.color_r
+                << ", \"colorG\": " << rec.color_g
+                << ", \"colorB\": " << rec.color_b
+                << ", \"colorA\": " << rec.color_a
+                << ", \"lastSeen\": \"" << escape_json(rec.last_seen_utc) << "\" }";
+        }
+        out << "\n  }\n";
+        out << "}\n";
+        out.flush();
+        out.close();
+
+        log_line("[bridge] recovery_candidate_written path=" + recovery_path.string() +
+                 " records=" + std::to_string(records.size()) +
+                 " reason=" + reason);
+    }
+
+    auto SignTextMod::reconcile_bridge_snapshot(const std::string& reason) -> void
+    {
+        if (m_sidecar_authoritative || m_bridge_role != BridgeRole::RemoteClient || !m_bridge_snapshot_active)
+        {
+            return;
+        }
+
+        std::unordered_map<std::string, LabelRecord> removed{};
+        for (auto it = m_labels.begin(); it != m_labels.end();)
+        {
+            const auto& key = it->first;
+            const auto& rec = it->second;
+            if (rec.world_id == m_world_folder_id && m_bridge_snapshot_seen_keys.find(key) == m_bridge_snapshot_seen_keys.end())
+            {
+                removed.emplace(key, rec);
+                m_rendered_text_cache.erase(key);
+                m_component_name_cache.erase(key);
+                m_phase4_next_retry.erase(key);
+                m_seen_live_label_keys.erase(key);
+                m_live_label_actor_ptrs.erase(key);
+                m_missing_label_scan_counts.erase(key);
+                if (m_text_buffer_bound_key == key)
+                {
+                    m_text_buffer.fill('\0');
+                    m_text_buffer_bound_key.clear();
+                }
+                it = m_labels.erase(it);
+            }
+            else
+            {
+                ++it;
+            }
+        }
+
+        if (!removed.empty())
+        {
+            write_recovery_candidate(reason, removed);
+            save_sidecar_json("bridge_snapshot_reconcile", "batch:" + std::to_string(removed.size()), "batch", m_world_folder_id);
+        }
+
+        log_line("[bridge] snapshot_reconcile reason=" + reason +
+                 " seen=" + std::to_string(m_bridge_snapshot_seen_keys.size()) +
+                 " removed=" + std::to_string(removed.size()) +
+                 " remaining=" + std::to_string(m_labels.size()) +
+                 " worldId=" + m_world_folder_id);
+        m_bridge_snapshot_active = false;
+        m_bridge_snapshot_seen_keys.clear();
     }
 
     auto SignTextMod::handle_bridge_payload(const std::string& payload) -> void
@@ -5257,6 +5430,7 @@ namespace WindroseTextSigns
             {
                 m_revision = std::max<uint64_t>(m_revision, static_cast<uint64_t>(safe_stoi(fields.at("revision"), static_cast<int>(m_revision))));
             }
+            reconcile_bridge_snapshot("snapshot_end");
             log_line("[bridge] snapshot_end revision=" + std::to_string(m_revision) +
                      " role=" + bridge_role_name(m_bridge_role));
             return;

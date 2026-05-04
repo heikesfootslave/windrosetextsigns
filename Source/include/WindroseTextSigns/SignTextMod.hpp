@@ -160,6 +160,10 @@ namespace WindroseTextSigns
         auto handle_bridge_client_upsert(const std::unordered_map<std::string, std::string>& fields) -> void;
         auto handle_bridge_client_clear(const std::unordered_map<std::string, std::string>& fields) -> void;
         auto server_has_label_stable_id(const std::string& stable_id) -> bool;
+        auto reconcile_bridge_snapshot(const std::string& reason) -> void;
+        auto write_recovery_candidate(
+            const std::string& reason,
+            const std::unordered_map<std::string, LabelRecord>& records) -> void;
 
         auto escape_json(std::string_view s) const -> std::string;
         auto unescape_json(std::string_view s) const -> std::string;
@@ -189,6 +193,8 @@ namespace WindroseTextSigns
         std::chrono::steady_clock::time_point m_bridge_next_snapshot_request{};
         std::chrono::steady_clock::time_point m_bridge_last_status{};
         bool m_bridge_snapshot_received{false};
+        bool m_bridge_snapshot_active{false};
+        std::unordered_set<std::string> m_bridge_snapshot_seen_keys{};
 
         std::atomic<bool> m_hotkey_requested{false};
         std::atomic<bool> m_clear_hotkey_requested{false};
