@@ -6,7 +6,6 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
-#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -24,7 +23,6 @@
 #include <Unreal/UObject.hpp>
 
 #include <WindroseTextSigns/NativeBridge.hpp>
-#include <WindroseTextSigns/NativeTextEditor.hpp>
 
 namespace WindroseTextSigns
 {
@@ -81,8 +79,9 @@ namespace WindroseTextSigns
         auto open_phase7_native_editor_for_selection() -> bool;
         auto close_phase7_native_editor(bool restore_game_input) -> void;
         auto set_phase7_game_and_ui_input_mode(bool enable_ui_mode) -> bool;
-        auto open_phase7_text_editor_for_selection() -> bool;
-        auto tick_phase7_text_editor() -> void;
+        auto open_phase7_umg_editor_for_selection() -> bool;
+        auto close_phase7_umg_editor(bool restore_game_input) -> void;
+        auto tick_phase7_umg_editor() -> void;
         auto install_process_event_probe() -> void;
         auto install_static_construct_probe() -> void;
         auto uninstall_process_event_probe() -> void;
@@ -216,7 +215,11 @@ namespace WindroseTextSigns
         bool m_f8_poll_was_down{false};
         std::string m_phase7_native_probe_summary{};
         RC::Unreal::UObject* m_phase7_native_widget{};
-        std::unique_ptr<NativeTextEditor> m_phase7_text_editor{};
+        RC::Unreal::UObject* m_phase7_umg_widget{};
+        RC::Unreal::UObject* m_phase7_umg_text_box{};
+        RC::Unreal::UObject* m_phase7_umg_apply_button{};
+        RC::Unreal::UObject* m_phase7_umg_clear_button{};
+        RC::Unreal::UObject* m_phase7_umg_cancel_button{};
 
         std::optional<SelectionCandidate> m_selected{};
         std::array<char, 257> m_text_buffer{};

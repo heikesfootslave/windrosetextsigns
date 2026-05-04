@@ -1377,6 +1377,263 @@ namespace
         return invoke_no_param(widget, STR("AddToViewport"), STR("/Script/UMG.UserWidget:AddToViewport"));
     }
 
+    auto find_uclass_by_path(const TCHAR* path) -> UClass*
+    {
+        if (!path)
+        {
+            return nullptr;
+        }
+        auto* cls = Cast<UClass>(UObjectGlobals::StaticFindObject<UObject*>(UClass::StaticClass(), nullptr, path));
+        if (!cls)
+        {
+            cls = UObjectGlobals::FindObject<UClass>(nullptr, path);
+        }
+        return cls;
+    }
+
+    auto set_object_property_if_present(UObject* object, const std::string& property_name, UObject* value) -> bool
+    {
+        if (!object || !object->GetClassPrivate() || property_name.empty())
+        {
+            return false;
+        }
+        const auto target = lower_copy_ascii(property_name);
+        bool set = false;
+        for_each_property_in_chain_compat(object->GetClassPrivate(), [&](FProperty* prop) {
+            if (set || !prop)
+            {
+                return;
+            }
+            if (prop->GetClass().HashObject() != FObjectProperty::StaticClass().HashObject())
+            {
+                return;
+            }
+            auto prop_name = lower_copy_ascii(RC::to_string(prop->GetName()));
+            if (prop_name != target)
+            {
+                return;
+            }
+            if (auto* value_ptr = prop->ContainerPtrToValuePtr<UObject*>(object))
+            {
+                *value_ptr = value;
+                set = true;
+            }
+        });
+        return set;
+    }
+
+    auto get_object_property_if_present(UObject* object, const std::string& property_name) -> UObject*
+    {
+        if (!object || !object->GetClassPrivate() || property_name.empty())
+        {
+            return nullptr;
+        }
+        const auto target = lower_copy_ascii(property_name);
+        UObject* found = nullptr;
+        for_each_property_in_chain_compat(object->GetClassPrivate(), [&](FProperty* prop) {
+            if (found || !prop)
+            {
+                return;
+            }
+            if (prop->GetClass().HashObject() != FObjectProperty::StaticClass().HashObject())
+            {
+                return;
+            }
+            auto prop_name = lower_copy_ascii(RC::to_string(prop->GetName()));
+            if (prop_name != target)
+            {
+                return;
+            }
+            if (auto* value_ptr = prop->ContainerPtrToValuePtr<UObject*>(object); value_ptr && *value_ptr)
+            {
+                found = *value_ptr;
+            }
+        });
+        return found;
+    }
+
+    auto invoke_widget_tree_construct_widget(UObject* widget_tree, UClass* widget_class, const std::string& widget_name) -> UObject*
+    {
+        auto* fn = find_function_by_chain_or_path(
+            widget_tree,
+            STR("ConstructWidget"),
+            STR("/Script/UMG.WidgetTree:ConstructWidget"));
+        if (!widget_tree || !fn || !widget_class)
+        {
+            return nullptr;
+        }
+
+        std::vector<uint8_t> params(static_cast<size_t>(std::max<int32_t>(fn->GetStructureSize(), 64)), 0);
+        bool assigned_class = false;
+        for_each_property_in_chain_compat(fn, [&](FProperty* prop) {
+            if (!prop)
+            {
+                return;
+            }
+            if (prop->HasAnyPropertyFlags(CPF_ReturnParm) || prop->HasAnyPropertyFlags(CPF_OutParm))
+            {
+                return;
+            }
+            const auto prop_hash = prop->GetClass().HashObject();
+            const auto prop_name = lower_copy_ascii(RC::to_string(prop->GetName()));
+            if (prop_hash == FClassProperty::StaticClass().HashObject())
+            {
+                if (auto* class_ptr = prop->ContainerPtrToValuePtr<UClass*>(params.data()))
+                {
+                    *class_ptr = widget_class;
+                    assigned_class = true;
+                }
+            }
+            else if (prop_hash == FNameProperty::StaticClass().HashObject() && prop_name.find("name") != std::string::npos)
+            {
+                if (auto* name_ptr = prop->ContainerPtrToValuePtr<FName>(params.data()))
+                {
+                    *name_ptr = FName(RC::to_wstring(widget_name).c_str(), FNAME_Add);
+                }
+            }
+        });
+        if (!assigned_class)
+        {
+            return nullptr;
+        }
+
+        widget_tree->ProcessEvent(fn, params.data());
+
+        UObject* out_widget = nullptr;
+        for_each_property_in_chain_compat(fn, [&](FProperty* prop) {
+            if (out_widget || !prop || !prop->HasAnyPropertyFlags(CPF_ReturnParm))
+            {
+                return;
+            }
+            if (prop->GetClass().HashObject() == FObjectProperty::StaticClass().HashObject())
+            {
+                if (auto* obj_ptr = prop->ContainerPtrToValuePtr<UObject*>(params.data()); obj_ptr && *obj_ptr)
+                {
+                    out_widget = *obj_ptr;
+                }
+            }
+        });
+        return out_widget;
+    }
+
+    auto invoke_add_child(UObject* panel, UObject* child) -> UObject*
+    {
+        auto* fn = find_function_by_chain_or_path(
+            panel,
+            STR("AddChild"),
+            STR("/Script/UMG.PanelWidget:AddChild"));
+        if (!panel || !child || !fn)
+        {
+            return nullptr;
+        }
+
+        std::vector<uint8_t> params(static_cast<size_t>(std::max<int32_t>(fn->GetStructureSize(), 64)), 0);
+        bool assigned_child = false;
+        for_each_property_in_chain_compat(fn, [&](FProperty* prop) {
+            if (!prop || prop->HasAnyPropertyFlags(CPF_ReturnParm) || prop->HasAnyPropertyFlags(CPF_OutParm))
+            {
+                return;
+            }
+            if (prop->GetClass().HashObject() == FObjectProperty::StaticClass().HashObject())
+            {
+                if (auto* obj_ptr = prop->ContainerPtrToValuePtr<UObject*>(params.data()))
+                {
+                    *obj_ptr = child;
+                    assigned_child = true;
+                }
+            }
+        });
+        if (!assigned_child)
+        {
+            return nullptr;
+        }
+
+        panel->ProcessEvent(fn, params.data());
+
+        UObject* out_slot = nullptr;
+        for_each_property_in_chain_compat(fn, [&](FProperty* prop) {
+            if (out_slot || !prop || !prop->HasAnyPropertyFlags(CPF_ReturnParm))
+            {
+                return;
+            }
+            if (prop->GetClass().HashObject() == FObjectProperty::StaticClass().HashObject())
+            {
+                if (auto* obj_ptr = prop->ContainerPtrToValuePtr<UObject*>(params.data()); obj_ptr && *obj_ptr)
+                {
+                    out_slot = *obj_ptr;
+                }
+            }
+        });
+        return out_slot;
+    }
+
+    auto invoke_set_content(UObject* content_widget, UObject* child) -> bool
+    {
+        auto* fn = find_function_by_chain_or_path(
+            content_widget,
+            STR("SetContent"),
+            STR("/Script/UMG.ContentWidget:SetContent"));
+        if (!content_widget || !child || !fn)
+        {
+            return false;
+        }
+
+        std::vector<uint8_t> params(static_cast<size_t>(std::max<int32_t>(fn->GetStructureSize(), 64)), 0);
+        bool assigned_child = false;
+        for_each_property_in_chain_compat(fn, [&](FProperty* prop) {
+            if (!prop || prop->HasAnyPropertyFlags(CPF_ReturnParm) || prop->HasAnyPropertyFlags(CPF_OutParm))
+            {
+                return;
+            }
+            if (prop->GetClass().HashObject() == FObjectProperty::StaticClass().HashObject())
+            {
+                if (auto* obj_ptr = prop->ContainerPtrToValuePtr<UObject*>(params.data()))
+                {
+                    *obj_ptr = child;
+                    assigned_child = true;
+                }
+            }
+        });
+        if (!assigned_child)
+        {
+            return false;
+        }
+
+        content_widget->ProcessEvent(fn, params.data());
+        return true;
+    }
+
+    auto invoke_umg_set_text(UObject* context, const std::string& text_value) -> bool
+    {
+        auto* fn = find_function_by_chain_or_path(context, STR("SetText"), nullptr);
+        if (!context || !fn)
+        {
+            return false;
+        }
+        std::vector<uint8_t> params(static_cast<size_t>(std::max<int32_t>(fn->GetStructureSize(), 64)), 0);
+        bool assigned = false;
+        for_each_property_in_chain_compat(fn, [&](FProperty* prop) {
+            if (!prop || prop->HasAnyPropertyFlags(CPF_ReturnParm) || prop->HasAnyPropertyFlags(CPF_OutParm))
+            {
+                return;
+            }
+            if (prop->GetClass().HashObject() == FTextProperty::StaticClass().HashObject())
+            {
+                if (auto* text_ptr = prop->ContainerPtrToValuePtr<FText>(params.data()))
+                {
+                    *text_ptr = FText(RC::to_wstring(text_value).c_str());
+                    assigned = true;
+                }
+            }
+        });
+        if (!assigned)
+        {
+            return false;
+        }
+        context->ProcessEvent(fn, params.data());
+        return true;
+    }
+
     auto set_bool_property_if_present(UObject* object, const std::string& property_name, bool value) -> bool
     {
         if (!object || property_name.empty())
@@ -1808,7 +2065,6 @@ namespace WindroseTextSigns
         ModVersion = STR("0.1.2-prototype");
         ModDescription = STR("Wooden Label custom text prototype");
         ModAuthors = STR("Windrose modding prototype");
-        m_phase7_text_editor = std::make_unique<NativeTextEditor>();
 
         register_tab(STR("WindroseTextSigns"), [](CppUserModBase* mod) {
             UE4SS_ENABLE_IMGUI();
@@ -1818,10 +2074,6 @@ namespace WindroseTextSigns
 
     SignTextMod::~SignTextMod()
     {
-        if (m_phase7_text_editor)
-        {
-            m_phase7_text_editor->close();
-        }
         if (m_log.is_open())
         {
             m_log.flush();
@@ -2221,19 +2473,82 @@ namespace WindroseTextSigns
         m_phase7_native_editor_open = false;
     }
 
-    auto SignTextMod::open_phase7_text_editor_for_selection() -> bool
+    auto SignTextMod::open_phase7_umg_editor_for_selection() -> bool
     {
         if (!m_selected.has_value())
         {
             return false;
         }
-        if (!ensure_selected_actor_valid("open_phase7_text_editor_for_selection"))
+        if (!ensure_selected_actor_valid("open_phase7_umg_editor_for_selection"))
         {
             return false;
         }
-        if (!m_phase7_text_editor)
+        if (m_phase7_umg_widget)
         {
-            m_phase7_text_editor = std::make_unique<NativeTextEditor>();
+            return true;
+        }
+
+        auto* controller = try_get_primary_player_controller();
+        auto* user_widget_class = find_uclass_by_path(STR("/Script/UMG.UserWidget"));
+        auto* widget_tree_class = find_uclass_by_path(STR("/Script/UMG.WidgetTree"));
+        auto* vertical_box_class = find_uclass_by_path(STR("/Script/UMG.VerticalBox"));
+        auto* horizontal_box_class = find_uclass_by_path(STR("/Script/UMG.HorizontalBox"));
+        auto* text_block_class = find_uclass_by_path(STR("/Script/UMG.TextBlock"));
+        auto* text_box_class = find_uclass_by_path(STR("/Script/UMG.MultiLineEditableTextBox"));
+        if (!text_box_class)
+        {
+            text_box_class = find_uclass_by_path(STR("/Script/UMG.EditableTextBox"));
+        }
+        auto* button_class = find_uclass_by_path(STR("/Script/UMG.Button"));
+        if (!controller || !user_widget_class || !widget_tree_class || !vertical_box_class || !text_block_class || !text_box_class || !button_class)
+        {
+            log_line("[phase7-umg] open_failed reason=missing_class controller=" + std::string{controller ? "1" : "0"} +
+                     " userWidget=" + std::string{user_widget_class ? "1" : "0"} +
+                     " widgetTree=" + std::string{widget_tree_class ? "1" : "0"} +
+                     " vbox=" + std::string{vertical_box_class ? "1" : "0"} +
+                     " textBlock=" + std::string{text_block_class ? "1" : "0"} +
+                     " textBox=" + std::string{text_box_class ? "1" : "0"} +
+                     " button=" + std::string{button_class ? "1" : "0"});
+            return false;
+        }
+
+        auto* widget = UObjectGlobals::NewObject<UObject>(controller, user_widget_class, NAME_None, RF_Transient);
+        auto* tree = widget ? get_object_property_if_present(widget, "WidgetTree") : nullptr;
+        if (widget && !tree)
+        {
+            tree = UObjectGlobals::NewObject<UObject>(widget, widget_tree_class, FName(STR("WidgetTree"), FNAME_Add), RF_Transient);
+            if (tree)
+            {
+                (void)set_object_property_if_present(widget, "WidgetTree", tree);
+            }
+        }
+        if (!widget || !tree)
+        {
+            log_line("[phase7-umg] open_failed reason=create_widget_or_tree widget=" + std::string{widget ? "1" : "0"} +
+                     " tree=" + std::string{tree ? "1" : "0"});
+            return false;
+        }
+
+        auto* root = invoke_widget_tree_construct_widget(tree, vertical_box_class, "WTS_Root");
+        auto* title = invoke_widget_tree_construct_widget(tree, text_block_class, "WTS_Title");
+        auto* text_box = invoke_widget_tree_construct_widget(tree, text_box_class, "WTS_TextBox");
+        auto* button_row = horizontal_box_class ? invoke_widget_tree_construct_widget(tree, horizontal_box_class, "WTS_ButtonRow") : nullptr;
+        auto* apply_button = invoke_widget_tree_construct_widget(tree, button_class, "WTS_ApplyButton");
+        auto* clear_button = invoke_widget_tree_construct_widget(tree, button_class, "WTS_ClearButton");
+        auto* cancel_button = invoke_widget_tree_construct_widget(tree, button_class, "WTS_CancelButton");
+        auto* apply_label = invoke_widget_tree_construct_widget(tree, text_block_class, "WTS_ApplyLabel");
+        auto* clear_label = invoke_widget_tree_construct_widget(tree, text_block_class, "WTS_ClearLabel");
+        auto* cancel_label = invoke_widget_tree_construct_widget(tree, text_block_class, "WTS_CancelLabel");
+
+        if (!root || !title || !text_box || !apply_button || !clear_button || !cancel_button)
+        {
+            log_line("[phase7-umg] open_failed reason=construct_children root=" + std::string{root ? "1" : "0"} +
+                     " title=" + std::string{title ? "1" : "0"} +
+                     " textBox=" + std::string{text_box ? "1" : "0"} +
+                     " apply=" + std::string{apply_button ? "1" : "0"} +
+                     " clear=" + std::string{clear_button ? "1" : "0"} +
+                     " cancel=" + std::string{cancel_button ? "1" : "0"});
+            return false;
         }
 
         const auto actor_world_id = m_selected->world_id.empty() ? build_world_id_for_actor(m_selected->actor) : m_selected->world_id;
@@ -2253,36 +2568,111 @@ namespace WindroseTextSigns
             m_text_buffer_bound_key = key;
         }
 
+        const bool root_set = set_object_property_if_present(tree, "RootWidget", root);
+        const bool title_text = invoke_umg_set_text(title, "Label: Text");
+        const bool input_text = invoke_umg_set_text(text_box, std::string{m_text_buffer.data()});
+        const bool apply_text = apply_label ? invoke_umg_set_text(apply_label, "Apply") : false;
+        const bool clear_text = clear_label ? invoke_umg_set_text(clear_label, "Clear") : false;
+        const bool cancel_text = cancel_label ? invoke_umg_set_text(cancel_label, "Cancel") : false;
+        const bool apply_content = apply_label ? invoke_set_content(apply_button, apply_label) : false;
+        const bool clear_content = clear_label ? invoke_set_content(clear_button, clear_label) : false;
+        const bool cancel_content = cancel_label ? invoke_set_content(cancel_button, cancel_label) : false;
+
+        const bool add_title = invoke_add_child(root, title) != nullptr;
+        const bool add_text = invoke_add_child(root, text_box) != nullptr;
+        bool add_buttons = false;
+        if (button_row)
+        {
+            const bool add_row = invoke_add_child(root, button_row) != nullptr;
+            const bool add_apply = invoke_add_child(button_row, apply_button) != nullptr;
+            const bool add_clear = invoke_add_child(button_row, clear_button) != nullptr;
+            const bool add_cancel = invoke_add_child(button_row, cancel_button) != nullptr;
+            add_buttons = add_row && add_apply && add_clear && add_cancel;
+        }
+        else
+        {
+            const bool add_apply = invoke_add_child(root, apply_button) != nullptr;
+            const bool add_clear = invoke_add_child(root, clear_button) != nullptr;
+            const bool add_cancel = invoke_add_child(root, cancel_button) != nullptr;
+            add_buttons = add_apply && add_clear && add_cancel;
+        }
+
+        const bool added = invoke_add_to_viewport(widget, 1000);
         const bool input_mode = set_phase7_game_and_ui_input_mode(true);
-        const bool opened = m_phase7_text_editor->open("Label: Text", std::string{m_text_buffer.data()});
-        log_line("[phase7-win32] open_text_editor opened=" + std::string{opened ? "true" : "false"} +
+        if (added)
+        {
+            (void)invoke_no_param(text_box, STR("SetKeyboardFocus"), STR("/Script/UMG.Widget:SetKeyboardFocus"));
+        }
+
+        log_line("[phase7-umg] open_result added=" + std::string{added ? "true" : "false"} +
                  " inputModeApplied=" + std::string{input_mode ? "true" : "false"} +
-                 " key=" + key +
-                 " stableId=" + m_selected->stable_id);
-        return opened;
+                 " rootSet=" + std::string{root_set ? "true" : "false"} +
+                 " titleText=" + std::string{title_text ? "true" : "false"} +
+                 " inputText=" + std::string{input_text ? "true" : "false"} +
+                 " labelText=" + std::string{(apply_text && clear_text && cancel_text) ? "true" : "false"} +
+                 " buttonContent=" + std::string{(apply_content && clear_content && cancel_content) ? "true" : "false"} +
+                 " addTitle=" + std::string{add_title ? "true" : "false"} +
+                 " addText=" + std::string{add_text ? "true" : "false"} +
+                 " addButtons=" + std::string{add_buttons ? "true" : "false"} +
+                 " key=" + key);
+
+        if (!added)
+        {
+            return false;
+        }
+
+        m_phase7_umg_widget = widget;
+        m_phase7_umg_text_box = text_box;
+        m_phase7_umg_apply_button = apply_button;
+        m_phase7_umg_clear_button = clear_button;
+        m_phase7_umg_cancel_button = cancel_button;
+        return true;
     }
 
-    auto SignTextMod::tick_phase7_text_editor() -> void
+    auto SignTextMod::close_phase7_umg_editor(bool restore_game_input) -> void
     {
-        if (!m_phase7_text_editor)
+        if (m_phase7_umg_widget)
         {
-            return;
+            const bool removed = invoke_no_param(
+                m_phase7_umg_widget,
+                STR("RemoveFromParent"),
+                STR("/Script/UMG.Widget:RemoveFromParent"));
+            log_line("[phase7-umg] close removedWidget=" + std::string{removed ? "true" : "false"});
         }
-        const auto result = m_phase7_text_editor->pump();
-        if (!result.has_value() || result->action == NativeTextEditorAction::None)
+        if (restore_game_input)
         {
-            return;
-        }
-
-        const auto restore_input = [&]() {
             const bool restored = set_phase7_game_and_ui_input_mode(false);
-            log_line("[phase7-win32] restore_input restored=" + std::string{restored ? "true" : "false"});
-        };
+            log_line("[phase7-umg] close restoreInput=" + std::string{restored ? "true" : "false"});
+        }
+        m_phase7_umg_widget = nullptr;
+        m_phase7_umg_text_box = nullptr;
+        m_phase7_umg_apply_button = nullptr;
+        m_phase7_umg_clear_button = nullptr;
+        m_phase7_umg_cancel_button = nullptr;
+    }
 
-        if (!m_selected.has_value() || !ensure_selected_actor_valid("tick_phase7_text_editor"))
+    auto SignTextMod::tick_phase7_umg_editor() -> void
+    {
+        if (!m_phase7_umg_widget)
         {
-            restore_input();
-            log_line("[phase7-win32] action_ignored reason=no_valid_selection");
+            return;
+        }
+
+        bool apply_pressed = false;
+        bool clear_pressed = false;
+        bool cancel_pressed = false;
+        (void)invoke_bool_return_no_param(m_phase7_umg_apply_button, STR("IsPressed"), STR("/Script/UMG.Button:IsPressed"), apply_pressed);
+        (void)invoke_bool_return_no_param(m_phase7_umg_clear_button, STR("IsPressed"), STR("/Script/UMG.Button:IsPressed"), clear_pressed);
+        (void)invoke_bool_return_no_param(m_phase7_umg_cancel_button, STR("IsPressed"), STR("/Script/UMG.Button:IsPressed"), cancel_pressed);
+
+        if (!apply_pressed && !clear_pressed && !cancel_pressed)
+        {
+            return;
+        }
+        if (!m_selected.has_value() || !ensure_selected_actor_valid("tick_phase7_umg_editor"))
+        {
+            close_phase7_umg_editor(true);
+            log_line("[phase7-umg] action_ignored reason=no_valid_selection");
             return;
         }
 
@@ -2291,37 +2681,37 @@ namespace WindroseTextSigns
         const auto world_id = active_storage_world_id(actor_world_id);
         const auto key = build_storage_key(world_id, m_selected->stable_id);
 
-        switch (result->action)
+        if (apply_pressed)
         {
-        case NativeTextEditorAction::Apply:
-            std::snprintf(m_text_buffer.data(), m_text_buffer.size(), "%s", result->text.c_str());
-            m_text_buffer_bound_key = key;
-            log_line("[phase7-win32] apply key=" + key +
-                     " stableId=" + m_selected->stable_id +
-                     " chars=" + std::to_string(result->text.size()));
-            apply_text_to_selected_label(result->text);
-            restore_input();
-            break;
-        case NativeTextEditorAction::Clear:
+            std::string text{};
+            const bool read = invoke_get_text_value(m_phase7_umg_text_box, text) ||
+                read_text_property_value_no_process_event(m_phase7_umg_text_box, text);
+            log_line("[phase7-umg] apply pressed read=" + std::string{read ? "true" : "false"} +
+                     " key=" + key +
+                     " chars=" + std::to_string(text.size()));
+            if (read)
+            {
+                std::snprintf(m_text_buffer.data(), m_text_buffer.size(), "%s", text.c_str());
+                m_text_buffer_bound_key = key;
+                apply_text_to_selected_label(text);
+            }
+            close_phase7_umg_editor(true);
+            return;
+        }
+        if (clear_pressed)
+        {
+            log_line("[phase7-umg] clear pressed key=" + key);
             m_text_buffer.fill('\0');
             m_text_buffer_bound_key = key;
-            log_line("[phase7-win32] clear key=" + key +
-                     " stableId=" + m_selected->stable_id);
             clear_text_on_selected_label();
-            restore_input();
-            break;
-        case NativeTextEditorAction::Cancel:
-            log_line("[phase7-win32] cancel key=" + key +
-                     " stableId=" + m_selected->stable_id);
-            restore_input();
-            break;
-        case NativeTextEditorAction::Closed:
-            log_line("[phase7-win32] closed key=" + key +
-                     " stableId=" + m_selected->stable_id);
-            restore_input();
-            break;
-        default:
-            break;
+            close_phase7_umg_editor(true);
+            return;
+        }
+        if (cancel_pressed)
+        {
+            log_line("[phase7-umg] cancel pressed key=" + key);
+            close_phase7_umg_editor(true);
+            return;
         }
     }
 
@@ -4093,8 +4483,8 @@ namespace WindroseTextSigns
         }
         m_text_buffer_bound_key = key;
 
-        const bool text_editor_opened = open_phase7_text_editor_for_selection();
-        if (text_editor_opened)
+        const bool umg_opened = open_phase7_umg_editor_for_selection();
+        if (umg_opened)
         {
             m_ui_open = false;
             return;
@@ -4110,7 +4500,8 @@ namespace WindroseTextSigns
         m_ui_open = m_phase7_imgui_fallback_enabled;
         log_line("[phase7] F8 fallback_to_imgui=" + std::string{m_phase7_imgui_fallback_enabled ? "true" : "false"} +
                  " nativeSupported=" + std::string{m_phase7_native_supported ? "true" : "false"} +
-                 " win32Opened=" + std::string{text_editor_opened ? "true" : "false"});
+                 " umgOpened=" + std::string{umg_opened ? "true" : "false"} +
+                 " win32Default=false");
     }
 
     auto SignTextMod::ensure_selected_label_for_action(const std::string& action_name) -> bool
@@ -6377,7 +6768,7 @@ namespace WindroseTextSigns
         m_f8_poll_was_down = f8_is_down;
 
         tick_pending_hotkey();
-        tick_phase7_text_editor();
+        tick_phase7_umg_editor();
         tick_pending_fallback_hotkeys();
         tick_file_triggers();
         tick_bridge();

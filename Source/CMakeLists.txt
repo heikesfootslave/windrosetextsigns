@@ -6,7 +6,6 @@ project(${TARGET})
 add_library(${TARGET} SHARED
     src/dllmain.cpp
     src/NativeBridge.cpp
-    src/NativeTextEditor.cpp
     src/SignTextMod.cpp
 )
 
@@ -48,5 +47,5 @@ endif()
 target_compile_features(${TARGET} PUBLIC cxx_std_23)
 
 if(WIN32)
-    target_link_libraries(${TARGET} PRIVATE ws2_32 user32 gdi32)
+    target_link_libraries(${TARGET} PRIVATE ws2_32)
 endif()
