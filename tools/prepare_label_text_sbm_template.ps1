@@ -355,31 +355,28 @@ if ($PrepareMode -eq "WoodenLabels") {
 } elseif ($PrepareMode -eq "NativeBackedWoodenLabels") {
     # Phase 4 native-backed probe:
     # - do not create a custom Label Text BuildingItem
-    # - stage the native Ship label DA pair so the zen container has the native
-    #   asset token and construction/reload uses the game's known BuildingItem
+    # - do not override/stage the native Ship label DA pair; the category JSON
+    #   should reference the game's existing native asset
     # - category JSON appends a second Ship entry as the build-menu affordance
     $sourceDir = Join-Path $SourceLegacyRoot "R5\Content\Gameplay\Building\BuildingUtilities"
-    $targetDir = Join-Path $OutputRoot "R5\Content\Gameplay\Building\BuildingUtilities"
-    New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
-    foreach ($ext in @(".uasset", ".uexp")) {
-        $source = Join-Path $sourceDir ("DA_BI_Utilities_Lables_Wooden_Ship" + $ext)
+    $sourceUasset = Join-Path $sourceDir "DA_BI_Utilities_Lables_Wooden_Ship.uasset"
+    $sourceUexp = Join-Path $sourceDir "DA_BI_Utilities_Lables_Wooden_Ship.uexp"
+    foreach ($source in @($sourceUasset, $sourceUexp)) {
         if (-not (Test-Path -LiteralPath $source)) {
-            throw "NativeBackedWoodenLabels source missing: $source"
+            throw "NativeBackedWoodenLabels reference source missing: $source"
         }
-        Copy-Item -LiteralPath $source -Destination (Join-Path $targetDir ("DA_BI_Utilities_Lables_Wooden_Ship" + $ext)) -Force
     }
 
-    $targetUasset = Join-Path $targetDir "DA_BI_Utilities_Lables_Wooden_Ship.uasset"
-    $targetUexp = Join-Path $targetDir "DA_BI_Utilities_Lables_Wooden_Ship.uexp"
-    $uassetText = [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes($targetUasset))
-    $uexpText = [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes($targetUexp))
+    $uassetText = [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes($sourceUasset))
+    $uexpText = [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes($sourceUexp))
     $checks = [ordered]@{
-        has_native_ship_asset_name = $uassetText.Contains("DA_BI_Utilities_Lables_Wooden_Ship")
-        has_native_ship_asset_path = $uassetText.Contains("/Game/Gameplay/Building/BuildingUtilities/DA_BI_Utilities_Lables_Wooden_Ship")
-        keeps_native_ship_icon = $uassetText.Contains("T_PlaqueT02_Ship")
-        keeps_shared_recipe = $uassetText.Contains("DA_RD_BuildObject_Utilities_Labels_Wooden_T01")
-        keeps_native_label_key_8 = $uexpText.Contains("Building_Lable_8")
-        no_custom_text_asset = (-not $uassetText.Contains("DA_BI_Utilities_Lables_Wooden_Text")) -and (-not $uexpText.Contains("DA_BI_Utilities_Lables_Wooden_Text"))
+        has_native_ship_reference_name = $uassetText.Contains("DA_BI_Utilities_Lables_Wooden_Ship")
+        has_native_ship_reference_path = $uassetText.Contains("/Game/Gameplay/Building/BuildingUtilities/DA_BI_Utilities_Lables_Wooden_Ship")
+        source_keeps_native_ship_icon = $uassetText.Contains("T_PlaqueT02_Ship")
+        source_keeps_shared_recipe = $uassetText.Contains("DA_RD_BuildObject_Utilities_Labels_Wooden_T01")
+        source_keeps_native_label_key_8 = $uexpText.Contains("Building_Lable_8")
+        no_staged_native_ship_override = -not (Test-Path -LiteralPath (Join-Path $OutputRoot "R5\Content\Gameplay\Building\BuildingUtilities\DA_BI_Utilities_Lables_Wooden_Ship.uasset"))
+        no_custom_text_asset = -not (Test-Path -LiteralPath (Join-Path $OutputRoot "R5\Content\Gameplay\Building\BuildingUtilities\DA_BI_Utilities_Lables_Wooden_Text.uasset"))
     }
 } elseif ($PrepareMode -eq "StorageProbe") {
     # Storage probe:

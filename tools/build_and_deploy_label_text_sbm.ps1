@@ -344,11 +344,11 @@ if (-not (Test-Path -LiteralPath $InputRoot)) {
 }
 
 $contentRootCandidate = Join-Path $InputRoot "R5\Content"
-$packSourceRoot = $InputRoot
-if (Test-Path -LiteralPath $contentRootCandidate) {
-    # Match SBM container path shape (../../../Gameplay/...) by packing from Content root.
-    $packSourceRoot = $contentRootCandidate
-}
+# Always pack from the staged Content root. Native-backed mode only stages the
+# category JSON, so falling back to InputRoot would accidentally package reports
+# and stale probe artifacts as game content.
+Ensure-Directory $contentRootCandidate
+$packSourceRoot = $contentRootCandidate
 
 $sbmPakForCategoryJson = Resolve-SbmPakPath -ExplicitPakPath $SbmPakPath -ZipPath $SbmZipPath -WorkingRoot $InputRoot
 Write-Step "Adding build-menu category JSON"
@@ -356,7 +356,7 @@ $categoryJsonPath = Add-BuildMenuCategoryJson -SourcePakPath $sbmPakForCategoryJ
 Write-Step "Category JSON staged: $categoryJsonPath"
 
 $sourceAssetPath = Join-Path $packSourceRoot $effectiveSourceAssetRelativePath
-if (-not (Test-Path -LiteralPath $sourceAssetPath)) {
+if ($PrepareMode -ne "NativeBackedWoodenLabels" -and -not (Test-Path -LiteralPath $sourceAssetPath)) {
     throw "Expected source asset missing: $sourceAssetPath"
 }
 
@@ -402,10 +402,14 @@ if ($LASTEXITCODE -ne 0) {
     throw "retoc list failed (exit $LASTEXITCODE) for '$outUtoc'"
 }
 $joined = ($listOutput | Out-String)
-if (-not ($joined -match [Regex]::Escape($effectiveExpectedToken))) {
+if ($PrepareMode -ne "NativeBackedWoodenLabels" -and -not ($joined -match [Regex]::Escape($effectiveExpectedToken))) {
     throw "Verification failed: token '$effectiveExpectedToken' not found in container listing."
 }
-Write-Step "Verification passed: found token '$effectiveExpectedToken'"
+if ($PrepareMode -eq "NativeBackedWoodenLabels") {
+    Write-Step "Verification skipped: native-backed mode does not override/stage native Ship asset"
+} else {
+    Write-Step "Verification passed: found token '$effectiveExpectedToken'"
+}
 
 Write-Step "Verifying pak-side category registry"
 $pakListOutput = & repak list $outPak 2>&1
@@ -416,7 +420,7 @@ $pakListText = $pakListOutput | Out-String
 if (-not ($pakListText -match [Regex]::Escape("R5/Content/UI/HUD/Building/DA_BuildingUICategories.json"))) {
     throw "Pak verification failed: category JSON missing from pak."
 }
-if (-not ($pakListText -match [Regex]::Escape($effectiveExpectedToken))) {
+if ($PrepareMode -ne "NativeBackedWoodenLabels" -and -not ($pakListText -match [Regex]::Escape($effectiveExpectedToken))) {
     throw "Pak verification failed: asset token '$effectiveExpectedToken' missing from pak."
 }
 

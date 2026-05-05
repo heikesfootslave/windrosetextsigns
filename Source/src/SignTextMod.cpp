@@ -958,6 +958,15 @@ namespace
         return value;
     }
 
+    auto strip_terminal_line_breaks(std::string value) -> std::string
+    {
+        while (!value.empty() && (value.back() == '\n' || value.back() == '\r'))
+        {
+            value.pop_back();
+        }
+        return value;
+    }
+
     auto sanitize_path_segment(std::string value) -> std::string
     {
         if (value.empty())
@@ -2905,11 +2914,11 @@ namespace WindroseTextSigns
         const bool input_color =
             invoke_set_rgba_value(text_box, STR("SetColorAndOpacity"), nullptr, 1.0f, 1.0f, 1.0f, 1.0f) ||
             invoke_set_rgba_value(text_box, STR("SetForegroundColor"), nullptr, 1.0f, 1.0f, 1.0f, 1.0f);
-        const bool frame_color = invoke_set_rgba_value(frame, STR("SetBrushColor"), STR("/Script/UMG.Border:SetBrushColor"), 0.075f, 0.080f, 0.085f, 0.94f);
-        const bool background_color = invoke_set_rgba_value(background, STR("SetBrushColor"), STR("/Script/UMG.Border:SetBrushColor"), 0.035f, 0.038f, 0.042f, 0.90f);
+        const bool frame_color = invoke_set_rgba_value(frame, STR("SetBrushColor"), STR("/Script/UMG.Border:SetBrushColor"), 0.17f, 0.17f, 0.16f, 0.94f);
+        const bool background_color = invoke_set_rgba_value(background, STR("SetBrushColor"), STR("/Script/UMG.Border:SetBrushColor"), 0.045f, 0.050f, 0.055f, 0.90f);
         const bool divider_color = invoke_set_rgba_value(divider, STR("SetBrushColor"), STR("/Script/UMG.Border:SetBrushColor"), 0.72f, 0.68f, 0.58f, 0.76f);
         const bool input_frame_color = invoke_set_rgba_value(input_frame, STR("SetBrushColor"), STR("/Script/UMG.Border:SetBrushColor"), 0.43f, 0.40f, 0.34f, 0.95f);
-        const bool input_background_color = invoke_set_rgba_value(input_background, STR("SetBrushColor"), STR("/Script/UMG.Border:SetBrushColor"), 0.018f, 0.020f, 0.022f, 0.86f);
+        const bool input_background_color = invoke_set_rgba_value(input_background, STR("SetBrushColor"), STR("/Script/UMG.Border:SetBrushColor"), 0.025f, 0.028f, 0.030f, 0.84f);
         const bool frame_padding = invoke_set_margin_value(frame, STR("SetPadding"), STR("/Script/UMG.Border:SetPadding"), 2.0f, 2.0f, 2.0f, 2.0f);
         const bool background_padding = invoke_set_margin_value(background, STR("SetPadding"), STR("/Script/UMG.Border:SetPadding"), 8.0f, 8.0f, 8.0f, 8.0f);
         const bool input_frame_padding = invoke_set_margin_value(input_frame, STR("SetPadding"), STR("/Script/UMG.Border:SetPadding"), 1.5f, 1.5f, 1.5f, 1.5f);
@@ -2921,10 +2930,10 @@ namespace WindroseTextSigns
         const bool background_opacity = invoke_set_float_value(background, STR("SetRenderOpacity"), STR("/Script/UMG.Widget:SetRenderOpacity"), 1.0f);
         const bool editor_opacity = invoke_set_float_value(editor, STR("SetRenderOpacity"), STR("/Script/UMG.Widget:SetRenderOpacity"), 1.0f);
         const bool input_opacity = invoke_set_float_value(text_box, STR("SetRenderOpacity"), STR("/Script/UMG.Widget:SetRenderOpacity"), 1.0f);
-        const bool frame_scale = invoke_set_vector2d_value(frame, STR("SetRenderScale"), STR("/Script/UMG.Widget:SetRenderScale"), 0.86f, 0.86f);
-        const bool title_scale = invoke_set_vector2d_value(title, STR("SetRenderScale"), STR("/Script/UMG.Widget:SetRenderScale"), 0.72f, 0.72f);
-        const bool hint_scale = invoke_set_vector2d_value(hint, STR("SetRenderScale"), STR("/Script/UMG.Widget:SetRenderScale"), 0.38f, 0.38f);
-        const bool input_scale = invoke_set_vector2d_value(text_box, STR("SetRenderScale"), STR("/Script/UMG.Widget:SetRenderScale"), 0.68f, 0.68f);
+        const bool frame_scale = invoke_set_vector2d_value(frame, STR("SetRenderScale"), STR("/Script/UMG.Widget:SetRenderScale"), 1.0f, 1.0f);
+        const bool title_scale = invoke_set_vector2d_value(title, STR("SetRenderScale"), STR("/Script/UMG.Widget:SetRenderScale"), 0.78f, 0.78f);
+        const bool hint_scale = invoke_set_vector2d_value(hint, STR("SetRenderScale"), STR("/Script/UMG.Widget:SetRenderScale"), 0.42f, 0.42f);
+        const bool input_scale = invoke_set_vector2d_value(text_box, STR("SetRenderScale"), STR("/Script/UMG.Widget:SetRenderScale"), 1.0f, 1.0f);
 
         auto* frame_slot = invoke_add_child(root, frame);
         const bool slot_pos = invoke_set_vector2d_value(frame_slot, STR("SetPosition"), nullptr, 960.0f, 540.0f);
@@ -3111,7 +3120,7 @@ namespace WindroseTextSigns
                      " enterEdge=" + std::string{enter_edge ? "true" : "false"} +
                      " enterAsync=" + std::string{enter_pressed_since_poll ? "true" : "false"} +
                      " newlineApply=" + std::string{unshifted_newline_added ? "true" : "false"} +
-                     " emptyMeansClear=" + std::string{trimmed_for_clear.empty() ? "true" : "false"});
+                     " emptyMeansBlankMarker=" + std::string{trimmed_for_clear.empty() ? "true" : "false"});
             if (read)
             {
                 if (text.size() > 48)
@@ -3123,12 +3132,8 @@ namespace WindroseTextSigns
                 if (trimmed_for_clear.empty())
                 {
                     m_text_buffer.fill('\0');
-                    clear_text_on_selected_label();
                 }
-                else
-                {
-                    apply_text_to_selected_label(text);
-                }
+                apply_text_to_selected_label(text);
             }
             close_phase7_umg_editor(true);
             return;
@@ -4486,7 +4491,7 @@ namespace WindroseTextSigns
         }
 
         const std::regex row_rx(
-            R"__RX__("([^"]+)"\s*:\s*\{\s*"text"\s*:\s*"((?:\\.|[^"\\])*)"\s*,\s*"asset"\s*:\s*"((?:\\.|[^"\\])*)"(?:\s*,\s*"surfaceAxis"\s*:\s*(-?[0-9]+(?:\.[0-9]+)?))?(?:\s*,\s*"surfaceSign"\s*:\s*(-?1))?(?:\s*,\s*"depthOffset"\s*:\s*(-?[0-9]+(?:\.[0-9]+)?))?(?:\s*,\s*"alignX"\s*:\s*(-?[0-9]+(?:\.[0-9]+)?))?(?:\s*,\s*"alignY"\s*:\s*(-?[0-9]+(?:\.[0-9]+)?))?(?:\s*,\s*"fontSize"\s*:\s*(-?[0-9]+(?:\.[0-9]+)?))?(?:\s*,\s*"colorR"\s*:\s*(-?[0-9]+(?:\.[0-9]+)?))?(?:\s*,\s*"colorG"\s*:\s*(-?[0-9]+(?:\.[0-9]+)?))?(?:\s*,\s*"colorB"\s*:\s*(-?[0-9]+(?:\.[0-9]+)?))?(?:\s*,\s*"colorA"\s*:\s*(-?[0-9]+(?:\.[0-9]+)?))?(?:\s*,\s*"lastSeen"\s*:\s*"((?:\\.|[^"\\])*)")?\s*\})__RX__");
+            R"__RX__("([^"]+)"\s*:\s*\{\s*"text"\s*:\s*"((?:\\.|[^"\\])*)"\s*,\s*"asset"\s*:\s*"((?:\\.|[^"\\])*)"(?:\s*,\s*"kind"\s*:\s*"((?:\\.|[^"\\])*)")?(?:\s*,\s*"backingAsset"\s*:\s*"((?:\\.|[^"\\])*)")?(?:\s*,\s*"surfaceAxis"\s*:\s*(-?[0-9]+(?:\.[0-9]+)?))?(?:\s*,\s*"surfaceSign"\s*:\s*(-?1))?(?:\s*,\s*"depthOffset"\s*:\s*(-?[0-9]+(?:\.[0-9]+)?))?(?:\s*,\s*"alignX"\s*:\s*(-?[0-9]+(?:\.[0-9]+)?))?(?:\s*,\s*"alignY"\s*:\s*(-?[0-9]+(?:\.[0-9]+)?))?(?:\s*,\s*"fontSize"\s*:\s*(-?[0-9]+(?:\.[0-9]+)?))?(?:\s*,\s*"colorR"\s*:\s*(-?[0-9]+(?:\.[0-9]+)?))?(?:\s*,\s*"colorG"\s*:\s*(-?[0-9]+(?:\.[0-9]+)?))?(?:\s*,\s*"colorB"\s*:\s*(-?[0-9]+(?:\.[0-9]+)?))?(?:\s*,\s*"colorA"\s*:\s*(-?[0-9]+(?:\.[0-9]+)?))?(?:\s*,\s*"lastSeen"\s*:\s*"((?:\\.|[^"\\])*)")?\s*\})__RX__");
 
         struct ParsedCandidate
         {
@@ -4542,17 +4547,19 @@ namespace WindroseTextSigns
                     rec.stable_id = (slash == std::string::npos) ? key : key.substr(slash + 1);
                     rec.text = unescape_json((*it)[2].str());
                     rec.asset = unescape_json((*it)[3].str());
-                    rec.surface_axis = ((*it)[4].matched) ? std::clamp(safe_stof((*it)[4].str(), 0.0f), 0.0f, 1.0f) : 0.0f;
-                    rec.surface_sign = ((*it)[5].matched && safe_stoi((*it)[5].str(), 1) < 0) ? -1 : 1;
-                    rec.depth_offset = ((*it)[6].matched) ? safe_stof((*it)[6].str(), 12.0f) : 12.0f;
-                    rec.align_x = ((*it)[7].matched) ? safe_stof((*it)[7].str(), 0.0f) : 0.0f;
-                    rec.align_y = ((*it)[8].matched) ? safe_stof((*it)[8].str(), 1.5f) : 1.5f;
-                    rec.font_size = ((*it)[9].matched) ? std::max(1.0f, safe_stof((*it)[9].str(), 18.0f)) : 18.0f;
-                    rec.color_r = ((*it)[10].matched) ? std::clamp(safe_stof((*it)[10].str(), 0.393822f), 0.0f, 1.0f) : 0.393822f;
-                    rec.color_g = ((*it)[11].matched) ? std::clamp(safe_stof((*it)[11].str(), 0.393822f), 0.0f, 1.0f) : 0.393822f;
-                    rec.color_b = ((*it)[12].matched) ? std::clamp(safe_stof((*it)[12].str(), 0.393822f), 0.0f, 1.0f) : 0.393822f;
-                    rec.color_a = ((*it)[13].matched) ? std::clamp(safe_stof((*it)[13].str(), 1.0f), 0.0f, 1.0f) : 1.0f;
-                    rec.last_seen_utc = ((*it)[14].matched) ? unescape_json((*it)[14].str()) : std::string{};
+                    rec.kind = ((*it)[4].matched) ? unescape_json((*it)[4].str()) : std::string{"LabelText"};
+                    rec.backing_asset = ((*it)[5].matched) ? unescape_json((*it)[5].str()) : std::string{"DA_BI_Utilities_Lables_Wooden_Ship"};
+                    rec.surface_axis = ((*it)[6].matched) ? std::clamp(safe_stof((*it)[6].str(), 0.0f), 0.0f, 1.0f) : 0.0f;
+                    rec.surface_sign = ((*it)[7].matched && safe_stoi((*it)[7].str(), 1) < 0) ? -1 : 1;
+                    rec.depth_offset = ((*it)[8].matched) ? safe_stof((*it)[8].str(), 12.0f) : 12.0f;
+                    rec.align_x = ((*it)[9].matched) ? safe_stof((*it)[9].str(), 0.0f) : 0.0f;
+                    rec.align_y = ((*it)[10].matched) ? safe_stof((*it)[10].str(), 1.5f) : 1.5f;
+                    rec.font_size = ((*it)[11].matched) ? std::max(1.0f, safe_stof((*it)[11].str(), 18.0f)) : 18.0f;
+                    rec.color_r = ((*it)[12].matched) ? std::clamp(safe_stof((*it)[12].str(), 0.393822f), 0.0f, 1.0f) : 0.393822f;
+                    rec.color_g = ((*it)[13].matched) ? std::clamp(safe_stof((*it)[13].str(), 0.393822f), 0.0f, 1.0f) : 0.393822f;
+                    rec.color_b = ((*it)[14].matched) ? std::clamp(safe_stof((*it)[14].str(), 0.393822f), 0.0f, 1.0f) : 0.393822f;
+                    rec.color_a = ((*it)[15].matched) ? std::clamp(safe_stof((*it)[15].str(), 1.0f), 0.0f, 1.0f) : 1.0f;
+                    rec.last_seen_utc = ((*it)[16].matched) ? unescape_json((*it)[16].str()) : std::string{};
                     if (m_sidecar_authoritative &&
                         is_hex_world_id(m_world_folder_id) &&
                         rec.world_id != m_world_folder_id)
@@ -4785,6 +4792,8 @@ namespace WindroseTextSigns
 
             payload << "    \"" << escape_json(key) << "\": { \"text\": \"" << escape_json(rec.text)
                 << "\", \"asset\": \"" << escape_json(rec.asset)
+                << "\", \"kind\": \"" << escape_json(rec.kind.empty() ? "LabelText" : rec.kind)
+                << "\", \"backingAsset\": \"" << escape_json(rec.backing_asset.empty() ? "DA_BI_Utilities_Lables_Wooden_Ship" : rec.backing_asset)
                 << "\", \"surfaceAxis\": " << axis_value.str()
                 << ", \"surfaceSign\": " << rec.surface_sign
                 << ", \"depthOffset\": " << rec.depth_offset
@@ -5037,6 +5046,8 @@ namespace WindroseTextSigns
                 << ",\"worldId\":\"" << escape_json(rec.world_id) << "\""
                 << ",\"text\":\"" << escape_json(rec.text) << "\""
                 << ",\"asset\":\"" << escape_json(rec.asset) << "\""
+                << ",\"kind\":\"" << escape_json(rec.kind.empty() ? "LabelText" : rec.kind) << "\""
+                << ",\"backingAsset\":\"" << escape_json(rec.backing_asset.empty() ? "DA_BI_Utilities_Lables_Wooden_Ship" : rec.backing_asset) << "\""
                 << ",\"surfaceAxis\":" << axis_value.str()
                 << ",\"surfaceSign\":" << rec.surface_sign
                 << ",\"depthOffset\":" << rec.depth_offset
@@ -5074,6 +5085,8 @@ namespace WindroseTextSigns
                 << ",\"worldId\":\"" << escape_json(rec.world_id) << "\""
                 << ",\"text\":\"" << escape_json(rec.text) << "\""
                 << ",\"asset\":\"" << escape_json(rec.asset) << "\""
+                << ",\"kind\":\"" << escape_json(rec.kind.empty() ? "LabelText" : rec.kind) << "\""
+                << ",\"backingAsset\":\"" << escape_json(rec.backing_asset.empty() ? "DA_BI_Utilities_Lables_Wooden_Ship" : rec.backing_asset) << "\""
                 << ",\"surfaceAxis\":" << axis_value.str()
                 << ",\"surfaceSign\":" << rec.surface_sign
                 << ",\"depthOffset\":" << rec.depth_offset
@@ -5204,6 +5217,8 @@ namespace WindroseTextSigns
         rec.world_id = world_id;
         rec.text = unescape_json(fields.count("text") ? fields.at("text") : "");
         rec.asset = unescape_json(fields.count("asset") ? fields.at("asset") : "unknown");
+        rec.kind = unescape_json(fields.count("kind") ? fields.at("kind") : "LabelText");
+        rec.backing_asset = unescape_json(fields.count("backingAsset") ? fields.at("backingAsset") : "DA_BI_Utilities_Lables_Wooden_Ship");
         rec.surface_axis = fields.count("surfaceAxis") ? std::clamp(safe_stof(fields.at("surfaceAxis"), 0.0f), 0.0f, 1.0f) : rec.surface_axis;
         rec.surface_sign = (fields.count("surfaceSign") && safe_stoi(fields.at("surfaceSign"), 1) < 0) ? -1 : 1;
         rec.depth_offset = fields.count("depthOffset") ? safe_stof(fields.at("depthOffset"), 12.0f) : rec.depth_offset;
@@ -5284,6 +5299,8 @@ namespace WindroseTextSigns
         rec.world_id = local_world_id;
         rec.text = unescape_json(fields.count("text") ? fields.at("text") : "");
         rec.asset = unescape_json(fields.count("asset") ? fields.at("asset") : "unknown");
+        rec.kind = unescape_json(fields.count("kind") ? fields.at("kind") : "LabelText");
+        rec.backing_asset = unescape_json(fields.count("backingAsset") ? fields.at("backingAsset") : "DA_BI_Utilities_Lables_Wooden_Ship");
         rec.surface_axis = fields.count("surfaceAxis") ? std::clamp(safe_stof(fields.at("surfaceAxis"), 0.0f), 0.0f, 1.0f) : rec.surface_axis;
         rec.surface_sign = (fields.count("surfaceSign") && safe_stoi(fields.at("surfaceSign"), 1) < 0) ? -1 : 1;
         rec.depth_offset = fields.count("depthOffset") ? safe_stof(fields.at("depthOffset"), 12.0f) : rec.depth_offset;
@@ -5305,6 +5322,8 @@ namespace WindroseTextSigns
             existing->second.world_id != rec.world_id ||
             existing->second.text != rec.text ||
             existing->second.asset != rec.asset ||
+            existing->second.kind != rec.kind ||
+            existing->second.backing_asset != rec.backing_asset ||
             !same_float(existing->second.surface_axis, rec.surface_axis) ||
             existing->second.surface_sign != rec.surface_sign ||
             !same_float(existing->second.depth_offset, rec.depth_offset) ||
@@ -5454,6 +5473,8 @@ namespace WindroseTextSigns
             axis_value << std::fixed << std::setprecision(2) << std::clamp(rec.surface_axis, 0.0f, 1.0f);
             out << "    \"" << escape_json(key) << "\": { \"text\": \"" << escape_json(rec.text)
                 << "\", \"asset\": \"" << escape_json(rec.asset)
+                << "\", \"kind\": \"" << escape_json(rec.kind.empty() ? "LabelText" : rec.kind)
+                << "\", \"backingAsset\": \"" << escape_json(rec.backing_asset.empty() ? "DA_BI_Utilities_Lables_Wooden_Ship" : rec.backing_asset)
                 << "\", \"stableId\": \"" << escape_json(rec.stable_id)
                 << "\", \"worldId\": \"" << escape_json(rec.world_id)
                 << "\", \"surfaceAxis\": " << axis_value.str()
@@ -6141,14 +6162,6 @@ namespace WindroseTextSigns
         {
             return;
         }
-        const auto has_non_whitespace = std::any_of(text_value.begin(), text_value.end(), [](unsigned char ch) {
-            return !std::isspace(ch);
-        });
-        if (!has_non_whitespace)
-        {
-            clear_text_on_selected_label();
-            return;
-        }
         auto* actor = m_selected->actor;
         const auto actor_world_id = m_selected->world_id.empty() ? build_world_id_for_actor(actor) : m_selected->world_id;
         configure_sidecar_for_actor(actor, actor_world_id);
@@ -6164,10 +6177,13 @@ namespace WindroseTextSigns
         }
         rec.stable_id = m_selected->stable_id;
         rec.world_id = world_id;
-        const auto fit = fit_text_for_plaque(text_value);
+        const auto normalized_text_value = strip_terminal_line_breaks(text_value);
+        const auto fit = fit_text_for_plaque(normalized_text_value);
         rec.text = fit.wrapped_text;
         rec.font_size = std::clamp(fit.font_size, 10.0f, 20.0f);
         rec.asset = m_selected->asset;
+        rec.kind = "LabelText";
+        rec.backing_asset = "DA_BI_Utilities_Lables_Wooden_Ship";
         rec.last_seen_utc = now_utc();
 
         auto* controller = try_get_primary_player_controller();

@@ -1,6 +1,7 @@
 param(
     [string]$ModRoot = "C:\Users\User\Documents\Windrose Addons\WindroseTextSigns",
     [string]$DeploymentsDir = "C:\Users\User\Documents\Windrose Addons\WindroseTextSigns\Deployments",
+    [string]$DeploymentZipPath = "",
     [string]$ClientModsRoot = "C:\SteamLibrary\steamapps\common\Windrose\R5\Binaries\Win64\ue4ss\Mods",
     [string]$ServerModsRoot = "C:\Games\WindowsServer\R5\Binaries\Win64\ue4ss\Mods",
     [string]$ContentBuildScript = "C:\Users\User\Documents\Windrose Addons\WindroseTextSigns\tools\build_and_deploy_label_text_sbm.ps1",
@@ -124,7 +125,21 @@ function Remove-StaleUe4ssModFolders {
 }
 
 function Resolve-LatestZipPath {
-    param([Parameter(Mandatory = $true)][string]$Root)
+    param(
+        [Parameter(Mandatory = $true)][string]$Root,
+        [string]$ExplicitZipPath = ""
+    )
+
+    if (-not [string]::IsNullOrWhiteSpace($ExplicitZipPath)) {
+        $resolved = [System.IO.Path]::GetFullPath($ExplicitZipPath)
+        if (-not (Test-Path -LiteralPath $resolved)) {
+            throw "Explicit deployment zip not found: `"$resolved`""
+        }
+        if ([System.IO.Path]::GetExtension($resolved) -ne ".zip") {
+            throw "Explicit deployment path must be a .zip file: `"$resolved`""
+        }
+        return $resolved
+    }
 
     $latestTxt = Join-Path $Root "LATEST.txt"
     if (Test-Path -LiteralPath $latestTxt) {
@@ -353,7 +368,7 @@ if ($DisableContentPackage) {
     Write-Step "SkipContentDeploy set; content pak deployment skipped"
 }
 
-$zipPath = Resolve-LatestZipPath -Root $DeploymentsDir
+$zipPath = Resolve-LatestZipPath -Root $DeploymentsDir -ExplicitZipPath $DeploymentZipPath
 Write-Step "Using deployment zip: `"$zipPath`""
 
 $stamp = Get-Date -Format "yyyyMMdd_HHmmss"
