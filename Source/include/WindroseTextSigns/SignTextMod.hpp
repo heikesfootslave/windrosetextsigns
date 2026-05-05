@@ -93,6 +93,7 @@ namespace WindroseTextSigns
         auto is_static_construct_probe_enabled() const -> bool;
         auto is_process_event_probe_enabled() const -> bool;
         auto is_phase5_placement_probe_enabled() const -> bool;
+        auto is_phase5_build_menu_selection_probe_enabled() const -> bool;
         auto config_bool_value(std::string_view key, bool fallback) const -> bool;
 
         auto tick_pending_hotkey() -> void;
@@ -100,6 +101,7 @@ namespace WindroseTextSigns
         auto tick_file_triggers() -> void;
         auto run_six_sign_targeting_test() -> void;
         auto run_buildmenu_asset_probe() -> void;
+        auto tick_phase5_build_menu_selection_probe() -> void;
         auto is_restore_scan_world_active() -> bool;
         auto ensure_selected_label_for_action(const std::string& action_name) -> bool;
         auto is_actor_pointer_live(RC::Unreal::AActor* actor) const -> bool;
@@ -219,6 +221,7 @@ namespace WindroseTextSigns
         bool m_phase7_imgui_fallback_enabled{true};
         bool m_static_construct_probe_enabled{false};
         bool m_phase5_placement_probe_enabled{false};
+        bool m_phase5_build_menu_selection_probe_enabled{false};
         bool m_f8_poll_was_down{false};
         bool m_phase7_enter_was_down{false};
         bool m_phase7_escape_was_down{false};
@@ -264,6 +267,9 @@ namespace WindroseTextSigns
         bool m_restore_scan_wait_logged{false};
         bool m_prune_deferred_logged{false};
         std::unordered_map<std::string, std::chrono::steady_clock::time_point> m_construct_probe_last_seen{};
+        std::chrono::steady_clock::time_point m_phase5_build_menu_selection_probe_next{};
+        std::chrono::steady_clock::time_point m_phase5_build_menu_selection_probe_last_summary{};
+        std::unordered_map<std::string, std::string> m_phase5_build_menu_selection_probe_last{};
         std::chrono::steady_clock::time_point m_last_backup_snapshot{};
         std::string m_last_backup_signature{};
         bool m_runtime_text_label_patch_applied{false};

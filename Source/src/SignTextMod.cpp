@@ -1109,6 +1109,98 @@ namespace
         return std::nullopt;
     }
 
+    auto try_extract_phase5_selection_property_value(FProperty* prop, void* container) -> std::optional<std::string>
+    {
+        if (!prop || !container)
+        {
+            return std::nullopt;
+        }
+
+        const auto prop_name = RC::to_string(prop->GetName());
+        const auto prop_name_lower = lower_copy_ascii(prop_name);
+        const bool relevant_name = contains_any_token(prop_name_lower, {
+            "selected",
+            "hover",
+            "focus",
+            "active",
+            "current",
+            "entry",
+            "item",
+            "asset",
+            "recipe",
+            "build",
+            "construct",
+            "label",
+            "lable",
+            "plaque",
+            "category",
+            "group",
+            "index",
+            "slot",
+            "data"});
+        if (!relevant_name)
+        {
+            return std::nullopt;
+        }
+
+        const auto prop_hash = prop->GetClass().HashObject();
+        if (prop_hash == FNameProperty::StaticClass().HashObject())
+        {
+            if (auto* value = prop->ContainerPtrToValuePtr<FName>(container))
+            {
+                return "name=" + RC::to_string(value->ToString());
+            }
+            return std::nullopt;
+        }
+        if (prop_hash == FTextProperty::StaticClass().HashObject())
+        {
+            if (auto* value = prop->ContainerPtrToValuePtr<FText>(container))
+            {
+                return "text=" + RC::to_string(value->ToString());
+            }
+            return std::nullopt;
+        }
+        if (prop_hash == FObjectProperty::StaticClass().HashObject())
+        {
+            if (auto* obj_ptr = prop->ContainerPtrToValuePtr<UObject*>(container); obj_ptr && *obj_ptr)
+            {
+                return "obj=" + RC::to_string((*obj_ptr)->GetFullName());
+            }
+            return std::nullopt;
+        }
+        if (prop_hash == FClassProperty::StaticClass().HashObject())
+        {
+            if (auto* class_ptr = prop->ContainerPtrToValuePtr<UClass*>(container); class_ptr && *class_ptr)
+            {
+                return "class=" + RC::to_string((*class_ptr)->GetFullName());
+            }
+            return std::nullopt;
+        }
+        if (prop_hash == FBoolProperty::StaticClass().HashObject())
+        {
+            if (auto* bool_prop = static_cast<FBoolProperty*>(prop))
+            {
+                if (auto* storage = prop->ContainerPtrToValuePtr<void>(container))
+                {
+                    return std::string{"bool="} + (bool_prop->GetPropertyValue(storage) ? "true" : "false");
+                }
+            }
+            return std::nullopt;
+        }
+
+        const auto prop_class_name = lower_copy_ascii(RC::to_string(prop->GetClass().GetName()));
+        if (contains_any_token(prop_class_name, {"intproperty", "uint32property"}) &&
+            contains_any_token(prop_name_lower, {"index", "slot", "count", "id"}))
+        {
+            if (auto* value = prop->ContainerPtrToValuePtr<int32_t>(container))
+            {
+                return "int=" + std::to_string(*value);
+            }
+        }
+
+        return std::nullopt;
+    }
+
     auto to_hex_guid(const FGuid& guid) -> std::string
     {
         std::ostringstream out{};
@@ -2466,6 +2558,11 @@ namespace WindroseTextSigns
         return config_bool_value("WTS_PHASE5_PLACEMENT_PROBE", false);
     }
 
+    auto SignTextMod::is_phase5_build_menu_selection_probe_enabled() const -> bool
+    {
+        return config_bool_value("WTS_PHASE5_BUILD_MENU_SELECTION_PROBE", false);
+    }
+
     auto SignTextMod::now_utc() const -> std::string
     {
         const auto now = std::time(nullptr);
@@ -2540,6 +2637,7 @@ namespace WindroseTextSigns
         m_mod_root = resolve_mod_root();
         m_static_construct_probe_enabled = is_static_construct_probe_enabled();
         m_phase5_placement_probe_enabled = is_phase5_placement_probe_enabled();
+        m_phase5_build_menu_selection_probe_enabled = is_phase5_build_menu_selection_probe_enabled();
         m_session_id = now_utc() + "-" + sanitize_path_segment(current_executable_path().filename().string());
         configure_data_root();
         m_legacy_sidecar_path = m_mod_root / "SignTexts.json";
@@ -2553,7 +2651,7 @@ namespace WindroseTextSigns
         }
 
         open_log();
-        log_line(std::string{"[build] version=0.1.2-prototype compiled="} + __DATE__ + " " + __TIME__ + " flags=F8-only,phase2-role-aware-sidecar,remote-cache-routing,staticconstruct-gated,phase6-native-udp-bridge,phase7-umg-no-llhook,dedicated-no-render-components,phase4-marker-guard,restore-scan-diag,phase5-placement-probe");
+        log_line(std::string{"[build] version=0.1.2-prototype compiled="} + __DATE__ + " " + __TIME__ + " flags=F8-only,phase2-role-aware-sidecar,remote-cache-routing,staticconstruct-gated,phase6-native-udp-bridge,phase7-umg-no-llhook,dedicated-no-render-components,phase4-marker-guard,restore-scan-diag,phase5-placement-probe,phase5-build-menu-selection-probe");
         log_line("[role] runtimeRole=" + m_runtime_role +
                  " dataMode=" + m_data_mode +
                  " authorityMode=" + m_authority_mode +
@@ -2569,6 +2667,8 @@ namespace WindroseTextSigns
                  std::string{m_static_construct_probe_enabled ? "true" : "false"});
         log_line("[probe] Phase5 placement probe config enabled=" +
                  std::string{m_phase5_placement_probe_enabled ? "true" : "false"});
+        log_line("[probe] Phase5 build-menu selection probe config enabled=" +
+                 std::string{m_phase5_build_menu_selection_probe_enabled ? "true" : "false"});
 
         std::error_code mkdir_ec{};
         std::filesystem::create_directories(m_data_root, mkdir_ec);
@@ -4420,6 +4520,194 @@ namespace WindroseTextSigns
         }
 
         log_line("[buildmenu-probe] complete");
+    }
+
+    auto SignTextMod::tick_phase5_build_menu_selection_probe() -> void
+    {
+        if (!m_phase5_build_menu_selection_probe_enabled || is_dedicated_runtime_process())
+        {
+            return;
+        }
+
+        const auto now = std::chrono::steady_clock::now();
+        if (now < m_phase5_build_menu_selection_probe_next)
+        {
+            return;
+        }
+        m_phase5_build_menu_selection_probe_next = now + std::chrono::milliseconds(750);
+
+        struct CandidateRow
+        {
+            std::string object{};
+            std::string class_name{};
+            std::vector<std::string> fields{};
+            bool selectedish_true{false};
+            bool references_wooden_label{false};
+            bool is_wooden_item{false};
+        };
+
+        std::vector<CandidateRow> rows{};
+        rows.reserve(32);
+        uint32_t scanned = 0;
+        uint32_t widgetish = 0;
+        uint32_t wooden_items = 0;
+
+        UObjectGlobals::ForEachUObject([&](UObject* object, int32, int32) {
+            if (!object || object->IsA(UFunction::StaticClass()))
+            {
+                return LoopAction::Continue;
+            }
+            ++scanned;
+
+            const auto full_name = narrow_ascii(object->GetFullName());
+            const auto class_name = object->GetClassPrivate()
+                ? narrow_ascii(object->GetClassPrivate()->GetFullName())
+                : std::string{"unknown"};
+            const auto lower_full = lower_ascii(full_name);
+            const auto lower_class = lower_ascii(class_name);
+            const auto haystack = lower_full + " " + lower_class;
+
+            const bool is_wooden_item = lower_full.find("da_bi_utilities_lables_wooden_") != std::string::npos;
+            const bool is_widgetish =
+                contains_any_token(haystack, {"wbp_", "widget", "userwidget", "buildmenu", "buildingmenu"}) &&
+                contains_any_token(haystack, {"build", "craft", "storage", "beds", "lable", "label", "plaque", "item", "entry"});
+            const bool is_menu_stateish =
+                contains_any_token(haystack, {"build", "craft", "storage", "beds", "lable", "label", "plaque"}) &&
+                contains_any_token(haystack, {"selection", "selected", "current", "entry", "item", "viewmodel", "data"});
+
+            if (!is_wooden_item && !is_widgetish && !is_menu_stateish)
+            {
+                return LoopAction::Continue;
+            }
+
+            if (is_wooden_item)
+            {
+                ++wooden_items;
+            }
+            if (is_widgetish)
+            {
+                ++widgetish;
+            }
+
+            CandidateRow row{};
+            row.object = full_name;
+            row.class_name = class_name;
+            row.is_wooden_item = is_wooden_item;
+
+            uint32_t logged_fields = 0;
+            for_each_property_in_chain_compat(object->GetClassPrivate(), [&](FProperty* prop) {
+                if (!prop || logged_fields >= 18)
+                {
+                    return;
+                }
+
+                auto value = try_extract_phase5_selection_property_value(prop, object);
+                if (!value.has_value() || value->empty())
+                {
+                    return;
+                }
+
+                const auto prop_name = lower_ascii(RC::to_string(prop->GetName()));
+                const auto value_lower = lower_ascii(*value);
+                const bool is_true_selection =
+                    value_lower == "bool=true" &&
+                    contains_any_token(prop_name, {"selected", "hover", "focus", "active", "current"});
+                const bool references_label =
+                    contains_any_token(value_lower, {
+                        "da_bi_utilities_lables_wooden_",
+                        "building_lable_",
+                        "wallplaque",
+                        "plaque",
+                        "label",
+                        "lable"});
+                const bool always_log =
+                    is_true_selection ||
+                    references_label ||
+                    contains_any_token(prop_name, {"selected", "current", "active", "hover", "focus", "item", "entry", "data"});
+
+                if (!always_log && !is_wooden_item)
+                {
+                    return;
+                }
+
+                row.selectedish_true = row.selectedish_true || is_true_selection;
+                row.references_wooden_label = row.references_wooden_label || references_label;
+                row.fields.push_back(prop_name + "=" + *value);
+                ++logged_fields;
+            });
+
+            if (row.fields.empty() && !row.is_wooden_item)
+            {
+                return LoopAction::Continue;
+            }
+
+            if (rows.size() < 32)
+            {
+                rows.push_back(std::move(row));
+            }
+
+            return LoopAction::Continue;
+        });
+
+        const bool should_log_summary =
+            (now - m_phase5_build_menu_selection_probe_last_summary) > std::chrono::seconds(5);
+        if (should_log_summary)
+        {
+            m_phase5_build_menu_selection_probe_last_summary = now;
+            log_line("[phase5-select-probe] scan objects=" + std::to_string(scanned) +
+                     " widgetish=" + std::to_string(widgetish) +
+                     " woodenItems=" + std::to_string(wooden_items) +
+                     " candidates=" + std::to_string(rows.size()));
+        }
+
+        if (m_phase5_build_menu_selection_probe_last.size() > 512)
+        {
+            m_phase5_build_menu_selection_probe_last.clear();
+        }
+
+        uint32_t logged_rows = 0;
+        for (const auto& row : rows)
+        {
+            std::ostringstream fingerprint{};
+            fingerprint << row.class_name << "|" << row.selectedish_true << "|" << row.references_wooden_label;
+            for (const auto& field : row.fields)
+            {
+                fingerprint << "|" << field;
+            }
+
+            const auto fp = fingerprint.str();
+            const auto found = m_phase5_build_menu_selection_probe_last.find(row.object);
+            if (found != m_phase5_build_menu_selection_probe_last.end() && found->second == fp)
+            {
+                continue;
+            }
+            m_phase5_build_menu_selection_probe_last[row.object] = fp;
+
+            if (logged_rows >= 12)
+            {
+                continue;
+            }
+            ++logged_rows;
+            log_line("[phase5-select-probe] candidate selectedish=" +
+                     std::string{row.selectedish_true ? "true" : "false"} +
+                     " refsWoodenLabel=" + std::string{row.references_wooden_label ? "true" : "false"} +
+                     " isWoodenItem=" + std::string{row.is_wooden_item ? "true" : "false"} +
+                     " class=" + row.class_name +
+                     " object=" + row.object);
+
+            uint32_t field_index = 0;
+            for (const auto& field : row.fields)
+            {
+                if (field_index >= 10)
+                {
+                    break;
+                }
+                log_line("[phase5-select-probe] field object=" + row.object +
+                         " index=" + std::to_string(field_index) +
+                         " " + field);
+                ++field_index;
+            }
+        }
     }
 
     auto SignTextMod::tick_file_triggers() -> void
@@ -6648,6 +6936,7 @@ namespace WindroseTextSigns
             tick_phase7_umg_editor();
             tick_pending_fallback_hotkeys();
             tick_file_triggers();
+            tick_phase5_build_menu_selection_probe();
             if (m_six_sign_test_requested.exchange(false))
             {
                 run_six_sign_targeting_test();

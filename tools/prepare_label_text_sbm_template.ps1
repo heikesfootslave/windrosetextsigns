@@ -6,8 +6,8 @@ param(
     [string]$OutputRoot = "C:\Users\User\Documents\Windrose Addons\Output\WoodenLabel_Text_SBMTemplate",
     [ValidateSet("NoIconTexture", "ShipIcon")]
     [string]$LabelIconMode = "NoIconTexture",
-    [ValidateSet("WoodenLabels", "NativeBackedWoodenLabels", "NativeObjectNoIconPackageProbe", "StorageProbe", "StorageOverrideProbe")]
-    [string]$PrepareMode = "NativeObjectNoIconPackageProbe"
+    [ValidateSet("WoodenLabels", "NativeBackedWoodenLabels", "StorageProbe", "StorageOverrideProbe")]
+    [string]$PrepareMode = "NativeBackedWoodenLabels"
 )
 
 Set-StrictMode -Version Latest
@@ -377,42 +377,6 @@ if ($PrepareMode -eq "WoodenLabels") {
         source_keeps_native_label_key_8 = $uexpText.Contains("Building_Lable_8")
         no_staged_native_ship_override = -not (Test-Path -LiteralPath (Join-Path $OutputRoot "R5\Content\Gameplay\Building\BuildingUtilities\DA_BI_Utilities_Lables_Wooden_Ship.uasset"))
         no_custom_text_asset = -not (Test-Path -LiteralPath (Join-Path $OutputRoot "R5\Content\Gameplay\Building\BuildingUtilities\DA_BI_Utilities_Lables_Wooden_Text.uasset"))
-    }
-} elseif ($PrepareMode -eq "NativeObjectNoIconPackageProbe") {
-    # Phase 5 package/object identity probe:
-    # - stage a separate package path named Ship_NoIcon so the build menu gets a
-    #   distinct entry instead of a second pointer to the exact same Ship asset.
-    # - intentionally keep the internal exported object name/path as native Ship.
-    #   If Windrose persists by exported BuildingItem identity rather than package
-    #   path, this may give us a distinct blank menu affordance with native reload
-    #   behavior.
-    # - this is a probe, not yet the final Label: Text package.
-    $sourceDir = Join-Path $SourceLegacyRoot "R5\Content\Gameplay\Building\BuildingUtilities"
-    $targetDir = Join-Path $OutputRoot "R5\Content\Gameplay\Building\BuildingUtilities"
-    New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
-
-    $sourceUasset = Join-Path $sourceDir "DA_BI_Utilities_Lables_Wooden_Ship_NoIcon.uasset"
-    $sourceUexp = Join-Path $sourceDir "DA_BI_Utilities_Lables_Wooden_Ship_NoIcon.uexp"
-    foreach ($source in @($sourceUasset, $sourceUexp)) {
-        if (-not (Test-Path -LiteralPath $source)) {
-            throw "NativeObjectNoIconPackageProbe source missing: $source"
-        }
-    }
-
-    $targetUasset = Join-Path $targetDir "DA_BI_Utilities_Lables_Wooden_Ship_NoIcon.uasset"
-    $targetUexp = Join-Path $targetDir "DA_BI_Utilities_Lables_Wooden_Ship_NoIcon.uexp"
-    Copy-Item -LiteralPath $sourceUasset -Destination $targetUasset -Force
-    Copy-Item -LiteralPath $sourceUexp -Destination $targetUexp -Force
-
-    $uassetText = [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes($targetUasset))
-    $uexpText = [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes($targetUexp))
-    $checks = [ordered]@{
-        has_distinct_package_file = (Test-Path -LiteralPath $targetUasset)
-        keeps_native_ship_export_name = $uassetText.Contains("DA_BI_Utilities_Lables_Wooden_Ship")
-        no_text_asset_identity = -not $uassetText.Contains("DA_BI_Utilities_Lables_Wooden_Text")
-        keeps_no_icon_reference = $uassetText.Contains("T_PlaqueT02_None")
-        keeps_shared_recipe = $uassetText.Contains("DA_RD_BuildObject_Utilities_Labels_Wooden_T01")
-        keeps_native_label_key_8 = $uexpText.Contains("Building_Lable_8")
     }
 } elseif ($PrepareMode -eq "StorageProbe") {
     # Storage probe:
