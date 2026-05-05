@@ -2580,6 +2580,16 @@ namespace WindroseTextSigns
         return config_bool_value("WTS_PHASE5_BUILD_MENU_SELECTION_PROBE", false);
     }
 
+    auto SignTextMod::is_phase5_visual_patch_probe_enabled() const -> bool
+    {
+        return config_bool_value("WTS_PHASE5_VISUAL_PATCH_PROBE", false);
+    }
+
+    auto SignTextMod::is_phase5_visual_patch_hide_icon_components_enabled() const -> bool
+    {
+        return config_bool_value("WTS_PHASE5_VISUAL_PATCH_HIDE_ICON_COMPONENTS", false);
+    }
+
     auto SignTextMod::now_utc() const -> std::string
     {
         const auto now = std::time(nullptr);
@@ -2655,6 +2665,8 @@ namespace WindroseTextSigns
         m_static_construct_probe_enabled = is_static_construct_probe_enabled();
         m_phase5_placement_probe_enabled = is_phase5_placement_probe_enabled();
         m_phase5_build_menu_selection_probe_enabled = is_phase5_build_menu_selection_probe_enabled();
+        m_phase5_visual_patch_probe_enabled = is_phase5_visual_patch_probe_enabled();
+        m_phase5_visual_patch_hide_icon_components_enabled = is_phase5_visual_patch_hide_icon_components_enabled();
         m_session_id = now_utc() + "-" + sanitize_path_segment(current_executable_path().filename().string());
         configure_data_root();
         m_legacy_sidecar_path = m_mod_root / "SignTexts.json";
@@ -2686,6 +2698,10 @@ namespace WindroseTextSigns
                  std::string{m_phase5_placement_probe_enabled ? "true" : "false"});
         log_line("[probe] Phase5 build-menu selection probe config enabled=" +
                  std::string{m_phase5_build_menu_selection_probe_enabled ? "true" : "false"});
+        log_line("[probe] Phase5 visual patch probe config enabled=" +
+                 std::string{m_phase5_visual_patch_probe_enabled ? "true" : "false"} +
+                 " hideIconComponents=" +
+                 std::string{m_phase5_visual_patch_hide_icon_components_enabled ? "true" : "false"});
 
         std::error_code mkdir_ec{};
         std::filesystem::create_directories(m_data_root, mkdir_ec);
@@ -6420,6 +6436,121 @@ namespace WindroseTextSigns
         return !is_dedicated_runtime_process();
     }
 
+    auto SignTextMod::diagnose_or_patch_label_visual(AActor* actor, const std::string& storage_key, const std::string& reason) -> bool
+    {
+        if (!actor || !should_render_world_text_components())
+        {
+            return false;
+        }
+        if (!m_phase5_visual_patch_probe_enabled && !m_phase5_visual_patch_hide_icon_components_enabled)
+        {
+            return false;
+        }
+
+        const bool first_log_for_key = m_visual_patch_probe_logged_keys.insert(storage_key).second;
+        auto components = actor->GetComponentsByClass(UActorComponent::StaticClass());
+        uint32_t hidden_candidates = 0;
+        uint32_t candidate_count = 0;
+
+        if (first_log_for_key || m_phase5_visual_patch_hide_icon_components_enabled)
+        {
+            log_line("[phase5-visual] start key=" + storage_key +
+                     " reason=" + reason +
+                     " actor=" + narrow_ascii(actor->GetFullName()) +
+                     " class=" + narrow_ascii(actor->GetClassPrivate() ? actor->GetClassPrivate()->GetFullName() : RC::StringType{}) +
+                     " componentCount=" + std::to_string(components.Num()) +
+                     " hideIconComponents=" + std::string{m_phase5_visual_patch_hide_icon_components_enabled ? "true" : "false"});
+        }
+
+        for (int32_t i = 0; i < components.Num(); ++i)
+        {
+            auto* component = components[i];
+            if (!component)
+            {
+                continue;
+            }
+
+            const auto component_name = narrow_ascii(component->GetName());
+            const auto component_full_name = narrow_ascii(component->GetFullName());
+            const auto component_class = component->GetClassPrivate()
+                ? narrow_ascii(component->GetClassPrivate()->GetFullName())
+                : std::string{"unknown"};
+            const auto haystack = lower_ascii(component_name + " " + component_full_name + " " + component_class);
+
+            const bool is_text_component = haystack.find("textrendercomponent") != std::string::npos ||
+                haystack.find("wts_textrender") != std::string::npos;
+            const bool looks_icon_component =
+                !is_text_component &&
+                contains_any_token(haystack, {
+                    "icon",
+                    "symbol",
+                    "decal",
+                    "anchor",
+                    "ship",
+                    "food",
+                    "ore",
+                    "alchemy",
+                    "weapon",
+                    "treasure",
+                    "trade",
+                    "clothing"});
+
+            if (looks_icon_component)
+            {
+                ++candidate_count;
+            }
+
+            if (first_log_for_key)
+            {
+                log_line("[phase5-visual] component index=" + std::to_string(i) +
+                         " candidate=" + std::string{looks_icon_component ? "true" : "false"} +
+                         " name=" + component_name +
+                         " class=" + component_class +
+                         " object=" + component_full_name);
+
+                uint32_t logged_fields = 0;
+                for_each_property_in_chain_compat(component->GetClassPrivate(), [&](FProperty* prop) {
+                    if (!prop || logged_fields >= 12)
+                    {
+                        return;
+                    }
+                    auto value = try_extract_property_log_value(prop, component);
+                    if (!value.has_value() || value->empty())
+                    {
+                        return;
+                    }
+                    log_line("[phase5-visual] component_field index=" + std::to_string(i) +
+                             " prop=" + lower_ascii(RC::to_string(prop->GetName())) +
+                             " value=" + *value);
+                    ++logged_fields;
+                });
+            }
+
+            if (m_phase5_visual_patch_hide_icon_components_enabled && looks_icon_component)
+            {
+                const bool hidden = invoke_set_hidden_in_game(component, true);
+                const bool invisible = invoke_set_visibility(component, false);
+                if (hidden || invisible)
+                {
+                    ++hidden_candidates;
+                    log_line("[phase5-visual] hide_candidate index=" + std::to_string(i) +
+                             " hidden=" + std::string{hidden ? "true" : "false"} +
+                             " invisible=" + std::string{invisible ? "true" : "false"} +
+                             " name=" + component_name +
+                             " class=" + component_class);
+                }
+            }
+        }
+
+        if (first_log_for_key || hidden_candidates > 0)
+        {
+            log_line("[phase5-visual] complete key=" + storage_key +
+                     " candidates=" + std::to_string(candidate_count) +
+                     " hidden=" + std::to_string(hidden_candidates));
+        }
+        return hidden_candidates > 0;
+    }
+
     auto SignTextMod::apply_text_to_actor_component(AActor* actor, const std::string& text_value) -> bool
     {
         if (!should_render_world_text_components())
@@ -6445,6 +6576,8 @@ namespace WindroseTextSigns
             log_line("[phase4] apply_empty_text_clear key=" + key + " removed=" + std::string{removed ? "true" : "false"});
             return removed;
         }
+
+        (void)diagnose_or_patch_label_visual(actor, key, "apply_text");
 
         FVector relative_location(12.0, 0.0, 1.5);
         float desired_font_size = 18.0f;
@@ -6616,7 +6749,14 @@ namespace WindroseTextSigns
         }
         else
         {
-            rec.kind = infer_new_record_kind_from_asset(rec.asset);
+            const auto inferred_kind = infer_new_record_kind_from_asset(rec.asset);
+            rec.kind = is_confirmed_label_text_kind(inferred_kind) ? inferred_kind : "LabelText";
+            if (!has_existing_record)
+            {
+                log_line("[phase5-convert] native_label_marked_as_text key=" + key +
+                         " stableId=" + rec.stable_id +
+                         " asset=" + rec.asset);
+            }
         }
         rec.backing_asset = infer_backing_asset_from_kind(rec.kind, rec.asset);
         rec.last_seen_utc = now_utc();

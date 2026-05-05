@@ -94,6 +94,8 @@ namespace WindroseTextSigns
         auto is_process_event_probe_enabled() const -> bool;
         auto is_phase5_placement_probe_enabled() const -> bool;
         auto is_phase5_build_menu_selection_probe_enabled() const -> bool;
+        auto is_phase5_visual_patch_probe_enabled() const -> bool;
+        auto is_phase5_visual_patch_hide_icon_components_enabled() const -> bool;
         auto config_bool_value(std::string_view key, bool fallback) const -> bool;
 
         auto tick_pending_hotkey() -> void;
@@ -139,6 +141,7 @@ namespace WindroseTextSigns
         auto restore_known_text_if_any(RC::Unreal::AActor* actor, const std::string& stable_id) -> void;
         auto apply_text_to_actor_component(RC::Unreal::AActor* actor, const std::string& text_value) -> bool;
         auto should_render_world_text_components() const -> bool;
+        auto diagnose_or_patch_label_visual(RC::Unreal::AActor* actor, const std::string& storage_key, const std::string& reason) -> bool;
         auto resolve_world_text_font_asset() -> RC::Unreal::UObject*;
         auto apply_world_text_font(RC::Unreal::UObject* text_component) -> bool;
         auto make_managed_component_name(const std::string& storage_key) const -> std::string;
@@ -222,6 +225,8 @@ namespace WindroseTextSigns
         bool m_static_construct_probe_enabled{false};
         bool m_phase5_placement_probe_enabled{false};
         bool m_phase5_build_menu_selection_probe_enabled{false};
+        bool m_phase5_visual_patch_probe_enabled{false};
+        bool m_phase5_visual_patch_hide_icon_components_enabled{false};
         bool m_f8_poll_was_down{false};
         bool m_phase7_enter_was_down{false};
         bool m_phase7_escape_was_down{false};
@@ -257,6 +262,7 @@ namespace WindroseTextSigns
         uint64_t m_construct_event_count{0};
         uint64_t m_construct_label_hit_count{0};
         std::unordered_map<std::string, std::string> m_rendered_text_cache{};
+        std::unordered_set<std::string> m_visual_patch_probe_logged_keys{};
         std::unordered_map<std::string, std::string> m_component_name_cache{};
         std::unordered_map<std::string, std::chrono::steady_clock::time_point> m_phase4_next_retry{};
         std::unordered_set<std::string> m_seen_live_label_keys{};
