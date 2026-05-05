@@ -6479,21 +6479,26 @@ namespace WindroseTextSigns
 
             const bool is_text_component = haystack.find("textrendercomponent") != std::string::npos ||
                 haystack.find("wts_textrender") != std::string::npos;
+            const bool is_basic_plane_component =
+                !is_text_component &&
+                lower_ascii(component_name) == "plane" &&
+                haystack.find("staticmeshcomponent") != std::string::npos;
             const bool looks_icon_component =
                 !is_text_component &&
-                contains_any_token(haystack, {
-                    "icon",
-                    "symbol",
-                    "decal",
-                    "anchor",
-                    "ship",
-                    "food",
-                    "ore",
-                    "alchemy",
-                    "weapon",
-                    "treasure",
-                    "trade",
-                    "clothing"});
+                (is_basic_plane_component ||
+                 contains_any_token(haystack, {
+                     "icon",
+                     "symbol",
+                     "decal",
+                     "anchor",
+                     "ship",
+                     "food",
+                     "ore",
+                     "alchemy",
+                     "weapon",
+                     "treasure",
+                     "trade",
+                     "clothing"}));
 
             if (looks_icon_component)
             {
@@ -6504,6 +6509,7 @@ namespace WindroseTextSigns
             {
                 log_line("[phase5-visual] component index=" + std::to_string(i) +
                          " candidate=" + std::string{looks_icon_component ? "true" : "false"} +
+                         " basicPlane=" + std::string{is_basic_plane_component ? "true" : "false"} +
                          " name=" + component_name +
                          " class=" + component_class +
                          " object=" + component_full_name);
