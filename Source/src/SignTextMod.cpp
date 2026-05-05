@@ -6815,7 +6815,7 @@ namespace WindroseTextSigns
                     {
                         continue;
                     }
-                    if (m_seen_live_label_keys.find(key) == m_seen_live_label_keys.end())
+                    if (!m_sidecar_authoritative && m_seen_live_label_keys.find(key) == m_seen_live_label_keys.end())
                     {
                         continue;
                     }
