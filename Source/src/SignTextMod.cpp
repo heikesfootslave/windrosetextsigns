@@ -1070,142 +1070,6 @@ namespace
         return std::nullopt;
     }
 
-    auto is_interesting_widget_function_name(const std::string& lower_name) -> bool
-    {
-        if (lower_name.empty())
-        {
-            return false;
-        }
-        static const std::array<const char*, 16> tokens{
-            "apply",
-            "cancel",
-            "confirm",
-            "close",
-            "accept",
-            "commit",
-            "submit",
-            "click",
-            "pressed",
-            "focus",
-            "text",
-            "marker",
-            "name",
-            "open",
-            "show",
-            "hide"};
-        for (const auto* token : tokens)
-        {
-            if (token && lower_name.find(token) != std::string::npos)
-            {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    auto is_marker_popup_related_context(const std::string& lower_context_full_name, const std::string& lower_context_class_name) -> bool
-    {
-        static const std::array<const char*, 8> tokens{
-            "wbp_usermarker_customizationpopup",
-            "usermarker_customizationpopup",
-            "usercreatedmarkers",
-            "etxt_markername",
-            "uw_buttonconfirm",
-            "uw_buttoncancel",
-            "wbp_artbutton_accent_tiled",
-            "wbp_artbutton_tiled"};
-        for (const auto* token : tokens)
-        {
-            if (!token)
-            {
-                continue;
-            }
-            if (lower_context_full_name.find(token) != std::string::npos ||
-                lower_context_class_name.find(token) != std::string::npos)
-            {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    auto is_interesting_marker_process_event_name(const std::string& lower_function_full_name) -> bool
-    {
-        if (lower_function_full_name.empty())
-        {
-            return false;
-        }
-        static const std::array<const char*, 8> tokens{
-            "oneditabletextchangedevent",
-            "oneditabletextcommittedevent",
-            "onbuttonclickedevent",
-            "onbuttonpressedevent",
-            "uw_buttonconfirm",
-            "uw_buttoncancel",
-            "ia_closepopup",
-            "onclose__delegatesignature"};
-        for (const auto* token : tokens)
-        {
-            if (token && lower_function_full_name.find(token) != std::string::npos)
-            {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    auto collect_interesting_functions_for_owner(UStruct* owner, std::vector<std::string>& out_lines, uint32_t max_lines) -> void
-    {
-        if (!owner || max_lines == 0)
-        {
-            return;
-        }
-
-        std::unordered_set<std::string> seen_full_names{};
-        auto* cursor = owner;
-        uint32_t safety_hops = 0;
-        while (cursor && safety_hops++ < 16 && out_lines.size() < max_lines)
-        {
-            UObjectGlobals::ForEachUObject([&](UObject* object, int32, int32) {
-                if (!object || !object->IsA(UFunction::StaticClass()))
-                {
-                    return LoopAction::Continue;
-                }
-
-                auto* function = Cast<UFunction>(object);
-                if (!function || function->GetOuterPrivate() != cursor)
-                {
-                    return LoopAction::Continue;
-                }
-
-                const auto fn_short_name = RC::to_string(function->GetName());
-                const auto fn_short_lower = lower_copy_ascii(fn_short_name);
-                if (!is_interesting_widget_function_name(fn_short_lower))
-                {
-                    return LoopAction::Continue;
-                }
-
-                const auto fn_full_name = RC::to_string(function->GetFullName());
-                if (!seen_full_names.insert(fn_full_name).second)
-                {
-                    return LoopAction::Continue;
-                }
-
-                std::ostringstream row{};
-                row << fn_full_name;
-                row << " flags=0x" << std::hex << std::uppercase << function->GetFunctionFlags();
-                out_lines.push_back(row.str());
-                if (out_lines.size() >= max_lines)
-                {
-                    return LoopAction::Break;
-                }
-
-                return LoopAction::Continue;
-            });
-            cursor = cursor->GetSuperStruct();
-        }
-    }
-
     auto to_hex_guid(const FGuid& guid) -> std::string
     {
         std::ostringstream out{};
@@ -2871,6 +2735,7 @@ namespace WindroseTextSigns
         auto* canvas_panel_class = find_uclass_by_path(STR("/Script/UMG.CanvasPanel"));
         auto* border_class = find_uclass_by_path(STR("/Script/UMG.Border"));
         auto* size_box_class = find_uclass_by_path(STR("/Script/UMG.SizeBox"));
+        auto* text_block_class = find_uclass_by_path(STR("/Script/UMG.TextBlock"));
         auto* text_box_class = find_uclass_by_path(STR("/Script/UMG.MultiLineEditableText"));
         if (!text_box_class)
         {
@@ -2884,7 +2749,7 @@ namespace WindroseTextSigns
         {
             text_box_class = find_uclass_by_path(STR("/Script/UMG.EditableTextBox"));
         }
-        if (!controller || !user_widget_class || !widget_tree_class || !canvas_panel_class || !border_class || !size_box_class || !text_box_class)
+        if (!controller || !user_widget_class || !widget_tree_class || !canvas_panel_class || !border_class || !size_box_class || !text_block_class || !text_box_class)
         {
             log_line("[phase7-umg] open_failed reason=missing_class controller=" + std::string{controller ? "1" : "0"} +
                      " userWidget=" + std::string{user_widget_class ? "1" : "0"} +
@@ -2892,6 +2757,7 @@ namespace WindroseTextSigns
                      " canvas=" + std::string{canvas_panel_class ? "1" : "0"} +
                      " border=" + std::string{border_class ? "1" : "0"} +
                      " sizeBox=" + std::string{size_box_class ? "1" : "0"} +
+                     " textBlock=" + std::string{text_block_class ? "1" : "0"} +
                      " textBox=" + std::string{text_box_class ? "1" : "0"});
             return false;
         }
@@ -2916,16 +2782,28 @@ namespace WindroseTextSigns
         auto* root = create_umg_widget_object(tree, canvas_panel_class, "WTS_RootCanvas");
         auto* frame = create_umg_widget_object(tree, border_class, "WTS_Frame");
         auto* background = create_umg_widget_object(tree, border_class, "WTS_Background");
+        auto* panel = create_umg_widget_object(tree, canvas_panel_class, "WTS_InnerCanvas");
+        auto* title = create_umg_widget_object(tree, text_block_class, "WTS_Title");
+        auto* divider = create_umg_widget_object(tree, border_class, "WTS_Divider");
+        auto* input_frame = create_umg_widget_object(tree, border_class, "WTS_InputFrame");
+        auto* input_background = create_umg_widget_object(tree, border_class, "WTS_InputBackground");
         auto* editor = create_umg_widget_object(tree, size_box_class, "WTS_EditorSize");
         auto* text_box = create_umg_widget_object(tree, text_box_class, "WTS_TextBox");
+        auto* hint = create_umg_widget_object(tree, text_block_class, "WTS_KeyHints");
 
-        if (!root || !frame || !background || !editor || !text_box)
+        if (!root || !frame || !background || !panel || !title || !divider || !input_frame || !input_background || !editor || !text_box || !hint)
         {
             log_line("[phase7-umg] open_failed reason=construct_children root=" + std::string{root ? "1" : "0"} +
                      " frame=" + std::string{frame ? "1" : "0"} +
                      " background=" + std::string{background ? "1" : "0"} +
+                     " panel=" + std::string{panel ? "1" : "0"} +
+                     " title=" + std::string{title ? "1" : "0"} +
+                     " divider=" + std::string{divider ? "1" : "0"} +
+                     " inputFrame=" + std::string{input_frame ? "1" : "0"} +
+                     " inputBackground=" + std::string{input_background ? "1" : "0"} +
                      " editor=" + std::string{editor ? "1" : "0"} +
-                     " textBox=" + std::string{text_box ? "1" : "0"});
+                     " textBox=" + std::string{text_box ? "1" : "0"} +
+                     " hint=" + std::string{hint ? "1" : "0"});
             return false;
         }
         log_line("[phase7-umg] construct_children_ok rootClass=" +
@@ -2952,16 +2830,29 @@ namespace WindroseTextSigns
         m_phase7_umg_last_text = std::string{m_text_buffer.data()};
 
         const bool root_set = set_object_property_if_present(tree, "RootWidget", root);
+        const bool title_text = invoke_umg_set_text(title, "Sign Text");
+        const bool hint_text = invoke_umg_set_text(hint, "Enter  Apply    Shift+Enter  New line    Esc  Cancel");
         const bool input_text = invoke_umg_set_text(text_box, std::string{m_text_buffer.data()});
+        const bool title_color =
+            invoke_set_rgba_value(title, STR("SetColorAndOpacity"), nullptr, 0.91f, 0.88f, 0.81f, 1.0f) ||
+            invoke_set_rgba_value(title, STR("SetForegroundColor"), nullptr, 0.91f, 0.88f, 0.81f, 1.0f);
+        const bool hint_color =
+            invoke_set_rgba_value(hint, STR("SetColorAndOpacity"), nullptr, 0.66f, 0.64f, 0.60f, 1.0f) ||
+            invoke_set_rgba_value(hint, STR("SetForegroundColor"), nullptr, 0.66f, 0.64f, 0.60f, 1.0f);
         const bool input_color =
             invoke_set_rgba_value(text_box, STR("SetColorAndOpacity"), nullptr, 1.0f, 1.0f, 1.0f, 1.0f) ||
             invoke_set_rgba_value(text_box, STR("SetForegroundColor"), nullptr, 1.0f, 1.0f, 1.0f, 1.0f);
-        const bool frame_color = invoke_set_rgba_value(frame, STR("SetBrushColor"), STR("/Script/UMG.Border:SetBrushColor"), 0.88f, 0.88f, 0.82f, 0.95f);
-        const bool background_color = invoke_set_rgba_value(background, STR("SetBrushColor"), STR("/Script/UMG.Border:SetBrushColor"), 0.06f, 0.06f, 0.06f, 0.82f);
+        const bool frame_color = invoke_set_rgba_value(frame, STR("SetBrushColor"), STR("/Script/UMG.Border:SetBrushColor"), 0.29f, 0.28f, 0.25f, 0.96f);
+        const bool background_color = invoke_set_rgba_value(background, STR("SetBrushColor"), STR("/Script/UMG.Border:SetBrushColor"), 0.07f, 0.08f, 0.09f, 0.91f);
+        const bool divider_color = invoke_set_rgba_value(divider, STR("SetBrushColor"), STR("/Script/UMG.Border:SetBrushColor"), 0.74f, 0.70f, 0.61f, 0.72f);
+        const bool input_frame_color = invoke_set_rgba_value(input_frame, STR("SetBrushColor"), STR("/Script/UMG.Border:SetBrushColor"), 0.43f, 0.40f, 0.35f, 0.95f);
+        const bool input_background_color = invoke_set_rgba_value(input_background, STR("SetBrushColor"), STR("/Script/UMG.Border:SetBrushColor"), 0.03f, 0.04f, 0.04f, 0.74f);
         const bool frame_padding = invoke_set_margin_value(frame, STR("SetPadding"), STR("/Script/UMG.Border:SetPadding"), 2.0f, 2.0f, 2.0f, 2.0f);
-        const bool background_padding = invoke_set_margin_value(background, STR("SetPadding"), STR("/Script/UMG.Border:SetPadding"), 6.0f, 4.0f, 6.0f, 4.0f);
-        const bool editor_width = invoke_set_float_value(editor, STR("SetWidthOverride"), STR("/Script/UMG.SizeBox:SetWidthOverride"), 168.0f);
-        const bool editor_height = invoke_set_float_value(editor, STR("SetHeightOverride"), STR("/Script/UMG.SizeBox:SetHeightOverride"), 92.0f);
+        const bool background_padding = invoke_set_margin_value(background, STR("SetPadding"), STR("/Script/UMG.Border:SetPadding"), 8.0f, 8.0f, 8.0f, 8.0f);
+        const bool input_frame_padding = invoke_set_margin_value(input_frame, STR("SetPadding"), STR("/Script/UMG.Border:SetPadding"), 1.5f, 1.5f, 1.5f, 1.5f);
+        const bool input_background_padding = invoke_set_margin_value(input_background, STR("SetPadding"), STR("/Script/UMG.Border:SetPadding"), 7.0f, 7.0f, 7.0f, 7.0f);
+        const bool editor_width = invoke_set_float_value(editor, STR("SetWidthOverride"), STR("/Script/UMG.SizeBox:SetWidthOverride"), 306.0f);
+        const bool editor_height = invoke_set_float_value(editor, STR("SetHeightOverride"), STR("/Script/UMG.SizeBox:SetHeightOverride"), 159.0f);
         const bool root_opacity = invoke_set_float_value(root, STR("SetRenderOpacity"), STR("/Script/UMG.Widget:SetRenderOpacity"), 1.0f);
         const bool frame_opacity = invoke_set_float_value(frame, STR("SetRenderOpacity"), STR("/Script/UMG.Widget:SetRenderOpacity"), 1.0f);
         const bool background_opacity = invoke_set_float_value(background, STR("SetRenderOpacity"), STR("/Script/UMG.Widget:SetRenderOpacity"), 1.0f);
@@ -2969,12 +2860,28 @@ namespace WindroseTextSigns
         const bool input_opacity = invoke_set_float_value(text_box, STR("SetRenderOpacity"), STR("/Script/UMG.Widget:SetRenderOpacity"), 1.0f);
         const bool editor_scale = invoke_set_vector2d_value(frame, STR("SetRenderScale"), STR("/Script/UMG.Widget:SetRenderScale"), 1.0f, 1.0f);
 
-        auto* editor_slot = invoke_add_child(root, frame);
-        const bool slot_pos = invoke_set_vector2d_value(editor_slot, STR("SetPosition"), nullptr, 960.0f, 540.0f);
-        const bool slot_size = invoke_set_vector2d_value(editor_slot, STR("SetSize"), nullptr, 184.0f, 104.0f);
-        const bool slot_align = invoke_set_vector2d_value(editor_slot, STR("SetAlignment"), nullptr, 0.5f, 0.5f);
+        auto* frame_slot = invoke_add_child(root, frame);
+        const bool slot_pos = invoke_set_vector2d_value(frame_slot, STR("SetPosition"), nullptr, 960.0f, 540.0f);
+        const bool slot_size = invoke_set_vector2d_value(frame_slot, STR("SetSize"), nullptr, 430.0f, 430.0f);
+        const bool slot_align = invoke_set_vector2d_value(frame_slot, STR("SetAlignment"), nullptr, 0.5f, 0.5f);
         const bool frame_content = invoke_set_content(frame, background);
-        const bool background_content = invoke_set_content(background, editor);
+        const bool background_content = invoke_set_content(background, panel);
+
+        auto* title_slot = invoke_add_child(panel, title);
+        const bool title_pos = invoke_set_vector2d_value(title_slot, STR("SetPosition"), nullptr, 140.0f, 21.0f);
+        const bool title_size = invoke_set_vector2d_value(title_slot, STR("SetSize"), nullptr, 170.0f, 42.0f);
+        auto* divider_slot = invoke_add_child(panel, divider);
+        const bool divider_pos = invoke_set_vector2d_value(divider_slot, STR("SetPosition"), nullptr, 22.0f, 75.0f);
+        const bool divider_size = invoke_set_vector2d_value(divider_slot, STR("SetSize"), nullptr, 370.0f, 2.0f);
+        auto* input_slot = invoke_add_child(panel, input_frame);
+        const bool input_pos = invoke_set_vector2d_value(input_slot, STR("SetPosition"), nullptr, 45.0f, 104.0f);
+        const bool input_size = invoke_set_vector2d_value(input_slot, STR("SetSize"), nullptr, 320.0f, 175.0f);
+        auto* hint_slot = invoke_add_child(panel, hint);
+        const bool hint_pos = invoke_set_vector2d_value(hint_slot, STR("SetPosition"), nullptr, 45.0f, 317.0f);
+        const bool hint_size = invoke_set_vector2d_value(hint_slot, STR("SetSize"), nullptr, 326.0f, 48.0f);
+
+        const bool input_frame_content = invoke_set_content(input_frame, input_background);
+        const bool input_background_content = invoke_set_content(input_background, editor);
         const bool set_content = invoke_set_content(editor, text_box);
 
         const bool added = invoke_add_to_viewport(widget, 1000);
@@ -2988,15 +2895,17 @@ namespace WindroseTextSigns
         log_line("[phase7-umg] open_result added=" + std::string{added ? "true" : "false"} +
                  " inputModeApplied=" + std::string{input_mode ? "true" : "false"} +
                  " rootSet=" + std::string{root_set ? "true" : "false"} +
+                 " title=" + std::string{(title_text && title_color) ? "true" : "false"} +
+                 " hint=" + std::string{(hint_text && hint_color) ? "true" : "false"} +
                  " inputText=" + std::string{input_text ? "true" : "false"} +
                  " color=" + std::string{input_color ? "true" : "false"} +
-                 " frameColor=" + std::string{(frame_color && background_color) ? "true" : "false"} +
-                 " padding=" + std::string{(frame_padding && background_padding) ? "true" : "false"} +
+                 " frameColor=" + std::string{(frame_color && background_color && divider_color && input_frame_color && input_background_color) ? "true" : "false"} +
+                 " padding=" + std::string{(frame_padding && background_padding && input_frame_padding && input_background_padding) ? "true" : "false"} +
                  " editorSize=" + std::string{(editor_width && editor_height) ? "true" : "false"} +
                  " opacity=" + std::string{(root_opacity && frame_opacity && background_opacity && editor_opacity && input_opacity) ? "true" : "false"} +
                  " scale=" + std::string{editor_scale ? "true" : "false"} +
-                 " slot=" + std::string{(editor_slot && slot_pos && slot_size && slot_align) ? "true" : "false"} +
-                 " content=" + std::string{(frame_content && background_content && set_content) ? "true" : "false"} +
+                 " slot=" + std::string{(frame_slot && slot_pos && slot_size && slot_align && title_slot && title_pos && title_size && divider_slot && divider_pos && divider_size && input_slot && input_pos && input_size && hint_slot && hint_pos && hint_size) ? "true" : "false"} +
+                 " content=" + std::string{(frame_content && background_content && input_frame_content && input_background_content && set_content) ? "true" : "false"} +
                  " key=" + key);
 
         if (!added)
@@ -3322,454 +3231,6 @@ namespace WindroseTextSigns
         return best ? best : first_non_default;
     }
 
-    auto SignTextMod::is_probable_marker_ui_widget(UObject* object) const -> bool
-    {
-        if (!object || !object->GetClassPrivate())
-        {
-            return false;
-        }
-
-        const auto full_name = lower_ascii(narrow_ascii(object->GetFullName()));
-        const auto class_name = lower_ascii(narrow_ascii(object->GetClassPrivate()->GetFullName()));
-        if (full_name.find("default__") != std::string::npos)
-        {
-            return false;
-        }
-        return class_name.find("wbp_usermarker_customizationpopup_c") != std::string::npos;
-    }
-
-    auto SignTextMod::log_marker_widget_snapshot(UObject* widget) -> void
-    {
-        if (!widget || !widget->GetClassPrivate())
-        {
-            return;
-        }
-
-        log_line("[phase7-mapui] widget_open candidate=" + narrow_ascii(widget->GetFullName()) +
-                 " class=" + narrow_ascii(widget->GetClassPrivate()->GetFullName()));
-
-        {
-            const auto widget_class_key = "widgetclass:" + lower_ascii(narrow_ascii(widget->GetClassPrivate()->GetFullName()));
-            if (m_marker_widget_callable_logged.insert(widget_class_key).second)
-            {
-                std::vector<std::string> function_rows{};
-                collect_interesting_functions_for_owner(widget->GetClassPrivate(), function_rows, 48);
-                if (function_rows.empty())
-                {
-                    log_line("[phase7-mapui] callable_probe scope=popup class=" +
-                             narrow_ascii(widget->GetClassPrivate()->GetFullName()) +
-                             " interestingFns=0");
-                }
-                else
-                {
-                    log_line("[phase7-mapui] callable_probe scope=popup class=" +
-                             narrow_ascii(widget->GetClassPrivate()->GetFullName()) +
-                             " interestingFns=" + std::to_string(function_rows.size()));
-                    for (const auto& row : function_rows)
-                    {
-                        log_line("[phase7-mapui] callable popup fn=" + row);
-                    }
-                }
-            }
-        }
-
-        {
-            static const std::array<const TCHAR*, 12> probe_names{
-                STR("OnApply"),
-                STR("Apply"),
-                STR("Confirm"),
-                STR("OnConfirm"),
-                STR("Cancel"),
-                STR("OnCancel"),
-                STR("Close"),
-                STR("OnClose"),
-                STR("SetText"),
-                STR("GetText"),
-                STR("OnTextCommitted"),
-                STR("OnTextChanged")};
-            for (const auto* probe_name : probe_names)
-            {
-                if (!probe_name || !widget->GetClassPrivate())
-                {
-                    continue;
-                }
-                if (auto* probe_fn = widget->GetClassPrivate()->GetFunctionByNameInChain(probe_name))
-                {
-                    log_line("[phase7-mapui] callable_probe direct popup fn=" + narrow_ascii(probe_fn->GetFullName()));
-                }
-            }
-        }
-
-        uint32_t child_count = 0;
-        constexpr uint32_t k_max_child_logs = 32;
-        for_each_property_in_chain_compat(widget->GetClassPrivate(), [&](FProperty* prop) {
-            if (!prop || child_count >= k_max_child_logs)
-            {
-                return;
-            }
-            if (prop->GetClass().HashObject() != FObjectProperty::StaticClass().HashObject())
-            {
-                return;
-            }
-
-            auto* value_ptr = prop->ContainerPtrToValuePtr<UObject*>(widget);
-            if (!value_ptr || !*value_ptr || *value_ptr == widget || !(*value_ptr)->GetClassPrivate())
-            {
-                return;
-            }
-
-            const auto prop_name = lower_ascii(RC::to_string(prop->GetName()));
-            const auto obj_name = lower_ascii(narrow_ascii((*value_ptr)->GetFullName()));
-            const auto obj_class = lower_ascii(narrow_ascii((*value_ptr)->GetClassPrivate()->GetFullName()));
-
-            const bool interesting =
-                prop_name.find("text") != std::string::npos ||
-                prop_name.find("button") != std::string::npos ||
-                prop_name.find("apply") != std::string::npos ||
-                prop_name.find("cancel") != std::string::npos ||
-                prop_name.find("confirm") != std::string::npos ||
-                prop_name.find("icon") != std::string::npos ||
-                prop_name.find("markername") != std::string::npos ||
-                obj_class.find("editabletext") != std::string::npos ||
-                obj_class.find("button") != std::string::npos ||
-                obj_class.find("widget") != std::string::npos;
-            if (!interesting)
-            {
-                return;
-            }
-
-            ++child_count;
-            log_line("[phase7-mapui] child prop=" + prop_name +
-                     " obj=" + obj_name +
-                     " class=" + obj_class);
-
-            if ((*value_ptr)->GetClassPrivate())
-            {
-                const auto child_class_key = "childclass:" + lower_ascii(narrow_ascii((*value_ptr)->GetClassPrivate()->GetFullName()));
-                if (m_marker_widget_callable_logged.insert(child_class_key).second)
-                {
-                    std::vector<std::string> child_function_rows{};
-                    collect_interesting_functions_for_owner((*value_ptr)->GetClassPrivate(), child_function_rows, 24);
-                    log_line("[phase7-mapui] callable_probe scope=child class=" +
-                             narrow_ascii((*value_ptr)->GetClassPrivate()->GetFullName()) +
-                             " viaProp=" + prop_name +
-                             " interestingFns=" + std::to_string(child_function_rows.size()));
-                    for (const auto& row : child_function_rows)
-                    {
-                        log_line("[phase7-mapui] callable child fn=" + row);
-                    }
-
-                    static const std::array<const TCHAR*, 10> child_probe_names{
-                        STR("OnClicked"),
-                        STR("OnPressed"),
-                        STR("Click"),
-                        STR("Press"),
-                        STR("SetText"),
-                        STR("GetText"),
-                        STR("OnTextChanged"),
-                        STR("OnTextCommitted"),
-                        STR("SetKeyboardFocus"),
-                        STR("SetUserFocus")};
-                    for (const auto* probe_name : child_probe_names)
-                    {
-                        if (!probe_name)
-                        {
-                            continue;
-                        }
-                        if (auto* probe_fn = (*value_ptr)->GetClassPrivate()->GetFunctionByNameInChain(probe_name))
-                        {
-                            log_line("[phase7-mapui] callable_probe direct child prop=" + prop_name +
-                                     " fn=" + narrow_ascii(probe_fn->GetFullName()));
-                        }
-                    }
-                }
-            }
-        });
-
-        bool bridge_has_text = false;
-        bool bridge_has_confirm = false;
-        bool bridge_has_cancel = false;
-        bool bridge_text_get = false;
-        bool bridge_text_set = false;
-        bool bridge_text_focus = false;
-        UObject* bridge_text_widget = nullptr;
-        for_each_property_in_chain_compat(widget->GetClassPrivate(), [&](FProperty* prop) {
-            if (!prop || prop->GetClass().HashObject() != FObjectProperty::StaticClass().HashObject())
-            {
-                return;
-            }
-            auto* value_ptr = prop->ContainerPtrToValuePtr<UObject*>(widget);
-            if (!value_ptr || !*value_ptr || !(*value_ptr)->GetClassPrivate())
-            {
-                return;
-            }
-
-            const auto prop_name = lower_ascii(RC::to_string(prop->GetName()));
-            const auto class_name = lower_ascii(narrow_ascii((*value_ptr)->GetClassPrivate()->GetFullName()));
-            if (prop_name.find("markername") != std::string::npos || class_name.find("editabletext") != std::string::npos)
-            {
-                bridge_has_text = true;
-                bridge_text_widget = *value_ptr;
-                bridge_text_get = ((*value_ptr)->GetClassPrivate()->GetFunctionByNameInChain(STR("GetText")) != nullptr);
-                bridge_text_set = ((*value_ptr)->GetClassPrivate()->GetFunctionByNameInChain(STR("SetText")) != nullptr);
-                bridge_text_focus =
-                    ((*value_ptr)->GetClassPrivate()->GetFunctionByNameInChain(STR("SetKeyboardFocus")) != nullptr) ||
-                    ((*value_ptr)->GetClassPrivate()->GetFunctionByNameInChain(STR("SetUserFocus")) != nullptr);
-            }
-            if (prop_name.find("confirm") != std::string::npos || prop_name.find("buttonconfirm") != std::string::npos)
-            {
-                bridge_has_confirm = true;
-            }
-            if (prop_name.find("cancel") != std::string::npos || prop_name.find("buttoncancel") != std::string::npos)
-            {
-                bridge_has_cancel = true;
-            }
-        });
-
-        bool bridge_text_read_ok = false;
-        std::string bridge_text_preview{};
-        if (bridge_text_widget)
-        {
-            bridge_text_read_ok = invoke_get_text_value(bridge_text_widget, bridge_text_preview);
-            if (!bridge_text_read_ok)
-            {
-                bridge_text_read_ok = read_text_property_value_no_process_event(bridge_text_widget, bridge_text_preview);
-            }
-        }
-
-        log_line("[phase7-mapui] bridge_probe popup=" + lower_ascii(narrow_ascii(widget->GetFullName())) +
-                 " text=" + std::string{bridge_has_text ? "1" : "0"} +
-                 " getText=" + std::string{bridge_text_get ? "1" : "0"} +
-                 " setText=" + std::string{bridge_text_set ? "1" : "0"} +
-                 " textFocus=" + std::string{bridge_text_focus ? "1" : "0"} +
-                 " readText=" + std::string{bridge_text_read_ok ? "1" : "0"} +
-                 " readTextLen=" + std::to_string(bridge_text_preview.size()) +
-                 " confirm=" + std::string{bridge_has_confirm ? "1" : "0"} +
-                 " cancel=" + std::string{bridge_has_cancel ? "1" : "0"});
-
-        log_line("[phase7-mapui] widget_snapshot_done candidate=" + narrow_ascii(widget->GetFullName()) +
-                 " childLogs=" + std::to_string(child_count));
-    }
-
-    auto SignTextMod::read_marker_popup_text(UObject* popup_widget) -> std::string
-    {
-        if (!popup_widget || !popup_widget->GetClassPrivate())
-        {
-            return {};
-        }
-
-        std::string text_value{};
-        for_each_property_in_chain_compat(popup_widget->GetClassPrivate(), [&](FProperty* prop) {
-            if (!prop || !text_value.empty())
-            {
-                return;
-            }
-            if (prop->GetClass().HashObject() != FObjectProperty::StaticClass().HashObject())
-            {
-                return;
-            }
-            auto prop_name = lower_ascii(RC::to_string(prop->GetName()));
-            if (prop_name.find("markername") == std::string::npos &&
-                prop_name.find("text") == std::string::npos)
-            {
-                return;
-            }
-
-            auto* value_ptr = prop->ContainerPtrToValuePtr<UObject*>(popup_widget);
-            if (!value_ptr || !*value_ptr || !(*value_ptr)->GetClassPrivate())
-            {
-                return;
-            }
-
-            const auto child_class = lower_ascii(narrow_ascii((*value_ptr)->GetClassPrivate()->GetFullName()));
-            if (child_class.find("editabletext") == std::string::npos)
-            {
-                return;
-            }
-
-            for_each_property_in_chain_compat((*value_ptr)->GetClassPrivate(), [&](FProperty* child_prop) {
-                if (!child_prop || !text_value.empty())
-                {
-                    return;
-                }
-                if (child_prop->GetClass().HashObject() != FTextProperty::StaticClass().HashObject())
-                {
-                    return;
-                }
-                auto child_prop_name = lower_ascii(RC::to_string(child_prop->GetName()));
-                if (child_prop_name.find("text") == std::string::npos)
-                {
-                    return;
-                }
-                auto* text_ptr = child_prop->ContainerPtrToValuePtr<FText>(*value_ptr);
-                if (!text_ptr)
-                {
-                    return;
-                }
-                text_value = narrow_ascii(text_ptr->ToString());
-            });
-        });
-
-        return text_value;
-    }
-
-    auto SignTextMod::count_live_user_marker_widgets() -> int32_t
-    {
-        int32_t count = 0;
-        UObjectGlobals::ForEachUObject([&](UObject* object, int32, int32) {
-            if (!object || !object->GetClassPrivate())
-            {
-                return LoopAction::Continue;
-            }
-            const auto full_name = lower_ascii(narrow_ascii(object->GetFullName()));
-            if (full_name.find("default__") != std::string::npos)
-            {
-                return LoopAction::Continue;
-            }
-            const auto class_name = lower_ascii(narrow_ascii(object->GetClassPrivate()->GetFullName()));
-            if (class_name.find("wbp_mapmarker_usercreated_c") != std::string::npos)
-            {
-                ++count;
-            }
-            return LoopAction::Continue;
-        });
-        return count;
-    }
-
-    auto SignTextMod::snapshot_live_user_marker_texts() -> std::vector<std::string>
-    {
-        std::vector<std::string> texts{};
-        std::unordered_set<std::string> dedupe{};
-
-        auto maybe_append = [&](std::string value) {
-            value.erase(value.begin(), std::find_if(value.begin(), value.end(), [](unsigned char ch) {
-                return !std::isspace(ch);
-            }));
-            value.erase(std::find_if(value.rbegin(), value.rend(), [](unsigned char ch) {
-                return !std::isspace(ch);
-            }).base(), value.end());
-            if (value.empty())
-            {
-                return;
-            }
-            if (dedupe.insert(value).second)
-            {
-                texts.push_back(std::move(value));
-            }
-        };
-
-        UObjectGlobals::ForEachUObject([&](UObject* object, int32, int32) {
-            if (!object || !object->GetClassPrivate())
-            {
-                return LoopAction::Continue;
-            }
-
-            const auto full_name = lower_ascii(narrow_ascii(object->GetFullName()));
-            if (full_name.find("default__") != std::string::npos)
-            {
-                return LoopAction::Continue;
-            }
-            const auto class_name = lower_ascii(narrow_ascii(object->GetClassPrivate()->GetFullName()));
-            if (class_name.find("wbp_mapmarker_usercreated_c") == std::string::npos)
-            {
-                return LoopAction::Continue;
-            }
-
-            std::string marker_text{};
-            if (read_text_property_value_no_process_event(object, marker_text))
-            {
-                maybe_append(marker_text);
-            }
-
-            for_each_property_in_chain_compat(object->GetClassPrivate(), [&](FProperty* prop) {
-                if (!prop)
-                {
-                    return;
-                }
-                if (prop->GetClass().HashObject() != FObjectProperty::StaticClass().HashObject())
-                {
-                    return;
-                }
-                auto* value_ptr = prop->ContainerPtrToValuePtr<UObject*>(object);
-                if (!value_ptr || !*value_ptr)
-                {
-                    return;
-                }
-                std::string child_text{};
-                if (read_text_property_value_no_process_event(*value_ptr, child_text))
-                {
-                    maybe_append(child_text);
-                }
-            });
-
-            return LoopAction::Continue;
-        });
-
-        return texts;
-    }
-
-    auto read_popup_widget_visibility(UObject* popup_widget, bool& out_visible) -> bool
-    {
-        if (!popup_widget)
-        {
-            return false;
-        }
-
-        if (invoke_bool_return_no_param(
-                popup_widget,
-                STR("IsInViewport"),
-                STR("/Script/UMG.UserWidget:IsInViewport"),
-                out_visible))
-        {
-            return true;
-        }
-        if (invoke_bool_return_no_param(
-                popup_widget,
-                STR("IsVisible"),
-                STR("/Script/UMG.Widget:IsVisible"),
-                out_visible))
-        {
-            return true;
-        }
-        return false;
-    }
-
-    auto find_child_object_by_property_name(UObject* owner, const std::string& lower_prop_name) -> UObject*
-    {
-        if (!owner || !owner->GetClassPrivate() || lower_prop_name.empty())
-        {
-            return nullptr;
-        }
-
-        UObject* found = nullptr;
-        for_each_property_in_chain_compat(owner->GetClassPrivate(), [&](FProperty* prop) {
-            if (found || !prop)
-            {
-                return;
-            }
-            if (prop->GetClass().HashObject() != FObjectProperty::StaticClass().HashObject())
-            {
-                return;
-            }
-            auto prop_name = RC::to_string(prop->GetName());
-            std::transform(prop_name.begin(), prop_name.end(), prop_name.begin(), [](unsigned char c) {
-                return static_cast<char>(std::tolower(c));
-            });
-            if (prop_name != lower_prop_name)
-            {
-                return;
-            }
-
-            auto* value_ptr = prop->ContainerPtrToValuePtr<UObject*>(owner);
-            if (!value_ptr || !*value_ptr)
-            {
-                return;
-            }
-            found = *value_ptr;
-        });
-        return found;
-    }
-
     auto invoke_get_text_value(UObject* context, std::string& out_text) -> bool
     {
         auto* fn = find_function_by_chain_or_path(
@@ -3837,356 +3298,6 @@ namespace WindroseTextSigns
             found_text = true;
         });
         return found_text;
-    }
-
-    auto find_marker_popup_owner(UObject* context, const std::function<bool(UObject*)>& is_popup) -> UObject*
-    {
-        if (!context || !is_popup)
-        {
-            return nullptr;
-        }
-        if (is_popup(context))
-        {
-            return context;
-        }
-
-        UObject* outer = context->GetOuterPrivate();
-        uint32_t hop_count = 0;
-        while (outer && hop_count++ < 16)
-        {
-            if (is_popup(outer))
-            {
-                return outer;
-            }
-            outer = outer->GetOuterPrivate();
-        }
-        return nullptr;
-    }
-
-    auto has_function_in_chain(UObject* context, const TCHAR* function_name) -> bool
-    {
-        if (!context || !context->GetClassPrivate() || !function_name)
-        {
-            return false;
-        }
-        return context->GetClassPrivate()->GetFunctionByNameInChain(function_name) != nullptr;
-    }
-
-    auto read_button_pressed_from_widget_like(UObject* widget_like, bool& out_pressed, std::string& out_path_used) -> bool
-    {
-        if (!widget_like)
-        {
-            return false;
-        }
-
-        if (invoke_bool_return_no_param(
-                widget_like,
-                STR("IsPressed"),
-                STR("/Script/UMG.Button:IsPressed"),
-                out_pressed))
-        {
-            out_path_used = "self";
-            return true;
-        }
-
-        static const std::array<std::string, 6> nested_prop_candidates{
-            "btn_root",
-            "button",
-            "rootbutton",
-            "root_button",
-            "btn",
-            "uw_button"};
-
-        for (const auto& nested_prop_name : nested_prop_candidates)
-        {
-            UObject* nested = find_child_object_by_property_name(widget_like, nested_prop_name);
-            if (!nested || nested == widget_like)
-            {
-                continue;
-            }
-
-            if (invoke_bool_return_no_param(
-                    nested,
-                    STR("IsPressed"),
-                    STR("/Script/UMG.Button:IsPressed"),
-                    out_pressed))
-            {
-                out_path_used = nested_prop_name;
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    auto read_popup_button_pressed(UObject* popup_widget, const std::string& button_prop_name, bool& out_pressed, std::string& out_path_used) -> bool
-    {
-        if (!popup_widget || !popup_widget->GetClassPrivate() || button_prop_name.empty())
-        {
-            return false;
-        }
-
-        bool found_button = false;
-        UObject* button_obj = nullptr;
-        for_each_property_in_chain_compat(popup_widget->GetClassPrivate(), [&](FProperty* prop) {
-            if (found_button || !prop)
-            {
-                return;
-            }
-            if (prop->GetClass().HashObject() != FObjectProperty::StaticClass().HashObject())
-            {
-                return;
-            }
-            auto prop_name = RC::to_string(prop->GetName());
-            std::transform(prop_name.begin(), prop_name.end(), prop_name.begin(), [](unsigned char c) {
-                return static_cast<char>(std::tolower(c));
-            });
-            if (prop_name != button_prop_name)
-            {
-                return;
-            }
-            auto* value_ptr = prop->ContainerPtrToValuePtr<UObject*>(popup_widget);
-            if (!value_ptr || !*value_ptr)
-            {
-                return;
-            }
-            button_obj = *value_ptr;
-            found_button = true;
-        });
-
-        if (!found_button || !button_obj)
-        {
-            return false;
-        }
-
-        return read_button_pressed_from_widget_like(button_obj, out_pressed, out_path_used);
-    }
-
-    auto SignTextMod::tick_marker_ui_state_probe() -> void
-    {
-        constexpr bool k_phase7_safe_discovery_mode = true;
-        auto* controller = try_get_primary_player_controller();
-        if (controller)
-        {
-            bool show_mouse_cursor = false;
-            if (get_bool_property_if_present(controller, "bshowmousecursor", show_mouse_cursor))
-            {
-                if (!m_cursor_state_known || show_mouse_cursor != m_last_show_mouse_cursor)
-                {
-                    m_cursor_state_known = true;
-                    m_last_show_mouse_cursor = show_mouse_cursor;
-                    log_line("[phase7-mapui] cursor_state bShowMouseCursor=" +
-                             std::string{show_mouse_cursor ? "true" : "false"} +
-                             " controller=" + narrow_ascii(controller->GetFullName()));
-                }
-            }
-        }
-
-        const auto now = std::chrono::steady_clock::now();
-        if (m_last_marker_probe_scan.time_since_epoch().count() != 0 &&
-            (now - m_last_marker_probe_scan) < std::chrono::seconds(1))
-        {
-            return;
-        }
-        m_last_marker_probe_scan = now;
-
-        auto close_popup_session = [&](const std::string& close_reason) {
-            if (!m_marker_popup_open)
-            {
-                return;
-            }
-
-            const int32_t user_markers_on_close = count_live_user_marker_widgets();
-            const auto marker_texts_on_close = snapshot_live_user_marker_texts();
-            const int32_t marker_delta = user_markers_on_close - m_marker_popup_user_markers_on_open;
-            std::string outcome = "unknown_or_cancel";
-            if (m_marker_popup_confirm_clicked && !m_marker_popup_cancel_clicked)
-            {
-                outcome = "likely_apply_confirm_clicked";
-            }
-            else if (m_marker_popup_cancel_clicked && !m_marker_popup_confirm_clicked)
-            {
-                outcome = "likely_cancel_clicked";
-            }
-            else if (marker_delta > 0)
-            {
-                outcome = "likely_apply_marker_created";
-            }
-            else if (marker_delta == 0 && m_marker_popup_last_text != m_marker_popup_text_on_open)
-            {
-                outcome = "text_changed_but_no_marker_delta";
-            }
-
-            std::unordered_set<std::string> open_text_set{};
-            for (const auto& text : m_marker_popup_user_marker_texts_on_open)
-            {
-                open_text_set.insert(text);
-            }
-            std::vector<std::string> added_marker_texts{};
-            for (const auto& text : marker_texts_on_close)
-            {
-                if (open_text_set.find(text) == open_text_set.end())
-                {
-                    added_marker_texts.push_back(text);
-                }
-            }
-            if (!added_marker_texts.empty())
-            {
-                m_marker_popup_last_text = added_marker_texts.front();
-            }
-
-            std::string added_marker_texts_joined{};
-            for (size_t i = 0; i < added_marker_texts.size(); ++i)
-            {
-                if (i > 0)
-                {
-                    added_marker_texts_joined += "|";
-                }
-                added_marker_texts_joined += added_marker_texts[i];
-            }
-
-            log_line("[phase7-mapui] popup_session_close popup=" + m_marker_popup_active_name +
-                     " closeReason=" + close_reason +
-                     " textOnOpen=\"" + m_marker_popup_text_on_open + "\"" +
-                     " textOnClose=\"" + m_marker_popup_last_text + "\"" +
-                     " userMarkersOnClose=" + std::to_string(user_markers_on_close) +
-                     " markerDelta=" + std::to_string(marker_delta) +
-                     " markerTextsOpen=" + std::to_string(m_marker_popup_user_marker_texts_on_open.size()) +
-                     " markerTextsClose=" + std::to_string(marker_texts_on_close.size()) +
-                     " markerTextsAdded=" + std::to_string(added_marker_texts.size()) +
-                     " markerTextsAddedList=\"" + added_marker_texts_joined + "\"" +
-                     " confirmClicked=" + std::string{m_marker_popup_confirm_clicked ? "true" : "false"} +
-                     " cancelClicked=" + std::string{m_marker_popup_cancel_clicked ? "true" : "false"} +
-                     " outcome=" + outcome);
-
-            m_marker_popup_open = false;
-            m_marker_popup_active_name.clear();
-            m_marker_popup_text_on_open.clear();
-            m_marker_popup_last_text.clear();
-            m_marker_popup_user_markers_on_open = 0;
-            m_marker_popup_user_marker_texts_on_open.clear();
-            m_marker_popup_confirm_clicked = false;
-            m_marker_popup_cancel_clicked = false;
-            m_marker_popup_last_confirm_pressed = false;
-            m_marker_popup_last_cancel_pressed = false;
-            m_marker_popup_last_visibility = false;
-            m_marker_popup_last_direct_text.clear();
-            m_marker_popup_last_telemetry_log = {};
-            m_marker_popup_gettext_fn_available = false;
-            m_marker_popup_settext_fn_available = false;
-            m_marker_popup_confirm_fn_available = false;
-            m_marker_popup_cancel_fn_available = false;
-        };
-
-        UObject* first_popup = nullptr;
-        std::string first_popup_name{};
-        UObjectGlobals::ForEachUObject([&](UObject* object, int32, int32) {
-            if (!is_probable_marker_ui_widget(object))
-            {
-                return LoopAction::Continue;
-            }
-
-            const auto full_name = narrow_ascii(object->GetFullName());
-            if (!first_popup)
-            {
-                first_popup = object;
-                first_popup_name = full_name;
-                return LoopAction::Break;
-            }
-            return LoopAction::Continue;
-        });
-
-        UObject* active_popup = first_popup;
-        std::string active_popup_name = first_popup_name;
-
-        if (active_popup)
-        {
-            if (m_marker_widget_logged.insert(active_popup_name).second)
-            {
-                log_marker_widget_snapshot(active_popup);
-            }
-
-            bool popup_visible = true;
-
-            if (m_marker_popup_open && m_marker_popup_active_name != active_popup_name)
-            {
-                close_popup_session("popup_instance_swapped");
-            }
-
-            if (!m_marker_popup_open && popup_visible)
-            {
-                m_marker_popup_open = true;
-                m_marker_popup_active_name = active_popup_name;
-                m_marker_popup_text_on_open = "<discovery-safe>";
-                m_marker_popup_last_text = "<discovery-safe>";
-                m_marker_popup_last_direct_text.clear();
-                m_marker_popup_user_markers_on_open = count_live_user_marker_widgets();
-                m_marker_popup_user_marker_texts_on_open = snapshot_live_user_marker_texts();
-                m_marker_popup_confirm_clicked = false;
-                m_marker_popup_cancel_clicked = false;
-                m_marker_popup_last_confirm_pressed = false;
-                m_marker_popup_last_cancel_pressed = false;
-                m_marker_popup_last_visibility = popup_visible;
-                m_marker_popup_last_telemetry_log = now;
-                UObject* marker_name_widget = find_child_object_by_property_name(active_popup, "etxt_markername");
-                m_marker_popup_gettext_fn_available =
-                    marker_name_widget && has_function_in_chain(marker_name_widget, STR("GetText"));
-                m_marker_popup_settext_fn_available =
-                    marker_name_widget && has_function_in_chain(marker_name_widget, STR("SetText"));
-                if (UObject* confirm_widget = find_child_object_by_property_name(active_popup, "uw_buttonconfirm"))
-                {
-                    m_marker_popup_confirm_fn_available =
-                        has_function_in_chain(confirm_widget, STR("OnClick__DelegateSignature")) ||
-                        has_function_in_chain(confirm_widget, STR("IsPressed"));
-                }
-                if (UObject* cancel_widget = find_child_object_by_property_name(active_popup, "uw_buttoncancel"))
-                {
-                    m_marker_popup_cancel_fn_available =
-                        has_function_in_chain(cancel_widget, STR("OnClick__DelegateSignature")) ||
-                        has_function_in_chain(cancel_widget, STR("IsPressed"));
-                }
-                log_line("[phase7-mapui] popup_session_open popup=" + m_marker_popup_active_name +
-                         " textOnOpen=\"" + m_marker_popup_text_on_open + "\"" +
-                         " userMarkersOnOpen=" + std::to_string(m_marker_popup_user_markers_on_open) +
-                         " markerTextsOnOpen=" + std::to_string(m_marker_popup_user_marker_texts_on_open.size()));
-                log_line("[phase7-mapui] popup_fn_probe popup=" + m_marker_popup_active_name +
-                         " markerGetText=" + std::string{m_marker_popup_gettext_fn_available ? "true" : "false"} +
-                         " markerSetText=" + std::string{m_marker_popup_settext_fn_available ? "true" : "false"} +
-                         " confirmClickable=" + std::string{m_marker_popup_confirm_fn_available ? "true" : "false"} +
-                         " cancelClickable=" + std::string{m_marker_popup_cancel_fn_available ? "true" : "false"} +
-                         " directTextRead=disabled_safe_mode");
-                if (k_phase7_safe_discovery_mode)
-                {
-                    log_line("[phase7-mapui] safe_discovery_mode enabled: live textbox/button polling disabled");
-                }
-            }
-            else if (m_marker_popup_open)
-            {
-                if ((m_marker_popup_last_telemetry_log.time_since_epoch().count() == 0 ||
-                     (now - m_marker_popup_last_telemetry_log) >= std::chrono::seconds(2)))
-                {
-                    m_marker_popup_last_telemetry_log = now;
-                    log_line("[phase7-mapui] popup_telemetry popup=" + m_marker_popup_active_name +
-                             " visible=true mode=safe_discovery");
-                }
-                m_marker_popup_last_visibility = popup_visible;
-            }
-
-            m_marker_widget_active.clear();
-            m_marker_widget_active.insert(active_popup_name);
-            return;
-        }
-
-        close_popup_session("popup_not_found");
-
-        if (!m_marker_widget_active.empty())
-        {
-            for (const auto& existing : m_marker_widget_active)
-            {
-                log_line("[phase7-mapui] widget_closed candidate=" + existing);
-            }
-            m_marker_widget_active.clear();
-        }
     }
 
     auto SignTextMod::is_probable_label_actor(AActor* actor) const -> bool
@@ -4278,18 +3389,18 @@ namespace WindroseTextSigns
         const auto last_host_start = content.rfind("Start Coop Host server");
         const auto last_find_favorite = content.rfind("FindFavoriteGs");
         const auto last_dedicated_hosting = content.rfind("\"Hosting\": \"Dedicated\"");
-        size_t last_remote_marker = std::string::npos;
+        size_t last_remote_signal = std::string::npos;
         if (last_find_favorite != std::string::npos)
         {
-            last_remote_marker = last_find_favorite;
+            last_remote_signal = last_find_favorite;
         }
         if (last_dedicated_hosting != std::string::npos &&
-            (last_remote_marker == std::string::npos || last_dedicated_hosting > last_remote_marker))
+            (last_remote_signal == std::string::npos || last_dedicated_hosting > last_remote_signal))
         {
-            last_remote_marker = last_dedicated_hosting;
+            last_remote_signal = last_dedicated_hosting;
         }
         if (last_host_start != std::string::npos &&
-            (last_remote_marker == std::string::npos || last_host_start > last_remote_marker))
+            (last_remote_signal == std::string::npos || last_host_start > last_remote_signal))
         {
             cached_result = true;
             return cached_result;
@@ -4311,7 +3422,7 @@ namespace WindroseTextSigns
 
         cached_result =
             (last_hosting == "clienthosted" || last_hosting == "hosted" || last_hosting == "listen") &&
-            (last_remote_marker == std::string::npos || last_hosting_pos > last_remote_marker);
+            (last_remote_signal == std::string::npos || last_hosting_pos > last_remote_signal);
         return cached_result;
     }
 
@@ -7056,9 +6167,8 @@ namespace WindroseTextSigns
         } reset_scope{m_in_process_event_probe};
 
         const auto fn = lower_ascii(narrow_ascii(function->GetFullName()));
-        // Stability hardening:
-        // ProcessEvent UI telemetry for marker popup is disabled because it caused
-        // client crashes during text-box interaction in this title.
+        // Stability hardening: keep ProcessEvent probing scoped to construction
+        // events only. UI telemetry was removed after it destabilized native map UI.
         const bool construct_interesting = fn.find("makeconstructcommand") != std::string::npos ||
             fn.find("finishconstruction") != std::string::npos ||
             fn.find("onbuildingaddedtoisland") != std::string::npos ||
@@ -7215,7 +6325,6 @@ namespace WindroseTextSigns
         tick_pending_fallback_hotkeys();
         tick_file_triggers();
         tick_bridge();
-        tick_marker_ui_state_probe();
         if (m_six_sign_test_requested.exchange(false))
         {
             run_six_sign_targeting_test();

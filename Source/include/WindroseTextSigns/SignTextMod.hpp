@@ -102,12 +102,6 @@ namespace WindroseTextSigns
         auto ensure_selected_actor_valid(const std::string& reason) -> bool;
         auto try_select_label_from_camera() -> std::optional<SelectionCandidate>;
         auto try_get_primary_player_controller() -> RC::Unreal::UObject*;
-        auto is_probable_marker_ui_widget(RC::Unreal::UObject* object) const -> bool;
-        auto log_marker_widget_snapshot(RC::Unreal::UObject* widget) -> void;
-        auto read_marker_popup_text(RC::Unreal::UObject* popup_widget) -> std::string;
-        auto count_live_user_marker_widgets() -> int32_t;
-        auto snapshot_live_user_marker_texts() -> std::vector<std::string>;
-        auto tick_marker_ui_state_probe() -> void;
 
         auto is_probable_label_actor(RC::Unreal::AActor* actor) const -> bool;
         auto detect_label_asset(RC::Unreal::AActor* actor) const -> std::string;
@@ -263,30 +257,7 @@ namespace WindroseTextSigns
         std::unordered_map<std::string, std::chrono::steady_clock::time_point> m_construct_probe_last_seen{};
         std::chrono::steady_clock::time_point m_last_backup_snapshot{};
         std::string m_last_backup_signature{};
-        std::unordered_set<std::string> m_marker_widget_logged{};
-        std::unordered_set<std::string> m_marker_widget_active{};
-        std::unordered_set<std::string> m_marker_widget_callable_logged{};
         bool m_runtime_text_label_patch_applied{false};
-        std::chrono::steady_clock::time_point m_last_marker_probe_scan{};
-        bool m_cursor_state_known{false};
-        bool m_last_show_mouse_cursor{false};
-        bool m_marker_popup_open{false};
-        std::string m_marker_popup_active_name{};
-        std::string m_marker_popup_text_on_open{};
-        std::string m_marker_popup_last_text{};
-        int32_t m_marker_popup_user_markers_on_open{0};
-        std::vector<std::string> m_marker_popup_user_marker_texts_on_open{};
-        bool m_marker_popup_confirm_clicked{false};
-        bool m_marker_popup_cancel_clicked{false};
-        bool m_marker_popup_last_confirm_pressed{false};
-        bool m_marker_popup_last_cancel_pressed{false};
-        bool m_marker_popup_last_visibility{false};
-        std::string m_marker_popup_last_direct_text{};
-        std::chrono::steady_clock::time_point m_marker_popup_last_telemetry_log{};
-        bool m_marker_popup_gettext_fn_available{false};
-        bool m_marker_popup_settext_fn_available{false};
-        bool m_marker_popup_confirm_fn_available{false};
-        bool m_marker_popup_cancel_fn_available{false};
         bool m_in_process_event_probe{false};
     };
 }
