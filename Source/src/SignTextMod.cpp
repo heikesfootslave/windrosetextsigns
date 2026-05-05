@@ -13,6 +13,7 @@
 #include <ios>
 #include <regex>
 #include <sstream>
+#include <thread>
 #include <unordered_set>
 #include <vector>
 
@@ -43,12 +44,58 @@ namespace
 {
     using namespace RC;
     using namespace RC::Unreal;
+    using WtsHhook = void*;
+    using WtsHwnd = void*;
+    using WtsWparam = uintptr_t;
+    using WtsLparam = intptr_t;
+    using WtsLresult = intptr_t;
+    using WtsHookproc = WtsLresult(__stdcall*)(int, WtsWparam, WtsLparam);
+    struct WtsPoint
+    {
+        long x;
+        long y;
+    };
+    struct WtsMsg
+    {
+        WtsHwnd hwnd;
+        unsigned int message;
+        WtsWparam wParam;
+        WtsLparam lParam;
+        unsigned long time;
+        WtsPoint pt;
+        unsigned long lPrivate;
+    };
+    struct WtsKbdllhookstruct
+    {
+        unsigned long vkCode;
+        unsigned long scanCode;
+        unsigned long flags;
+        unsigned long time;
+        uintptr_t dwExtraInfo;
+    };
     extern "C" __declspec(dllimport) short __stdcall GetAsyncKeyState(int vKey);
     extern "C" __declspec(dllimport) unsigned long __stdcall GetModuleFileNameA(void* hModule, char* lpFilename, unsigned long nSize);
+    extern "C" __declspec(dllimport) unsigned long __stdcall GetCurrentThreadId();
+    extern "C" __declspec(dllimport) WtsHhook __stdcall SetWindowsHookExW(int idHook, WtsHookproc lpfn, void* hmod, unsigned long dwThreadId);
+    extern "C" __declspec(dllimport) int __stdcall UnhookWindowsHookEx(WtsHhook hhk);
+    extern "C" __declspec(dllimport) WtsLresult __stdcall CallNextHookEx(WtsHhook hhk, int nCode, WtsWparam wParam, WtsLparam lParam);
+    extern "C" __declspec(dllimport) int __stdcall GetMessageW(WtsMsg* lpMsg, WtsHwnd hWnd, unsigned int wMsgFilterMin, unsigned int wMsgFilterMax);
+    extern "C" __declspec(dllimport) int __stdcall TranslateMessage(const WtsMsg* lpMsg);
+    extern "C" __declspec(dllimport) WtsLresult __stdcall DispatchMessageW(const WtsMsg* lpMsg);
+    extern "C" __declspec(dllimport) int __stdcall PostThreadMessageW(unsigned long idThread, unsigned int msg, WtsWparam wParam, WtsLparam lParam);
+    constexpr int k_wh_keyboard_ll = 13;
+    constexpr unsigned int k_wm_keydown = 0x0100;
+    constexpr unsigned int k_wm_keyup = 0x0101;
+    constexpr unsigned int k_wm_syskeydown = 0x0104;
+    constexpr unsigned int k_wm_syskeyup = 0x0105;
+    constexpr unsigned int k_wm_quit = 0x0012;
     constexpr int k_vk_f8 = 0x77;
     constexpr int k_vk_return = 0x0D;
     constexpr int k_vk_escape = 0x1B;
     constexpr int k_vk_shift = 0x10;
+    std::atomic<bool>* g_phase7_keyboard_capture_active{};
+    std::atomic<bool>* g_phase7_enter_requested{};
+    std::atomic<bool>* g_phase7_escape_requested{};
 
     struct Viewpoint
     {
@@ -77,6 +124,44 @@ namespace
         std::string sidecar_kind{"unknown"};
         bool authoritative{false};
     };
+
+    extern "C" WtsLresult __stdcall phase7_keyboard_capture_proc(int code, WtsWparam w_param, WtsLparam l_param)
+    {
+        if (code >= 0 &&
+            g_phase7_keyboard_capture_active &&
+            g_phase7_keyboard_capture_active->load(std::memory_order_relaxed) &&
+            l_param != 0)
+        {
+            const auto* key = reinterpret_cast<const WtsKbdllhookstruct*>(l_param);
+            const bool key_down = (w_param == k_wm_keydown || w_param == k_wm_syskeydown);
+            const bool key_up = (w_param == k_wm_keyup || w_param == k_wm_syskeyup);
+            if ((key_down || key_up) && key)
+            {
+                if (key->vkCode == static_cast<unsigned long>(k_vk_escape))
+                {
+                    if (key_down && g_phase7_escape_requested)
+                    {
+                        g_phase7_escape_requested->store(true, std::memory_order_relaxed);
+                    }
+                    return 1;
+                }
+
+                if (key->vkCode == static_cast<unsigned long>(k_vk_return))
+                {
+                    const bool shift_down = ((GetAsyncKeyState(k_vk_shift) & 0x8000) != 0);
+                    if (!shift_down)
+                    {
+                        if (key_down && g_phase7_enter_requested)
+                        {
+                            g_phase7_enter_requested->store(true, std::memory_order_relaxed);
+                        }
+                        return 1;
+                    }
+                }
+            }
+        }
+        return CallNextHookEx(nullptr, code, w_param, l_param);
+    }
 
     auto bridge_role_name(const WindroseTextSigns::BridgeRole role) -> std::string
     {
@@ -2285,6 +2370,7 @@ namespace WindroseTextSigns
 
     SignTextMod::~SignTextMod()
     {
+        uninstall_phase7_keyboard_capture_hook();
         if (m_log.is_open())
         {
             m_log.flush();
@@ -2451,7 +2537,7 @@ namespace WindroseTextSigns
         }
 
         open_log();
-        log_line(std::string{"[build] version=0.1.2-prototype compiled="} + __DATE__ + " " + __TIME__ + " flags=F8,F9,F10,phase2-role-aware-sidecar,remote-cache-routing,staticconstruct-gated,phase6-native-udp-bridge");
+        log_line(std::string{"[build] version=0.1.2-prototype compiled="} + __DATE__ + " " + __TIME__ + " flags=F8,F9,F10,phase2-role-aware-sidecar,remote-cache-routing,staticconstruct-gated,phase6-native-udp-bridge,phase7-umg-key-capture");
         log_line("[role] runtimeRole=" + m_runtime_role +
                  " dataMode=" + m_data_mode +
                  " authorityMode=" + m_authority_mode +
@@ -2483,6 +2569,7 @@ namespace WindroseTextSigns
 
         load_sidecar_json();
         register_input_hotkey();
+        install_phase7_keyboard_capture_hook();
         probe_phase7_native_ui_capabilities();
         install_process_event_probe();
         install_static_construct_probe();
@@ -2518,6 +2605,63 @@ namespace WindroseTextSigns
             }
         });
         log_line("[input] Registered hotkeys: F8=target/open_editor, F9=buildmenu_asset_probe, F10=clear_selected");
+    }
+
+    auto SignTextMod::install_phase7_keyboard_capture_hook() -> void
+    {
+        if (m_phase7_keyboard_hook_thread.joinable())
+        {
+            return;
+        }
+
+        g_phase7_keyboard_capture_active = &m_phase7_keyboard_capture_active;
+        g_phase7_enter_requested = &m_phase7_enter_requested;
+        g_phase7_escape_requested = &m_phase7_escape_requested;
+        m_phase7_keyboard_hook_stop.store(false);
+        m_phase7_keyboard_hook_installed.store(false);
+        m_phase7_keyboard_hook_thread_id.store(0);
+
+        m_phase7_keyboard_hook_thread = std::thread([this]() {
+            m_phase7_keyboard_hook_thread_id.store(GetCurrentThreadId());
+            WtsHhook hook = SetWindowsHookExW(k_wh_keyboard_ll, phase7_keyboard_capture_proc, nullptr, 0);
+            m_phase7_keyboard_hook_installed.store(hook != nullptr);
+
+            WtsMsg msg{};
+            while (!m_phase7_keyboard_hook_stop.load(std::memory_order_relaxed))
+            {
+                const int result = GetMessageW(&msg, nullptr, 0, 0);
+                if (result <= 0)
+                {
+                    break;
+                }
+                (void)TranslateMessage(&msg);
+                (void)DispatchMessageW(&msg);
+            }
+
+            if (hook)
+            {
+                (void)UnhookWindowsHookEx(hook);
+            }
+            m_phase7_keyboard_hook_installed.store(false);
+        });
+
+        log_line("[phase7-umg] keyboard_capture_hook starting");
+    }
+
+    auto SignTextMod::uninstall_phase7_keyboard_capture_hook() -> void
+    {
+        m_phase7_keyboard_capture_active.store(false);
+        m_phase7_keyboard_hook_stop.store(true);
+        const auto thread_id = m_phase7_keyboard_hook_thread_id.load();
+        if (thread_id != 0)
+        {
+            (void)PostThreadMessageW(thread_id, k_wm_quit, 0, 0);
+        }
+        if (m_phase7_keyboard_hook_thread.joinable())
+        {
+            m_phase7_keyboard_hook_thread.join();
+        }
+        m_phase7_keyboard_hook_thread_id.store(0);
     }
 
     auto SignTextMod::probe_phase7_native_ui_capabilities() -> void
@@ -2619,11 +2763,13 @@ namespace WindroseTextSigns
         const bool cursor_set = set_bool_property_if_present(controller, "bshowmousecursor", enable_ui_mode);
         const bool look_ignored = invoke_with_bool_param(controller, STR("SetIgnoreLookInput"), STR("/Script/Engine.Controller:SetIgnoreLookInput"), enable_ui_mode);
         const bool move_ignored = invoke_with_bool_param(controller, STR("SetIgnoreMoveInput"), STR("/Script/Engine.Controller:SetIgnoreMoveInput"), enable_ui_mode);
+        m_phase7_keyboard_capture_active.store(enable_ui_mode);
         log_line("[phase7-umg] input_capture enable=" + std::string{enable_ui_mode ? "true" : "false"} +
                  " inputMode=" + std::string{input_mode_applied ? "true" : "false"} +
                  " cursor=" + std::string{cursor_set ? "true" : "false"} +
                  " ignoreLook=" + std::string{look_ignored ? "true" : "false"} +
-                 " ignoreMove=" + std::string{move_ignored ? "true" : "false"});
+                 " ignoreMove=" + std::string{move_ignored ? "true" : "false"} +
+                 " llHook=" + std::string{m_phase7_keyboard_hook_installed.load() ? "true" : "false"});
         return input_mode_applied || cursor_set || look_ignored || move_ignored;
     }
 
@@ -2686,6 +2832,7 @@ namespace WindroseTextSigns
 
     auto SignTextMod::close_phase7_native_editor(bool restore_game_input) -> void
     {
+        m_phase7_keyboard_capture_active.store(false);
         if (m_phase7_native_widget)
         {
             const bool removed = invoke_no_param(
@@ -2871,6 +3018,7 @@ namespace WindroseTextSigns
 
     auto SignTextMod::close_phase7_umg_editor(bool restore_game_input) -> void
     {
+        m_phase7_keyboard_capture_active.store(false);
         if (m_phase7_umg_widget)
         {
             const bool removed = invoke_no_param(
@@ -2903,13 +3051,17 @@ namespace WindroseTextSigns
             return;
         }
 
-        const bool enter_down = ((GetAsyncKeyState(k_vk_return) & 0x8000) != 0);
-        const bool escape_down = ((GetAsyncKeyState(k_vk_escape) & 0x8000) != 0);
+        const short enter_state = GetAsyncKeyState(k_vk_return);
+        const short escape_state = GetAsyncKeyState(k_vk_escape);
+        const bool enter_down = ((enter_state & 0x8000) != 0);
+        const bool escape_down = ((escape_state & 0x8000) != 0);
+        const bool enter_pressed_since_poll = ((enter_state & 0x0001) != 0);
+        const bool escape_pressed_since_poll = ((escape_state & 0x0001) != 0);
         const bool shift_down = ((GetAsyncKeyState(k_vk_shift) & 0x8000) != 0);
         const bool enter_requested = m_phase7_enter_requested.exchange(false);
         const bool escape_requested = m_phase7_escape_requested.exchange(false);
-        const bool enter_edge = enter_down && !m_phase7_enter_was_down;
-        const bool escape_edge = escape_down && !m_phase7_escape_was_down;
+        const bool enter_edge = (enter_down && !m_phase7_enter_was_down) || enter_pressed_since_poll;
+        const bool escape_edge = (escape_down && !m_phase7_escape_was_down) || escape_pressed_since_poll;
         m_phase7_enter_was_down = enter_down;
         m_phase7_escape_was_down = escape_down;
 
@@ -2962,6 +3114,7 @@ namespace WindroseTextSigns
                      " chars=" + std::to_string(text.size()) +
                      " enterRequested=" + std::string{enter_requested ? "true" : "false"} +
                      " enterEdge=" + std::string{enter_edge ? "true" : "false"} +
+                     " enterAsync=" + std::string{enter_pressed_since_poll ? "true" : "false"} +
                      " newlineApply=" + std::string{unshifted_newline_added ? "true" : "false"} +
                      " emptyMeansClear=" + std::string{trimmed_for_clear.empty() ? "true" : "false"});
             if (read)
@@ -2987,7 +3140,10 @@ namespace WindroseTextSigns
         }
         if (cancel_pressed)
         {
-            log_line("[phase7-umg] escape cancel key=" + key);
+            log_line("[phase7-umg] escape cancel key=" + key +
+                     " escapeRequested=" + std::string{escape_requested ? "true" : "false"} +
+                     " escapeEdge=" + std::string{escape_edge ? "true" : "false"} +
+                     " escapeAsync=" + std::string{escape_pressed_since_poll ? "true" : "false"});
             close_phase7_umg_editor(true);
             return;
         }
@@ -6331,10 +6487,12 @@ namespace WindroseTextSigns
             }
         }
 
-        // Fallback: if there is exactly one TextRenderComponent on this label actor,
-        // treat it as managed to keep runtime update/clear resilient.
-        UObject* fallback = nullptr;
-        int32_t fallback_count = 0;
+        // Fallback: text components created through AddComponentByClass do not keep
+        // our requested name, and after a restart the in-memory cache is gone. For
+        // wooden labels there should not be a native TextRenderComponent, so recover
+        // the first one and blank any older duplicates left by previous prototype
+        // builds instead of creating more overlapping text components.
+        std::vector<UObject*> fallback_components_to_manage{};
         auto fallback_components = actor->GetComponentsByClass(UActorComponent::StaticClass());
         for (int32_t i = 0; i < fallback_components.Num(); ++i)
         {
@@ -6348,12 +6506,26 @@ namespace WindroseTextSigns
             {
                 continue;
             }
-            fallback = component;
-            ++fallback_count;
+            fallback_components_to_manage.push_back(component);
         }
-        if (fallback_count == 1 && fallback)
+        if (!fallback_components_to_manage.empty())
         {
+            auto* fallback = fallback_components_to_manage.front();
+            for (size_t i = 1; i < fallback_components_to_manage.size(); ++i)
+            {
+                auto* duplicate = fallback_components_to_manage[i];
+                (void)invoke_set_hidden_in_game(duplicate, true);
+                (void)invoke_set_visibility(duplicate, false);
+                (void)invoke_set_text(duplicate, "");
+            }
             m_component_name_cache[storage_key] = narrow_ascii(fallback->GetFullName());
+            if (fallback_components_to_manage.size() > 1)
+            {
+                log_line("[phase4] component_recovered key=" + storage_key +
+                         " count=" + std::to_string(fallback_components_to_manage.size()) +
+                         " keeping=" + narrow_ascii(fallback->GetFullName()) +
+                         " action=blank_duplicate_components");
+            }
             return fallback;
         }
 
@@ -6529,20 +6701,7 @@ namespace WindroseTextSigns
             const bool hidden_applied = invoke_set_hidden_in_game(component, true);
             const bool visibility_applied = invoke_set_visibility(component, false);
             const bool blanked = invoke_set_text(component, "");
-            bool destroyed = invoke_no_param(component, STR("K2_DestroyComponent"), STR("/Script/Engine.ActorComponent:K2_DestroyComponent"));
-            if (!destroyed)
-            {
-                destroyed = invoke_no_param(component, STR("DestroyComponent"), STR("/Script/Engine.ActorComponent:DestroyComponent"));
-            }
-            if (!destroyed)
-            {
-                destroyed = invoke_no_param(component, STR("UnregisterComponent"), STR("/Script/Engine.ActorComponent:UnregisterComponent"));
-            }
-            if (!destroyed)
-            {
-                any_removed = any_removed || hidden_applied || visibility_applied || blanked;
-            }
-            any_removed = any_removed || destroyed;
+            any_removed = any_removed || hidden_applied || visibility_applied || blanked;
         }
 
         m_component_name_cache.erase(storage_key);
@@ -6607,19 +6766,25 @@ namespace WindroseTextSigns
             desired_a = std::clamp(rec.color_a, 0.0f, 1.0f);
         }
 
-        const bool removed_existing = destroy_managed_text_component(actor, key);
-        auto* text_component = create_managed_text_component(actor, key, relative_location);
+        auto* text_component = find_managed_text_component(actor, key);
+        const bool reused_existing = text_component != nullptr;
+        if (!text_component)
+        {
+            text_component = create_managed_text_component(actor, key, relative_location);
+        }
         if (!text_component)
         {
             m_phase4_next_retry[key] = std::chrono::steady_clock::now() + std::chrono::seconds(30);
             log_line("[phase4] apply_failed reason=CreateTextComponent actor=" + narrow_ascii(actor->GetFullName()) +
-                     " key=" + key + " removedExisting=" + std::string{removed_existing ? "true" : "false"});
+                     " key=" + key + " reusedExisting=" + std::string{reused_existing ? "true" : "false"});
             return false;
         }
         log_line("[phase4] component_created key=" + key +
-                 " removedExisting=" + std::string{removed_existing ? "true" : "false"} +
+                 " reusedExisting=" + std::string{reused_existing ? "true" : "false"} +
                  " component=" + narrow_ascii(text_component->GetFullName()));
 
+        (void)invoke_set_hidden_in_game(text_component, false);
+        (void)invoke_set_visibility(text_component, true);
         bool moved = invoke_set_relative_location(text_component, relative_location);
         bool sized = invoke_set_float_value(
             text_component,

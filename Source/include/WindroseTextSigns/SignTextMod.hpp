@@ -9,6 +9,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -82,6 +83,8 @@ namespace WindroseTextSigns
         auto open_phase7_umg_editor_for_selection() -> bool;
         auto close_phase7_umg_editor(bool restore_game_input) -> void;
         auto tick_phase7_umg_editor() -> void;
+        auto install_phase7_keyboard_capture_hook() -> void;
+        auto uninstall_phase7_keyboard_capture_hook() -> void;
         auto install_process_event_probe() -> void;
         auto install_static_construct_probe() -> void;
         auto uninstall_process_event_probe() -> void;
@@ -217,6 +220,11 @@ namespace WindroseTextSigns
         bool m_f8_poll_was_down{false};
         bool m_phase7_enter_was_down{false};
         bool m_phase7_escape_was_down{false};
+        std::atomic<bool> m_phase7_keyboard_capture_active{false};
+        std::atomic<bool> m_phase7_keyboard_hook_stop{false};
+        std::atomic<bool> m_phase7_keyboard_hook_installed{false};
+        std::atomic<uint32_t> m_phase7_keyboard_hook_thread_id{0};
+        std::thread m_phase7_keyboard_hook_thread{};
         std::string m_phase7_umg_last_text{};
         std::string m_phase7_native_probe_summary{};
         RC::Unreal::UObject* m_phase7_native_widget{};
