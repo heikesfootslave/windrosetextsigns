@@ -6707,6 +6707,8 @@ namespace WindroseTextSigns
             // - only prune while at least one live label is visible in the current world scan.
             // - this avoids deleting all persisted records during disconnect/map travel when
             //   no labels are visible temporarily.
+            // - if all remaining text-sign records are missing while other labels are live,
+            //   prune them all; that is the normal "player destroyed every text sign" case.
             const bool allow_prune = !present_label_keys.empty();
             if (allow_prune)
             {
@@ -6734,14 +6736,6 @@ namespace WindroseTextSigns
                     {
                         keys_to_prune.insert(key);
                     }
-                }
-
-                if (!m_labels.empty() && keys_to_prune.size() == m_labels.size())
-                {
-                    log_line("[save] prune_destroyed_label skipped reason=mass_prune_guard candidateCount=" +
-                             std::to_string(keys_to_prune.size()) +
-                             " presentWorlds=" + std::to_string(present_world_counts.size()));
-                    keys_to_prune.clear();
                 }
 
                 uint32_t pruned_count = 0;
