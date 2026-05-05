@@ -2580,14 +2580,18 @@ namespace WindroseTextSigns
         return config_bool_value("WTS_PHASE5_BUILD_MENU_SELECTION_PROBE", false);
     }
 
-    auto SignTextMod::is_phase5_visual_patch_probe_enabled() const -> bool
+    auto SignTextMod::is_hide_native_label_icon_enabled() const -> bool
     {
-        return config_bool_value("WTS_PHASE5_VISUAL_PATCH_PROBE", false);
+        return config_bool_value(
+            "WTS_HIDE_NATIVE_LABEL_ICON",
+            config_bool_value("WTS_PHASE5_VISUAL_PATCH_HIDE_ICON_COMPONENTS", true));
     }
 
-    auto SignTextMod::is_phase5_visual_patch_hide_icon_components_enabled() const -> bool
+    auto SignTextMod::is_label_text_visual_diagnostics_enabled() const -> bool
     {
-        return config_bool_value("WTS_PHASE5_VISUAL_PATCH_HIDE_ICON_COMPONENTS", false);
+        return config_bool_value(
+            "WTS_LABEL_TEXT_VISUAL_DIAGNOSTICS",
+            config_bool_value("WTS_PHASE5_VISUAL_PATCH_PROBE", false));
     }
 
     auto SignTextMod::now_utc() const -> std::string
@@ -2665,8 +2669,8 @@ namespace WindroseTextSigns
         m_static_construct_probe_enabled = is_static_construct_probe_enabled();
         m_phase5_placement_probe_enabled = is_phase5_placement_probe_enabled();
         m_phase5_build_menu_selection_probe_enabled = is_phase5_build_menu_selection_probe_enabled();
-        m_phase5_visual_patch_probe_enabled = is_phase5_visual_patch_probe_enabled();
-        m_phase5_visual_patch_hide_icon_components_enabled = is_phase5_visual_patch_hide_icon_components_enabled();
+        m_hide_native_label_icon_enabled = is_hide_native_label_icon_enabled();
+        m_label_text_visual_diagnostics_enabled = is_label_text_visual_diagnostics_enabled();
         m_session_id = now_utc() + "-" + sanitize_path_segment(current_executable_path().filename().string());
         configure_data_root();
         m_legacy_sidecar_path = m_mod_root / "SignTexts.json";
@@ -2680,7 +2684,7 @@ namespace WindroseTextSigns
         }
 
         open_log();
-        log_line(std::string{"[build] version=0.1.2-prototype compiled="} + __DATE__ + " " + __TIME__ + " flags=F8-only,phase2-role-aware-sidecar,remote-cache-routing,staticconstruct-gated,phase6-native-udp-bridge,phase7-umg-no-llhook,dedicated-no-render-components,phase4-marker-guard,restore-scan-diag,phase5-placement-probe,phase5-build-menu-selection-probe");
+        log_line(std::string{"[build] version=0.1.2-prototype compiled="} + __DATE__ + " " + __TIME__ + " flags=F8-only,phase2-role-aware-sidecar,remote-cache-routing,staticconstruct-gated,phase6-native-udp-bridge,phase7-umg-no-llhook,dedicated-no-render-components,phase4-marker-guard,restore-scan-diag,phase5-placement-probe,phase5-build-menu-selection-probe,label-text-native-icon-hide");
         log_line("[role] runtimeRole=" + m_runtime_role +
                  " dataMode=" + m_data_mode +
                  " authorityMode=" + m_authority_mode +
@@ -2698,10 +2702,10 @@ namespace WindroseTextSigns
                  std::string{m_phase5_placement_probe_enabled ? "true" : "false"});
         log_line("[probe] Phase5 build-menu selection probe config enabled=" +
                  std::string{m_phase5_build_menu_selection_probe_enabled ? "true" : "false"});
-        log_line("[probe] Phase5 visual patch probe config enabled=" +
-                 std::string{m_phase5_visual_patch_probe_enabled ? "true" : "false"} +
-                 " hideIconComponents=" +
-                 std::string{m_phase5_visual_patch_hide_icon_components_enabled ? "true" : "false"});
+        log_line("[visual] hideNativeLabelIcon=" +
+                 std::string{m_hide_native_label_icon_enabled ? "true" : "false"} +
+                 " diagnostics=" +
+                 std::string{m_label_text_visual_diagnostics_enabled ? "true" : "false"});
 
         std::error_code mkdir_ec{};
         std::filesystem::create_directories(m_data_root, mkdir_ec);
@@ -6442,24 +6446,24 @@ namespace WindroseTextSigns
         {
             return false;
         }
-        if (!m_phase5_visual_patch_probe_enabled && !m_phase5_visual_patch_hide_icon_components_enabled)
+        if (!m_label_text_visual_diagnostics_enabled && !m_hide_native_label_icon_enabled)
         {
             return false;
         }
 
-        const bool first_log_for_key = m_visual_patch_probe_logged_keys.insert(storage_key).second;
+        const bool first_log_for_key = m_label_text_visual_logged_keys.insert(storage_key).second;
         auto components = actor->GetComponentsByClass(UActorComponent::StaticClass());
         uint32_t hidden_candidates = 0;
         uint32_t candidate_count = 0;
 
-        if (first_log_for_key || m_phase5_visual_patch_hide_icon_components_enabled)
+        if (m_label_text_visual_diagnostics_enabled && first_log_for_key)
         {
-            log_line("[phase5-visual] start key=" + storage_key +
+            log_line("[visual] inspect_start key=" + storage_key +
                      " reason=" + reason +
                      " actor=" + narrow_ascii(actor->GetFullName()) +
                      " class=" + narrow_ascii(actor->GetClassPrivate() ? actor->GetClassPrivate()->GetFullName() : RC::StringType{}) +
                      " componentCount=" + std::to_string(components.Num()) +
-                     " hideIconComponents=" + std::string{m_phase5_visual_patch_hide_icon_components_enabled ? "true" : "false"});
+                     " hideNativeLabelIcon=" + std::string{m_hide_native_label_icon_enabled ? "true" : "false"});
         }
 
         for (int32_t i = 0; i < components.Num(); ++i)
@@ -6505,9 +6509,9 @@ namespace WindroseTextSigns
                 ++candidate_count;
             }
 
-            if (first_log_for_key)
+            if (m_label_text_visual_diagnostics_enabled && first_log_for_key)
             {
-                log_line("[phase5-visual] component index=" + std::to_string(i) +
+                log_line("[visual] component index=" + std::to_string(i) +
                          " candidate=" + std::string{looks_icon_component ? "true" : "false"} +
                          " basicPlane=" + std::string{is_basic_plane_component ? "true" : "false"} +
                          " name=" + component_name +
@@ -6525,32 +6529,34 @@ namespace WindroseTextSigns
                     {
                         return;
                     }
-                    log_line("[phase5-visual] component_field index=" + std::to_string(i) +
+                    log_line("[visual] component_field index=" + std::to_string(i) +
                              " prop=" + lower_ascii(RC::to_string(prop->GetName())) +
                              " value=" + *value);
                     ++logged_fields;
                 });
             }
 
-            if (m_phase5_visual_patch_hide_icon_components_enabled && looks_icon_component)
+            if (m_hide_native_label_icon_enabled && looks_icon_component)
             {
                 const bool hidden = invoke_set_hidden_in_game(component, true);
                 const bool invisible = invoke_set_visibility(component, false);
                 if (hidden || invisible)
                 {
                     ++hidden_candidates;
-                    log_line("[phase5-visual] hide_candidate index=" + std::to_string(i) +
-                             " hidden=" + std::string{hidden ? "true" : "false"} +
-                             " invisible=" + std::string{invisible ? "true" : "false"} +
-                             " name=" + component_name +
-                             " class=" + component_class);
+                    if (first_log_for_key || m_label_text_visual_diagnostics_enabled)
+                    {
+                        log_line("[visual] native_icon_hidden key=" + storage_key +
+                                 " component=" + component_name +
+                                 " hidden=" + std::string{hidden ? "true" : "false"} +
+                                 " invisible=" + std::string{invisible ? "true" : "false"});
+                    }
                 }
             }
         }
 
-        if (first_log_for_key || hidden_candidates > 0)
+        if (m_label_text_visual_diagnostics_enabled && (first_log_for_key || hidden_candidates > 0))
         {
-            log_line("[phase5-visual] complete key=" + storage_key +
+            log_line("[visual] inspect_complete key=" + storage_key +
                      " candidates=" + std::to_string(candidate_count) +
                      " hidden=" + std::to_string(hidden_candidates));
         }
