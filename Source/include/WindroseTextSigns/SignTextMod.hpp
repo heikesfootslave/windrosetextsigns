@@ -134,6 +134,7 @@ namespace WindroseTextSigns
         auto clear_text_on_selected_label() -> void;
         auto restore_known_text_if_any(RC::Unreal::AActor* actor, const std::string& stable_id) -> void;
         auto apply_text_to_actor_component(RC::Unreal::AActor* actor, const std::string& text_value) -> bool;
+        auto should_render_world_text_components() const -> bool;
         auto resolve_world_text_font_asset() -> RC::Unreal::UObject*;
         auto apply_world_text_font(RC::Unreal::UObject* text_component) -> bool;
         auto make_managed_component_name(const std::string& storage_key) const -> std::string;
@@ -202,7 +203,6 @@ namespace WindroseTextSigns
         std::unordered_set<std::string> m_bridge_snapshot_seen_keys{};
 
         std::atomic<bool> m_hotkey_requested{false};
-        std::atomic<bool> m_clear_hotkey_requested{false};
         std::atomic<bool> m_six_sign_test_requested{false};
         std::atomic<bool> m_buildmenu_probe_requested{false};
         std::atomic<bool> m_phase7_enter_requested{false};

@@ -199,9 +199,9 @@ namespace
     auto parse_bridge_message(const std::string& payload) -> std::unordered_map<std::string, std::string>
     {
         std::unordered_map<std::string, std::string> fields{};
-        const std::array<std::string, 12> string_fields = {
+        const std::array<std::string, 14> string_fields = {
             "mod", "type", "session", "key", "stableId", "worldId",
-            "text", "asset", "lastSeen", "reason", "schema", "writer"};
+            "text", "asset", "kind", "backingAsset", "lastSeen", "reason", "schema", "writer"};
         for (const auto& name : string_fields)
         {
             if (auto value = bridge_message_field(payload, name); value.has_value())
@@ -2517,7 +2517,7 @@ namespace WindroseTextSigns
         }
 
         open_log();
-        log_line(std::string{"[build] version=0.1.2-prototype compiled="} + __DATE__ + " " + __TIME__ + " flags=F8,F9,F10,phase2-role-aware-sidecar,remote-cache-routing,staticconstruct-gated,phase6-native-udp-bridge,phase7-umg-no-llhook");
+        log_line(std::string{"[build] version=0.1.2-prototype compiled="} + __DATE__ + " " + __TIME__ + " flags=F8,F9,phase2-role-aware-sidecar,remote-cache-routing,staticconstruct-gated,phase6-native-udp-bridge,phase7-umg-no-llhook,dedicated-no-render-components");
         log_line("[role] runtimeRole=" + m_runtime_role +
                  " dataMode=" + m_data_mode +
                  " authorityMode=" + m_authority_mode +
@@ -2565,9 +2565,6 @@ namespace WindroseTextSigns
         register_keydown_event(Input::Key::F8, [this]() {
             m_hotkey_requested.store(true);
         });
-        register_keydown_event(Input::Key::F10, [this]() {
-            m_clear_hotkey_requested.store(true);
-        });
         register_keydown_event(Input::Key::F9, [this]() {
             m_buildmenu_probe_requested.store(true);
         });
@@ -2583,7 +2580,7 @@ namespace WindroseTextSigns
                 m_phase7_escape_requested.store(true);
             }
         });
-        log_line("[input] Registered hotkeys: F8=target/open_editor, F9=buildmenu_asset_probe, F10=clear_selected");
+        log_line("[input] Registered hotkeys: F8=target/open_editor, F9=buildmenu_asset_probe");
     }
 
     auto SignTextMod::install_phase7_keyboard_capture_hook() -> void
@@ -4185,18 +4182,6 @@ namespace WindroseTextSigns
 
     auto SignTextMod::tick_pending_fallback_hotkeys() -> void
     {
-        if (m_clear_hotkey_requested.exchange(false))
-        {
-            if (ensure_selected_label_for_action("F10 clear"))
-            {
-                clear_text_on_selected_label();
-                m_text_buffer.fill('\0');
-                if (m_phase7_native_editor_open)
-                {
-                    close_phase7_native_editor(true);
-                }
-            }
-        }
         if (m_buildmenu_probe_requested.exchange(false))
         {
             run_buildmenu_asset_probe();
@@ -5996,8 +5981,17 @@ namespace WindroseTextSigns
         return any_removed;
     }
 
+    auto SignTextMod::should_render_world_text_components() const -> bool
+    {
+        return !is_dedicated_server_process(std::filesystem::current_path(), m_mod_root);
+    }
+
     auto SignTextMod::apply_text_to_actor_component(AActor* actor, const std::string& text_value) -> bool
     {
+        if (!should_render_world_text_components())
+        {
+            return false;
+        }
         if (!actor)
         {
             return false;
@@ -6293,6 +6287,10 @@ namespace WindroseTextSigns
 
     auto SignTextMod::restore_known_text_if_any(AActor* actor, const std::string& stable_id) -> void
     {
+        if (!should_render_world_text_components())
+        {
+            return;
+        }
         if (!actor || stable_id.empty())
         {
             return;
@@ -6719,7 +6717,7 @@ namespace WindroseTextSigns
         ImGui::Separator();
         ImGui::Text("Hotkey: F8");
         ImGui::Text("Build-menu probe hotkey: F9");
-        ImGui::Text("Clear hotkey: F10");
+        ImGui::Text("Clear text: open editor, delete text, press Enter");
         ImGui::Text("Tests: Config/run_test6.flag, Config/run_buildmenu_probe.flag");
         ImGui::Text("Probe events: %llu", static_cast<unsigned long long>(m_probe_event_count));
         ImGui::Text("Label hits: %llu", static_cast<unsigned long long>(m_probe_label_hit_count));

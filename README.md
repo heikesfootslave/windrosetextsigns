@@ -30,8 +30,7 @@ No native Windrose label interaction was added in this prototype.
   - `[ui] tab_render_tick`
   - `[ui] apply_clicked`
   - `[ui] clear_clicked`
-- Added non-ImGui clear control:
-  - `F10` clears selected/targeted label text.
+- Clear flow is through the editor: open with `F8`, delete all text, press Enter.
 
 4. Phase 4 (In-world rendering): **Implemented prototype, pending runtime verification**
 - Runtime-managed `TextRenderComponent` create/update/remove path is now wired.
