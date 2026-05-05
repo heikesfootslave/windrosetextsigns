@@ -89,6 +89,7 @@ namespace WindroseTextSigns
         auto install_static_construct_probe() -> void;
         auto uninstall_process_event_probe() -> void;
         auto is_static_construct_probe_enabled() const -> bool;
+        auto is_process_event_probe_enabled() const -> bool;
         auto config_bool_value(std::string_view key, bool fallback) const -> bool;
 
         auto tick_pending_hotkey() -> void;

@@ -2413,6 +2413,15 @@ namespace WindroseTextSigns
         return config_bool_value("WTS_STATIC_CONSTRUCT_PROBE", false);
     }
 
+    auto SignTextMod::is_process_event_probe_enabled() const -> bool
+    {
+        if (std::filesystem::exists(m_mod_root / "Config" / "enable_process_event_probe.flag"))
+        {
+            return true;
+        }
+        return config_bool_value("WTS_PROCESS_EVENT_PROBE", false);
+    }
+
     auto SignTextMod::now_utc() const -> std::string
     {
         const auto now = std::time(nullptr);
@@ -3195,6 +3204,11 @@ namespace WindroseTextSigns
 
     auto SignTextMod::install_process_event_probe() -> void
     {
+        if (!is_process_event_probe_enabled())
+        {
+            log_line("[probe] ProcessEvent pre-probe skipped reason=disabled");
+            return;
+        }
         if (m_process_event_probe_id != Hook::ERROR_ID)
         {
             return;
