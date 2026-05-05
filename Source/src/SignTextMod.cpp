@@ -4566,7 +4566,7 @@ namespace WindroseTextSigns
         };
 
         std::vector<CandidateRow> rows{};
-        rows.reserve(32);
+        rows.reserve(256);
         uint32_t scanned = 0;
         uint32_t widgetish = 0;
         uint32_t wooden_items = 0;
@@ -4588,10 +4588,13 @@ namespace WindroseTextSigns
             const bool is_default_object = lower_full.find("default__") != std::string::npos;
 
             const bool is_wooden_item = lower_full.find("da_bi_utilities_lables_wooden_") != std::string::npos;
+            const bool is_any_building_item_asset =
+                contains_any_token(lower_class, {"r5buildingitem"}) &&
+                lower_full.find("/game/gameplay/building/") != std::string::npos;
             const bool is_building_item_widget =
-                contains_any_token(haystack, {"r5buildingitemwidget", "r5buildinggroupwidget"}) ||
+                contains_any_token(haystack, {"r5buildingitemwidget", "r5buildinggroupwidget", "buildingitemwidget", "buildinggroupwidget"}) ||
                 (contains_any_token(haystack, {"wbp_", "widgetblueprintgeneratedclass", "userwidget"}) &&
-                 contains_any_token(haystack, {"building"}) &&
+                 contains_any_token(haystack, {"building", "craft_recipe", "recipelist"}) &&
                  contains_any_token(haystack, {"item", "entry", "recipe", "lable", "label", "plaque"}));
             const bool is_widgetish =
                 contains_any_token(haystack, {"wbp_", "widget", "userwidget", "buildmenu", "buildingmenu"}) &&
@@ -4601,6 +4604,11 @@ namespace WindroseTextSigns
                 contains_any_token(haystack, {"selection", "selected", "current", "entry", "item", "viewmodel", "data"});
 
             if (!is_wooden_item && is_default_object)
+            {
+                return LoopAction::Continue;
+            }
+
+            if (is_any_building_item_asset && !is_wooden_item)
             {
                 return LoopAction::Continue;
             }
@@ -4670,12 +4678,17 @@ namespace WindroseTextSigns
                 ++logged_fields;
             });
 
-            if (row.fields.empty() && !row.is_wooden_item)
+            if (row.fields.empty() && !row.is_wooden_item && !row.is_building_item_widget)
             {
                 return LoopAction::Continue;
             }
 
-            if (rows.size() < 32)
+            if (row.is_building_item_widget || row.references_wooden_label || row.selectedish_true || row.is_wooden_item)
+            {
+                row.score += 5;
+            }
+
+            if (rows.size() < 256)
             {
                 rows.push_back(std::move(row));
             }
@@ -4699,7 +4712,8 @@ namespace WindroseTextSigns
             log_line("[phase5-select-probe] scan objects=" + std::to_string(scanned) +
                      " widgetish=" + std::to_string(widgetish) +
                      " woodenItems=" + std::to_string(wooden_items) +
-                     " candidates=" + std::to_string(rows.size()));
+                     " candidates=" + std::to_string(rows.size()) +
+                     " candidateCap=256");
         }
 
         if (m_phase5_build_menu_selection_probe_last.size() > 512)
@@ -4725,7 +4739,7 @@ namespace WindroseTextSigns
             }
             m_phase5_build_menu_selection_probe_last[row.object] = fp;
 
-            if (logged_rows >= 12)
+            if (logged_rows >= 32)
             {
                 continue;
             }
