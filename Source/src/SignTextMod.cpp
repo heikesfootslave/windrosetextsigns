@@ -2905,11 +2905,11 @@ namespace WindroseTextSigns
         const bool input_color =
             invoke_set_rgba_value(text_box, STR("SetColorAndOpacity"), nullptr, 1.0f, 1.0f, 1.0f, 1.0f) ||
             invoke_set_rgba_value(text_box, STR("SetForegroundColor"), nullptr, 1.0f, 1.0f, 1.0f, 1.0f);
-        const bool frame_color = invoke_set_rgba_value(frame, STR("SetBrushColor"), STR("/Script/UMG.Border:SetBrushColor"), 0.17f, 0.17f, 0.16f, 0.94f);
-        const bool background_color = invoke_set_rgba_value(background, STR("SetBrushColor"), STR("/Script/UMG.Border:SetBrushColor"), 0.045f, 0.050f, 0.055f, 0.90f);
+        const bool frame_color = invoke_set_rgba_value(frame, STR("SetBrushColor"), STR("/Script/UMG.Border:SetBrushColor"), 0.075f, 0.080f, 0.085f, 0.94f);
+        const bool background_color = invoke_set_rgba_value(background, STR("SetBrushColor"), STR("/Script/UMG.Border:SetBrushColor"), 0.035f, 0.038f, 0.042f, 0.90f);
         const bool divider_color = invoke_set_rgba_value(divider, STR("SetBrushColor"), STR("/Script/UMG.Border:SetBrushColor"), 0.72f, 0.68f, 0.58f, 0.76f);
         const bool input_frame_color = invoke_set_rgba_value(input_frame, STR("SetBrushColor"), STR("/Script/UMG.Border:SetBrushColor"), 0.43f, 0.40f, 0.34f, 0.95f);
-        const bool input_background_color = invoke_set_rgba_value(input_background, STR("SetBrushColor"), STR("/Script/UMG.Border:SetBrushColor"), 0.025f, 0.028f, 0.030f, 0.84f);
+        const bool input_background_color = invoke_set_rgba_value(input_background, STR("SetBrushColor"), STR("/Script/UMG.Border:SetBrushColor"), 0.018f, 0.020f, 0.022f, 0.86f);
         const bool frame_padding = invoke_set_margin_value(frame, STR("SetPadding"), STR("/Script/UMG.Border:SetPadding"), 2.0f, 2.0f, 2.0f, 2.0f);
         const bool background_padding = invoke_set_margin_value(background, STR("SetPadding"), STR("/Script/UMG.Border:SetPadding"), 8.0f, 8.0f, 8.0f, 8.0f);
         const bool input_frame_padding = invoke_set_margin_value(input_frame, STR("SetPadding"), STR("/Script/UMG.Border:SetPadding"), 1.5f, 1.5f, 1.5f, 1.5f);
@@ -2921,9 +2921,9 @@ namespace WindroseTextSigns
         const bool background_opacity = invoke_set_float_value(background, STR("SetRenderOpacity"), STR("/Script/UMG.Widget:SetRenderOpacity"), 1.0f);
         const bool editor_opacity = invoke_set_float_value(editor, STR("SetRenderOpacity"), STR("/Script/UMG.Widget:SetRenderOpacity"), 1.0f);
         const bool input_opacity = invoke_set_float_value(text_box, STR("SetRenderOpacity"), STR("/Script/UMG.Widget:SetRenderOpacity"), 1.0f);
-        const bool frame_scale = invoke_set_vector2d_value(frame, STR("SetRenderScale"), STR("/Script/UMG.Widget:SetRenderScale"), 1.0f, 1.0f);
-        const bool title_scale = invoke_set_vector2d_value(title, STR("SetRenderScale"), STR("/Script/UMG.Widget:SetRenderScale"), 0.78f, 0.78f);
-        const bool hint_scale = invoke_set_vector2d_value(hint, STR("SetRenderScale"), STR("/Script/UMG.Widget:SetRenderScale"), 0.42f, 0.42f);
+        const bool frame_scale = invoke_set_vector2d_value(frame, STR("SetRenderScale"), STR("/Script/UMG.Widget:SetRenderScale"), 0.86f, 0.86f);
+        const bool title_scale = invoke_set_vector2d_value(title, STR("SetRenderScale"), STR("/Script/UMG.Widget:SetRenderScale"), 0.72f, 0.72f);
+        const bool hint_scale = invoke_set_vector2d_value(hint, STR("SetRenderScale"), STR("/Script/UMG.Widget:SetRenderScale"), 0.38f, 0.38f);
         const bool input_scale = invoke_set_vector2d_value(text_box, STR("SetRenderScale"), STR("/Script/UMG.Widget:SetRenderScale"), 0.68f, 0.68f);
 
         auto* frame_slot = invoke_add_child(root, frame);

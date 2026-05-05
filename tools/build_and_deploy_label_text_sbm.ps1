@@ -6,8 +6,8 @@ param(
     [string]$SbmPakPath = "",
     [ValidateSet("NoIconTexture", "ShipIcon")]
     [string]$LabelIconMode = "NoIconTexture",
-    [ValidateSet("WoodenLabels", "StorageProbe", "StorageOverrideProbe")]
-    [string]$PrepareMode = "WoodenLabels",
+    [ValidateSet("WoodenLabels", "NativeBackedWoodenLabels", "StorageProbe", "StorageOverrideProbe")]
+    [string]$PrepareMode = "NativeBackedWoodenLabels",
     [string]$PackageBaseName = "WindroseTextSigns_Content_P",
     [string]$ModsDir = "C:\SteamLibrary\steamapps\common\Windrose\R5\Content\Paks\~mods",
     [string]$ServerModsDir = "C:\Games\WindowsServer\R5\Content\Paks\~mods",
@@ -232,6 +232,17 @@ function Add-BuildMenuCategoryJson {
         $labelEntry = "/Game/Gameplay/Building/BuildingUtilities/DA_BI_Utilities_Lables_Wooden_Text.DA_BI_Utilities_Lables_Wooden_Text"
         $woodLabelsGroup.Items = @($woodLabelsGroup.Items | Where-Object { $_ -ne $labelEntry })
         $woodLabelsGroup.Items += $labelEntry
+    } elseif ($Mode -eq "NativeBackedWoodenLabels") {
+        $woodLabelsGroup = ($utilitiesCategory.Groups.PSObject.Properties | Where-Object { $_.Name -eq '{"TagName": "UI.Building.Lables.Wood"}' } | Select-Object -First 1).Value
+        if ($null -eq $woodLabelsGroup) {
+            throw "Could not find UI.Building.Lables.Wood group in DA_BuildingUICategories.json"
+        }
+
+        # Phase 4 probe: duplicate the native Ship label entry. This intentionally
+        # makes the persisted building native-backed; Phase 5 will distinguish the
+        # duplicate tile and mark the sidecar as LabelText.
+        $nativeBackedEntry = "/Game/Gameplay/Building/BuildingUtilities/DA_BI_Utilities_Lables_Wooden_Ship.DA_BI_Utilities_Lables_Wooden_Ship"
+        $woodLabelsGroup.Items += $nativeBackedEntry
     } elseif ($Mode -eq "StorageProbe") {
         if ($null -eq $storageGroup) {
             throw "Could not find ComfortType.Utilities.Storage group in DA_BuildingUICategories.json"
@@ -305,6 +316,14 @@ if ($PrepareMode -eq "StorageOverrideProbe") {
     }
     if ($effectiveSourceAssetRelativePath -eq "Gameplay\Building\BuildingUtilities\DA_BI_Utilities_Lables_Wooden_Text.uasset") {
         $effectiveSourceAssetRelativePath = "Gameplay\Building\BuildingUtilities\DA_BI_Utilities_Storage_WoodenChest_01.uasset"
+    }
+}
+if ($PrepareMode -eq "NativeBackedWoodenLabels") {
+    if ($effectiveExpectedToken -eq "DA_BI_Utilities_Lables_Wooden_Text") {
+        $effectiveExpectedToken = "DA_BI_Utilities_Lables_Wooden_Ship"
+    }
+    if ($effectiveSourceAssetRelativePath -eq "Gameplay\Building\BuildingUtilities\DA_BI_Utilities_Lables_Wooden_Text.uasset") {
+        $effectiveSourceAssetRelativePath = "Gameplay\Building\BuildingUtilities\DA_BI_Utilities_Lables_Wooden_Ship.uasset"
     }
 }
 
@@ -404,6 +423,15 @@ if (-not ($pakListText -match [Regex]::Escape($effectiveExpectedToken))) {
 $categoryText = (& repak get $outPak "R5/Content/UI/HUD/Building/DA_BuildingUICategories.json" | Out-String)
 if ($PrepareMode -eq "WoodenLabels" -and -not $categoryText.Contains("DA_BI_Utilities_Lables_Wooden_Text")) {
     throw "Category JSON verification failed: Label Text entry missing."
+}
+if ($PrepareMode -eq "NativeBackedWoodenLabels" -and $categoryText.Contains("DA_BI_Utilities_Lables_Wooden_Text")) {
+    throw "Category JSON verification failed: custom Label Text entry present in native-backed mode."
+}
+if ($PrepareMode -eq "NativeBackedWoodenLabels") {
+    $nativeShipMatches = [Regex]::Matches($categoryText, [Regex]::Escape("DA_BI_Utilities_Lables_Wooden_Ship"))
+    if ($nativeShipMatches.Count -lt 2) {
+        throw "Category JSON verification failed: native-backed duplicate Ship entry missing."
+    }
 }
 if ($categoryText.Contains("DA_BI_Utilities_Storage_WoodenChest_Ship")) {
     throw "Category JSON verification failed: SBM Ship chest probe entry still present."
