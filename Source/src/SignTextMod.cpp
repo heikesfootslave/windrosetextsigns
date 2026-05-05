@@ -2894,7 +2894,7 @@ namespace WindroseTextSigns
 
         const bool root_set = set_object_property_if_present(tree, "RootWidget", root);
         const bool title_text = invoke_umg_set_text(title, "Sign Text");
-        const bool hint_text = invoke_umg_set_text(hint, "Enter  Apply    Shift+Enter  New line    Esc  Cancel");
+        const bool hint_text = invoke_umg_set_text(hint, "Enter  Apply\nShift+Enter  New line\nEsc  Cancel");
         const bool input_text = invoke_umg_set_text(text_box, std::string{m_text_buffer.data()});
         const bool title_color =
             invoke_set_rgba_value(title, STR("SetColorAndOpacity"), nullptr, 0.91f, 0.88f, 0.81f, 1.0f) ||
@@ -2905,23 +2905,26 @@ namespace WindroseTextSigns
         const bool input_color =
             invoke_set_rgba_value(text_box, STR("SetColorAndOpacity"), nullptr, 1.0f, 1.0f, 1.0f, 1.0f) ||
             invoke_set_rgba_value(text_box, STR("SetForegroundColor"), nullptr, 1.0f, 1.0f, 1.0f, 1.0f);
-        const bool frame_color = invoke_set_rgba_value(frame, STR("SetBrushColor"), STR("/Script/UMG.Border:SetBrushColor"), 0.29f, 0.28f, 0.25f, 0.96f);
-        const bool background_color = invoke_set_rgba_value(background, STR("SetBrushColor"), STR("/Script/UMG.Border:SetBrushColor"), 0.07f, 0.08f, 0.09f, 0.91f);
-        const bool divider_color = invoke_set_rgba_value(divider, STR("SetBrushColor"), STR("/Script/UMG.Border:SetBrushColor"), 0.74f, 0.70f, 0.61f, 0.72f);
-        const bool input_frame_color = invoke_set_rgba_value(input_frame, STR("SetBrushColor"), STR("/Script/UMG.Border:SetBrushColor"), 0.43f, 0.40f, 0.35f, 0.95f);
-        const bool input_background_color = invoke_set_rgba_value(input_background, STR("SetBrushColor"), STR("/Script/UMG.Border:SetBrushColor"), 0.03f, 0.04f, 0.04f, 0.74f);
+        const bool frame_color = invoke_set_rgba_value(frame, STR("SetBrushColor"), STR("/Script/UMG.Border:SetBrushColor"), 0.17f, 0.17f, 0.16f, 0.94f);
+        const bool background_color = invoke_set_rgba_value(background, STR("SetBrushColor"), STR("/Script/UMG.Border:SetBrushColor"), 0.045f, 0.050f, 0.055f, 0.90f);
+        const bool divider_color = invoke_set_rgba_value(divider, STR("SetBrushColor"), STR("/Script/UMG.Border:SetBrushColor"), 0.72f, 0.68f, 0.58f, 0.76f);
+        const bool input_frame_color = invoke_set_rgba_value(input_frame, STR("SetBrushColor"), STR("/Script/UMG.Border:SetBrushColor"), 0.43f, 0.40f, 0.34f, 0.95f);
+        const bool input_background_color = invoke_set_rgba_value(input_background, STR("SetBrushColor"), STR("/Script/UMG.Border:SetBrushColor"), 0.025f, 0.028f, 0.030f, 0.84f);
         const bool frame_padding = invoke_set_margin_value(frame, STR("SetPadding"), STR("/Script/UMG.Border:SetPadding"), 2.0f, 2.0f, 2.0f, 2.0f);
         const bool background_padding = invoke_set_margin_value(background, STR("SetPadding"), STR("/Script/UMG.Border:SetPadding"), 8.0f, 8.0f, 8.0f, 8.0f);
         const bool input_frame_padding = invoke_set_margin_value(input_frame, STR("SetPadding"), STR("/Script/UMG.Border:SetPadding"), 1.5f, 1.5f, 1.5f, 1.5f);
         const bool input_background_padding = invoke_set_margin_value(input_background, STR("SetPadding"), STR("/Script/UMG.Border:SetPadding"), 7.0f, 7.0f, 7.0f, 7.0f);
-        const bool editor_width = invoke_set_float_value(editor, STR("SetWidthOverride"), STR("/Script/UMG.SizeBox:SetWidthOverride"), 306.0f);
-        const bool editor_height = invoke_set_float_value(editor, STR("SetHeightOverride"), STR("/Script/UMG.SizeBox:SetHeightOverride"), 159.0f);
+        const bool editor_width = invoke_set_float_value(editor, STR("SetWidthOverride"), STR("/Script/UMG.SizeBox:SetWidthOverride"), 312.0f);
+        const bool editor_height = invoke_set_float_value(editor, STR("SetHeightOverride"), STR("/Script/UMG.SizeBox:SetHeightOverride"), 154.0f);
         const bool root_opacity = invoke_set_float_value(root, STR("SetRenderOpacity"), STR("/Script/UMG.Widget:SetRenderOpacity"), 1.0f);
         const bool frame_opacity = invoke_set_float_value(frame, STR("SetRenderOpacity"), STR("/Script/UMG.Widget:SetRenderOpacity"), 1.0f);
         const bool background_opacity = invoke_set_float_value(background, STR("SetRenderOpacity"), STR("/Script/UMG.Widget:SetRenderOpacity"), 1.0f);
         const bool editor_opacity = invoke_set_float_value(editor, STR("SetRenderOpacity"), STR("/Script/UMG.Widget:SetRenderOpacity"), 1.0f);
         const bool input_opacity = invoke_set_float_value(text_box, STR("SetRenderOpacity"), STR("/Script/UMG.Widget:SetRenderOpacity"), 1.0f);
-        const bool editor_scale = invoke_set_vector2d_value(frame, STR("SetRenderScale"), STR("/Script/UMG.Widget:SetRenderScale"), 1.0f, 1.0f);
+        const bool frame_scale = invoke_set_vector2d_value(frame, STR("SetRenderScale"), STR("/Script/UMG.Widget:SetRenderScale"), 1.0f, 1.0f);
+        const bool title_scale = invoke_set_vector2d_value(title, STR("SetRenderScale"), STR("/Script/UMG.Widget:SetRenderScale"), 0.78f, 0.78f);
+        const bool hint_scale = invoke_set_vector2d_value(hint, STR("SetRenderScale"), STR("/Script/UMG.Widget:SetRenderScale"), 0.42f, 0.42f);
+        const bool input_scale = invoke_set_vector2d_value(text_box, STR("SetRenderScale"), STR("/Script/UMG.Widget:SetRenderScale"), 0.68f, 0.68f);
 
         auto* frame_slot = invoke_add_child(root, frame);
         const bool slot_pos = invoke_set_vector2d_value(frame_slot, STR("SetPosition"), nullptr, 960.0f, 540.0f);
@@ -2931,17 +2934,17 @@ namespace WindroseTextSigns
         const bool background_content = invoke_set_content(background, panel);
 
         auto* title_slot = invoke_add_child(panel, title);
-        const bool title_pos = invoke_set_vector2d_value(title_slot, STR("SetPosition"), nullptr, 140.0f, 21.0f);
-        const bool title_size = invoke_set_vector2d_value(title_slot, STR("SetSize"), nullptr, 170.0f, 42.0f);
+        const bool title_pos = invoke_set_vector2d_value(title_slot, STR("SetPosition"), nullptr, 146.0f, 24.0f);
+        const bool title_size = invoke_set_vector2d_value(title_slot, STR("SetSize"), nullptr, 220.0f, 50.0f);
         auto* divider_slot = invoke_add_child(panel, divider);
-        const bool divider_pos = invoke_set_vector2d_value(divider_slot, STR("SetPosition"), nullptr, 22.0f, 75.0f);
-        const bool divider_size = invoke_set_vector2d_value(divider_slot, STR("SetSize"), nullptr, 370.0f, 2.0f);
+        const bool divider_pos = invoke_set_vector2d_value(divider_slot, STR("SetPosition"), nullptr, 18.0f, 82.0f);
+        const bool divider_size = invoke_set_vector2d_value(divider_slot, STR("SetSize"), nullptr, 378.0f, 2.0f);
         auto* input_slot = invoke_add_child(panel, input_frame);
-        const bool input_pos = invoke_set_vector2d_value(input_slot, STR("SetPosition"), nullptr, 45.0f, 104.0f);
-        const bool input_size = invoke_set_vector2d_value(input_slot, STR("SetSize"), nullptr, 320.0f, 175.0f);
+        const bool input_pos = invoke_set_vector2d_value(input_slot, STR("SetPosition"), nullptr, 52.0f, 112.0f);
+        const bool input_size = invoke_set_vector2d_value(input_slot, STR("SetSize"), nullptr, 320.0f, 170.0f);
         auto* hint_slot = invoke_add_child(panel, hint);
-        const bool hint_pos = invoke_set_vector2d_value(hint_slot, STR("SetPosition"), nullptr, 45.0f, 317.0f);
-        const bool hint_size = invoke_set_vector2d_value(hint_slot, STR("SetSize"), nullptr, 326.0f, 48.0f);
+        const bool hint_pos = invoke_set_vector2d_value(hint_slot, STR("SetPosition"), nullptr, 68.0f, 315.0f);
+        const bool hint_size = invoke_set_vector2d_value(hint_slot, STR("SetSize"), nullptr, 660.0f, 180.0f);
 
         const bool input_frame_content = invoke_set_content(input_frame, input_background);
         const bool input_background_content = invoke_set_content(input_background, editor);
@@ -2986,7 +2989,7 @@ namespace WindroseTextSigns
                  " padding=" + std::string{(frame_padding && background_padding && input_frame_padding && input_background_padding) ? "true" : "false"} +
                  " editorSize=" + std::string{(editor_width && editor_height) ? "true" : "false"} +
                  " opacity=" + std::string{(root_opacity && frame_opacity && background_opacity && editor_opacity && input_opacity) ? "true" : "false"} +
-                 " scale=" + std::string{editor_scale ? "true" : "false"} +
+                 " scale=" + std::string{(frame_scale && title_scale && hint_scale && input_scale) ? "true" : "false"} +
                  " slot=" + std::string{(frame_slot && slot_pos && slot_size && slot_align && title_slot && title_pos && title_size && divider_slot && divider_pos && divider_size && input_slot && input_pos && input_size && hint_slot && hint_pos && hint_size) ? "true" : "false"} +
                  " content=" + std::string{(frame_content && background_content && input_frame_content && input_background_content && set_content) ? "true" : "false"} +
                  " key=" + key);
