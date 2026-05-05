@@ -33,8 +33,8 @@ namespace WindroseTextSigns
         std::string world_id{};
         std::string text{};
         std::string asset{};
-        std::string kind{"LabelText"};
-        std::string backing_asset{"DA_BI_Utilities_Lables_Wooden_Ship"};
+        std::string kind{"UnverifiedWoodenLabel"};
+        std::string backing_asset{};
         float surface_axis{0.00f}; // 0.00=forward(X), 1.00=right(Y), blend supported
         int surface_sign{1}; // -1 or +1
         float depth_offset{12.00f}; // outward from label face
@@ -108,6 +108,7 @@ namespace WindroseTextSigns
 
         auto is_probable_label_actor(RC::Unreal::AActor* actor) const -> bool;
         auto detect_label_asset(RC::Unreal::AActor* actor) const -> std::string;
+        auto is_dedicated_runtime_process() const -> bool;
         auto is_world_authoritative(RC::Unreal::UObject* world_object) const -> bool;
         auto is_local_hosted_runtime() const -> bool;
         auto configure_sidecar_for_actor(RC::Unreal::AActor* actor, const std::string& world_id) -> void;

@@ -1000,6 +1000,36 @@ namespace
         return false;
     }
 
+    auto is_confirmed_label_text_kind(const std::string& kind) -> bool
+    {
+        const auto lowered = lower_copy_ascii(kind);
+        return lowered == "labeltext" || lowered == "labeltextplacement";
+    }
+
+    auto infer_new_record_kind_from_asset(const std::string& asset) -> std::string
+    {
+        const auto lowered = lower_copy_ascii(asset);
+        if (lowered.find("lables_wooden_text") != std::string::npos ||
+            lowered.find("label_text") != std::string::npos)
+        {
+            return "LabelText";
+        }
+        return "UnverifiedWoodenLabel";
+    }
+
+    auto infer_backing_asset_from_kind(const std::string& kind, const std::string& asset) -> std::string
+    {
+        if (!is_confirmed_label_text_kind(kind))
+        {
+            return {};
+        }
+        if (!asset.empty() && asset != "unknown")
+        {
+            return asset;
+        }
+        return "DA_BI_Utilities_Lables_Wooden_Ship";
+    }
+
     auto try_extract_property_log_value(FProperty* prop, UObject* container) -> std::optional<std::string>
     {
         if (!prop || !container)
@@ -2517,7 +2547,7 @@ namespace WindroseTextSigns
         }
 
         open_log();
-        log_line(std::string{"[build] version=0.1.2-prototype compiled="} + __DATE__ + " " + __TIME__ + " flags=F8,F9,phase2-role-aware-sidecar,remote-cache-routing,staticconstruct-gated,phase6-native-udp-bridge,phase7-umg-no-llhook,dedicated-no-render-components");
+        log_line(std::string{"[build] version=0.1.2-prototype compiled="} + __DATE__ + " " + __TIME__ + " flags=F8-only,phase2-role-aware-sidecar,remote-cache-routing,staticconstruct-gated,phase6-native-udp-bridge,phase7-umg-no-llhook,dedicated-no-render-components,phase4-marker-guard");
         log_line("[role] runtimeRole=" + m_runtime_role +
                  " dataMode=" + m_data_mode +
                  " authorityMode=" + m_authority_mode +
@@ -2548,8 +2578,15 @@ namespace WindroseTextSigns
         migrate_legacy_sidecar_if_needed();
 
         load_sidecar_json();
-        register_input_hotkey();
-        probe_phase7_native_ui_capabilities();
+        if (!is_dedicated_runtime_process())
+        {
+            register_input_hotkey();
+            probe_phase7_native_ui_capabilities();
+        }
+        else
+        {
+            log_line("[input] Runtime input/UI registration skipped reason=dedicated_server");
+        }
         install_process_event_probe();
         install_static_construct_probe();
 
@@ -2562,11 +2599,13 @@ namespace WindroseTextSigns
 
     auto SignTextMod::register_input_hotkey() -> void
     {
+        if (is_dedicated_runtime_process())
+        {
+            log_line("[input] Hotkey registration skipped reason=dedicated_server");
+            return;
+        }
         register_keydown_event(Input::Key::F8, [this]() {
             m_hotkey_requested.store(true);
-        });
-        register_keydown_event(Input::Key::F9, [this]() {
-            m_buildmenu_probe_requested.store(true);
         });
         register_keydown_event(Input::Key::RETURN, [this]() {
             if (m_phase7_umg_widget)
@@ -2580,7 +2619,7 @@ namespace WindroseTextSigns
                 m_phase7_escape_requested.store(true);
             }
         });
-        log_line("[input] Registered hotkeys: F8=target/open_editor, F9=buildmenu_asset_probe");
+        log_line("[input] Registered hotkeys: F8=target/open_editor");
     }
 
     auto SignTextMod::install_phase7_keyboard_capture_hook() -> void
@@ -3421,6 +3460,12 @@ namespace WindroseTextSigns
             return match[1].str();
         }
         return "unknown";
+    }
+
+    auto SignTextMod::is_dedicated_runtime_process() const -> bool
+    {
+        return is_dedicated_server_process(std::filesystem::current_path(), m_mod_root) ||
+            lower_ascii(m_runtime_role).find("dedicatedserver") != std::string::npos;
     }
 
     auto SignTextMod::is_world_authoritative(UObject* world_object) const -> bool
@@ -4774,11 +4819,15 @@ namespace WindroseTextSigns
             first = false;
             std::ostringstream axis_value{};
             axis_value << std::fixed << std::setprecision(2) << std::clamp(rec.surface_axis, 0.0f, 1.0f);
+            const auto record_kind = rec.kind.empty() ? infer_new_record_kind_from_asset(rec.asset) : rec.kind;
+            const auto record_backing_asset = rec.backing_asset.empty()
+                ? infer_backing_asset_from_kind(record_kind, rec.asset)
+                : rec.backing_asset;
 
             payload << "    \"" << escape_json(key) << "\": { \"text\": \"" << escape_json(rec.text)
                 << "\", \"asset\": \"" << escape_json(rec.asset)
-                << "\", \"kind\": \"" << escape_json(rec.kind.empty() ? "LabelText" : rec.kind)
-                << "\", \"backingAsset\": \"" << escape_json(rec.backing_asset.empty() ? "DA_BI_Utilities_Lables_Wooden_Ship" : rec.backing_asset)
+                << "\", \"kind\": \"" << escape_json(record_kind)
+                << "\", \"backingAsset\": \"" << escape_json(record_backing_asset)
                 << "\", \"surfaceAxis\": " << axis_value.str()
                 << ", \"surfaceSign\": " << rec.surface_sign
                 << ", \"depthOffset\": " << rec.depth_offset
@@ -5024,6 +5073,10 @@ namespace WindroseTextSigns
 
         std::ostringstream axis_value{};
         axis_value << std::fixed << std::setprecision(2) << std::clamp(rec.surface_axis, 0.0f, 1.0f);
+        const auto record_kind = rec.kind.empty() ? infer_new_record_kind_from_asset(rec.asset) : rec.kind;
+        const auto record_backing_asset = rec.backing_asset.empty()
+            ? infer_backing_asset_from_kind(record_kind, rec.asset)
+            : rec.backing_asset;
         std::ostringstream payload{};
         payload << "{\"mod\":\"WindroseTextSigns\",\"schema\":\"bridge.v1\",\"type\":\"" << escape_json(request_type) << "\""
                 << ",\"session\":\"" << escape_json(m_session_id) << "\""
@@ -5031,8 +5084,8 @@ namespace WindroseTextSigns
                 << ",\"worldId\":\"" << escape_json(rec.world_id) << "\""
                 << ",\"text\":\"" << escape_json(rec.text) << "\""
                 << ",\"asset\":\"" << escape_json(rec.asset) << "\""
-                << ",\"kind\":\"" << escape_json(rec.kind.empty() ? "LabelText" : rec.kind) << "\""
-                << ",\"backingAsset\":\"" << escape_json(rec.backing_asset.empty() ? "DA_BI_Utilities_Lables_Wooden_Ship" : rec.backing_asset) << "\""
+                << ",\"kind\":\"" << escape_json(record_kind) << "\""
+                << ",\"backingAsset\":\"" << escape_json(record_backing_asset) << "\""
                 << ",\"surfaceAxis\":" << axis_value.str()
                 << ",\"surfaceSign\":" << rec.surface_sign
                 << ",\"depthOffset\":" << rec.depth_offset
@@ -5062,6 +5115,10 @@ namespace WindroseTextSigns
         }
         std::ostringstream axis_value{};
         axis_value << std::fixed << std::setprecision(2) << std::clamp(rec.surface_axis, 0.0f, 1.0f);
+        const auto record_kind = rec.kind.empty() ? infer_new_record_kind_from_asset(rec.asset) : rec.kind;
+        const auto record_backing_asset = rec.backing_asset.empty()
+            ? infer_backing_asset_from_kind(record_kind, rec.asset)
+            : rec.backing_asset;
         std::ostringstream payload{};
         payload << "{\"mod\":\"WindroseTextSigns\",\"schema\":\"bridge.v1\",\"type\":\"upsert\""
                 << ",\"session\":\"" << escape_json(m_session_id) << "\""
@@ -5070,8 +5127,8 @@ namespace WindroseTextSigns
                 << ",\"worldId\":\"" << escape_json(rec.world_id) << "\""
                 << ",\"text\":\"" << escape_json(rec.text) << "\""
                 << ",\"asset\":\"" << escape_json(rec.asset) << "\""
-                << ",\"kind\":\"" << escape_json(rec.kind.empty() ? "LabelText" : rec.kind) << "\""
-                << ",\"backingAsset\":\"" << escape_json(rec.backing_asset.empty() ? "DA_BI_Utilities_Lables_Wooden_Ship" : rec.backing_asset) << "\""
+                << ",\"kind\":\"" << escape_json(record_kind) << "\""
+                << ",\"backingAsset\":\"" << escape_json(record_backing_asset) << "\""
                 << ",\"surfaceAxis\":" << axis_value.str()
                 << ",\"surfaceSign\":" << rec.surface_sign
                 << ",\"depthOffset\":" << rec.depth_offset
@@ -5194,16 +5251,31 @@ namespace WindroseTextSigns
             ? m_world_folder_id
             : unescape_json(fields.count("worldId") ? fields.at("worldId") : "unknown-world");
         const auto key = build_storage_key(world_id, stable_id);
+        bool has_existing_record = false;
+        bool existing_is_confirmed_label_text = false;
         if (const auto existing = m_labels.find(key); existing != m_labels.end())
         {
             rec = existing->second;
+            has_existing_record = true;
+            existing_is_confirmed_label_text = is_confirmed_label_text_kind(rec.kind);
+        }
+        const auto requested_asset = unescape_json(fields.count("asset") ? fields.at("asset") : "unknown");
+        const auto requested_kind = unescape_json(fields.count("kind") ? fields.at("kind") : infer_new_record_kind_from_asset(requested_asset));
+        if (!existing_is_confirmed_label_text && !is_confirmed_label_text_kind(requested_kind))
+        {
+            log_line("[bridge] server_set_rejected reason=unverified_label_text_marker_missing key=" + key +
+                     " stableId=" + stable_id +
+                     " asset=" + requested_asset +
+                     " kind=" + requested_kind +
+                     " existing=" + std::string{has_existing_record ? "true" : "false"});
+            return;
         }
         rec.stable_id = stable_id;
         rec.world_id = world_id;
         rec.text = unescape_json(fields.count("text") ? fields.at("text") : "");
-        rec.asset = unescape_json(fields.count("asset") ? fields.at("asset") : "unknown");
-        rec.kind = unescape_json(fields.count("kind") ? fields.at("kind") : "LabelText");
-        rec.backing_asset = unescape_json(fields.count("backingAsset") ? fields.at("backingAsset") : "DA_BI_Utilities_Lables_Wooden_Ship");
+        rec.asset = requested_asset;
+        rec.kind = existing_is_confirmed_label_text ? (rec.kind.empty() ? "LabelText" : rec.kind) : requested_kind;
+        rec.backing_asset = unescape_json(fields.count("backingAsset") ? fields.at("backingAsset") : infer_backing_asset_from_kind(rec.kind, rec.asset));
         rec.surface_axis = fields.count("surfaceAxis") ? std::clamp(safe_stof(fields.at("surfaceAxis"), 0.0f), 0.0f, 1.0f) : rec.surface_axis;
         rec.surface_sign = (fields.count("surfaceSign") && safe_stoi(fields.at("surfaceSign"), 1) < 0) ? -1 : 1;
         rec.depth_offset = fields.count("depthOffset") ? safe_stof(fields.at("depthOffset"), 12.0f) : rec.depth_offset;
@@ -5284,8 +5356,8 @@ namespace WindroseTextSigns
         rec.world_id = local_world_id;
         rec.text = unescape_json(fields.count("text") ? fields.at("text") : "");
         rec.asset = unescape_json(fields.count("asset") ? fields.at("asset") : "unknown");
-        rec.kind = unescape_json(fields.count("kind") ? fields.at("kind") : "LabelText");
-        rec.backing_asset = unescape_json(fields.count("backingAsset") ? fields.at("backingAsset") : "DA_BI_Utilities_Lables_Wooden_Ship");
+        rec.kind = unescape_json(fields.count("kind") ? fields.at("kind") : infer_new_record_kind_from_asset(rec.asset));
+        rec.backing_asset = unescape_json(fields.count("backingAsset") ? fields.at("backingAsset") : infer_backing_asset_from_kind(rec.kind, rec.asset));
         rec.surface_axis = fields.count("surfaceAxis") ? std::clamp(safe_stof(fields.at("surfaceAxis"), 0.0f), 0.0f, 1.0f) : rec.surface_axis;
         rec.surface_sign = (fields.count("surfaceSign") && safe_stoi(fields.at("surfaceSign"), 1) < 0) ? -1 : 1;
         rec.depth_offset = fields.count("depthOffset") ? safe_stof(fields.at("depthOffset"), 12.0f) : rec.depth_offset;
@@ -5329,18 +5401,21 @@ namespace WindroseTextSigns
         {
             save_sidecar_json("bridge_cache_upsert", key, stable_id, local_world_id);
         }
-        UObjectGlobals::ForEachUObject([&](UObject* object, int32, int32) {
-            if (!object || !object->IsA(AActor::StaticClass()))
-            {
+        if (is_confirmed_label_text_kind(rec.kind))
+        {
+            UObjectGlobals::ForEachUObject([&](UObject* object, int32, int32) {
+                if (!object || !object->IsA(AActor::StaticClass()))
+                {
+                    return LoopAction::Continue;
+                }
+                auto* actor = Cast<AActor>(object);
+                if (actor && is_probable_label_actor(actor) && extract_stable_id(actor) == stable_id)
+                {
+                    (void)apply_text_to_actor_component(actor, rec.text);
+                }
                 return LoopAction::Continue;
-            }
-            auto* actor = Cast<AActor>(object);
-            if (actor && is_probable_label_actor(actor) && extract_stable_id(actor) == stable_id)
-            {
-                (void)apply_text_to_actor_component(actor, rec.text);
-            }
-            return LoopAction::Continue;
-        });
+            });
+        }
         m_bridge_snapshot_received = true;
         log_line("[bridge] client_upsert_applied key=" + key +
                  " stableId=" + stable_id +
@@ -5456,10 +5531,14 @@ namespace WindroseTextSigns
             first = false;
             std::ostringstream axis_value{};
             axis_value << std::fixed << std::setprecision(2) << std::clamp(rec.surface_axis, 0.0f, 1.0f);
+            const auto record_kind = rec.kind.empty() ? infer_new_record_kind_from_asset(rec.asset) : rec.kind;
+            const auto record_backing_asset = rec.backing_asset.empty()
+                ? infer_backing_asset_from_kind(record_kind, rec.asset)
+                : rec.backing_asset;
             out << "    \"" << escape_json(key) << "\": { \"text\": \"" << escape_json(rec.text)
                 << "\", \"asset\": \"" << escape_json(rec.asset)
-                << "\", \"kind\": \"" << escape_json(rec.kind.empty() ? "LabelText" : rec.kind)
-                << "\", \"backingAsset\": \"" << escape_json(rec.backing_asset.empty() ? "DA_BI_Utilities_Lables_Wooden_Ship" : rec.backing_asset)
+                << "\", \"kind\": \"" << escape_json(record_kind)
+                << "\", \"backingAsset\": \"" << escape_json(record_backing_asset)
                 << "\", \"stableId\": \"" << escape_json(rec.stable_id)
                 << "\", \"worldId\": \"" << escape_json(rec.world_id)
                 << "\", \"surfaceAxis\": " << axis_value.str()
@@ -5983,7 +6062,7 @@ namespace WindroseTextSigns
 
     auto SignTextMod::should_render_world_text_components() const -> bool
     {
-        return !is_dedicated_server_process(std::filesystem::current_path(), m_mod_root);
+        return !is_dedicated_runtime_process();
     }
 
     auto SignTextMod::apply_text_to_actor_component(AActor* actor, const std::string& text_value) -> bool
@@ -6175,10 +6254,27 @@ namespace WindroseTextSigns
         const auto fit = fit_text_for_plaque(normalized_text_value);
         rec.text = fit.wrapped_text;
         rec.font_size = std::clamp(fit.font_size, 10.0f, 20.0f);
-        rec.asset = m_selected->asset;
-        rec.kind = "LabelText";
-        rec.backing_asset = "DA_BI_Utilities_Lables_Wooden_Ship";
+        rec.asset = m_selected->asset.empty() ? detect_label_asset(actor) : m_selected->asset;
+        if (has_existing_record && is_confirmed_label_text_kind(rec.kind))
+        {
+            rec.kind = rec.kind.empty() ? "LabelText" : rec.kind;
+        }
+        else
+        {
+            rec.kind = infer_new_record_kind_from_asset(rec.asset);
+        }
+        rec.backing_asset = infer_backing_asset_from_kind(rec.kind, rec.asset);
         rec.last_seen_utc = now_utc();
+
+        if (!is_confirmed_label_text_kind(rec.kind))
+        {
+            log_line("[phase4] apply_rejected_unverified_label key=" + key +
+                     " stableId=" + rec.stable_id +
+                     " asset=" + rec.asset +
+                     " kind=" + rec.kind +
+                     " reason=no_label_text_placement_marker");
+            return;
+        }
 
         auto* controller = try_get_primary_player_controller();
         const auto view = get_player_viewpoint_reflective(controller);
@@ -6299,6 +6395,10 @@ namespace WindroseTextSigns
         const auto key = build_storage_key(active_storage_world_id(actor_world_id), stable_id);
         const auto found = m_labels.find(key);
         if (found == m_labels.end() || found->second.text.empty())
+        {
+            return;
+        }
+        if (!is_confirmed_label_text_kind(found->second.kind))
         {
             return;
         }
@@ -6483,26 +6583,29 @@ namespace WindroseTextSigns
             return;
         }
 
-        // F8 reliability fallback:
-        // capture hardware edge directly in case callback registration misses events
-        // while input focus/context changes.
-        const bool f8_is_down = ((GetAsyncKeyState(k_vk_f8) & 0x8000) != 0);
-        if (f8_is_down && !m_f8_poll_was_down)
+        if (!is_dedicated_runtime_process())
         {
-            m_hotkey_requested.store(true);
-            log_line("[input] F8 polled_edge");
-        }
-        m_f8_poll_was_down = f8_is_down;
+            // F8 reliability fallback:
+            // capture hardware edge directly in case callback registration misses events
+            // while input focus/context changes.
+            const bool f8_is_down = ((GetAsyncKeyState(k_vk_f8) & 0x8000) != 0);
+            if (f8_is_down && !m_f8_poll_was_down)
+            {
+                m_hotkey_requested.store(true);
+                log_line("[input] F8 polled_edge");
+            }
+            m_f8_poll_was_down = f8_is_down;
 
-        tick_pending_hotkey();
-        tick_phase7_umg_editor();
-        tick_pending_fallback_hotkeys();
-        tick_file_triggers();
-        tick_bridge();
-        if (m_six_sign_test_requested.exchange(false))
-        {
-            run_six_sign_targeting_test();
+            tick_pending_hotkey();
+            tick_phase7_umg_editor();
+            tick_pending_fallback_hotkeys();
+            tick_file_triggers();
+            if (m_six_sign_test_requested.exchange(false))
+            {
+                run_six_sign_targeting_test();
+            }
         }
+        tick_bridge();
         const auto now = std::chrono::steady_clock::now();
 
         if (now - m_last_restore_scan > std::chrono::seconds(2))
@@ -6716,7 +6819,7 @@ namespace WindroseTextSigns
         ImGui::Text("WindroseTextSigns prototype");
         ImGui::Separator();
         ImGui::Text("Hotkey: F8");
-        ImGui::Text("Build-menu probe hotkey: F9");
+        ImGui::Text("Build-menu probe: Config/run_buildmenu_probe.flag or button below");
         ImGui::Text("Clear text: open editor, delete text, press Enter");
         ImGui::Text("Tests: Config/run_test6.flag, Config/run_buildmenu_probe.flag");
         ImGui::Text("Probe events: %llu", static_cast<unsigned long long>(m_probe_event_count));
@@ -6767,7 +6870,7 @@ namespace WindroseTextSigns
             m_six_sign_test_requested.store(true);
         }
         ImGui::SameLine();
-        if (ImGui::Button("Run BuildMenu Asset Probe (F9)"))
+        if (ImGui::Button("Run BuildMenu Asset Probe"))
         {
             m_buildmenu_probe_requested.store(true);
         }

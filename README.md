@@ -127,8 +127,8 @@ No native Windrose label interaction was added in this prototype.
 
 8. Phase 8 (Build-menu asset discovery for no-icon Wooden Label): **Implemented diagnostic probe, pending runtime verification**
 - Added BuildMenu discovery probe trigger paths:
-  - Hotkey `F9`
   - file trigger `Config\run_buildmenu_probe.flag`
+  - development ImGui button
 - Probe logs:
   - loaded `DA_BI_Utilities_Lables_Wooden_*` item objects,
   - high-signal property values for recipe/icon/class/build references,
