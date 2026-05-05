@@ -1392,6 +1392,49 @@ namespace
         return cls;
     }
 
+    auto find_loaded_object_by_path_or_name(UClass* required_class, const std::vector<const TCHAR*>& exact_paths, const std::string& name_token) -> UObject*
+    {
+        if (!required_class)
+        {
+            return nullptr;
+        }
+
+        for (const auto* path : exact_paths)
+        {
+            if (!path)
+            {
+                continue;
+            }
+            if (auto* object = UObjectGlobals::StaticFindObject<UObject*>(required_class, nullptr, path))
+            {
+                return object;
+            }
+            if (auto* object = UObjectGlobals::FindObject<UObject>(nullptr, path); object && object->IsA(required_class))
+            {
+                return object;
+            }
+        }
+
+        UObject* found = nullptr;
+        UObjectGlobals::ForEachUObject([&](UObject* object, int32, int32) {
+            if (found || !object || !object->IsA(required_class))
+            {
+                return LoopAction::Continue;
+            }
+
+            auto full_name = RC::to_string(object->GetFullName());
+            std::transform(full_name.begin(), full_name.end(), full_name.begin(), [](unsigned char c) {
+                return static_cast<char>(std::tolower(c));
+            });
+            if (full_name.find(name_token) != std::string::npos)
+            {
+                found = object;
+            }
+            return LoopAction::Continue;
+        });
+        return found;
+    }
+
     auto set_object_property_if_present(UObject* object, const std::string& property_name, UObject* value) -> bool
     {
         if (!object || !object->GetClassPrivate() || property_name.empty())
@@ -1451,6 +1494,61 @@ namespace
             }
         });
         return found;
+    }
+
+    auto invoke_set_object_value(UObject* context, const TCHAR* in_chain_name, const TCHAR* path_name, UObject* value) -> bool
+    {
+        auto* fn = find_function_by_chain_or_path(context, in_chain_name, path_name);
+        if (!context || !fn || !value)
+        {
+            return false;
+        }
+
+        std::vector<uint8_t> params(static_cast<size_t>(std::max<int32_t>(fn->GetStructureSize(), 32)), 0);
+        FObjectProperty* fallback_property = nullptr;
+        bool assigned = false;
+        for_each_property_in_chain_compat(fn, [&](FProperty* prop) {
+            if (assigned || !prop || prop->HasAnyPropertyFlags(CPF_ReturnParm) || prop->HasAnyPropertyFlags(CPF_OutParm))
+            {
+                return;
+            }
+            if (prop->GetClass().HashObject() != FObjectProperty::StaticClass().HashObject())
+            {
+                return;
+            }
+
+            auto* object_prop = static_cast<FObjectProperty*>(prop);
+            if (!fallback_property)
+            {
+                fallback_property = object_prop;
+            }
+            auto prop_name = lower_copy_ascii(RC::to_string(prop->GetName()));
+            if (prop_name.find("font") == std::string::npos)
+            {
+                return;
+            }
+            if (auto* value_ptr = prop->ContainerPtrToValuePtr<UObject*>(params.data()))
+            {
+                *value_ptr = value;
+                assigned = true;
+            }
+        });
+
+        if (!assigned && fallback_property)
+        {
+            if (auto* value_ptr = fallback_property->ContainerPtrToValuePtr<UObject*>(params.data()))
+            {
+                *value_ptr = value;
+                assigned = true;
+            }
+        }
+        if (!assigned)
+        {
+            return false;
+        }
+
+        context->ProcessEvent(fn, params.data());
+        return true;
     }
 
     auto invoke_widget_tree_construct_widget(UObject* widget_tree, UClass* widget_class, const std::string& widget_name) -> UObject*
@@ -2401,7 +2499,7 @@ namespace WindroseTextSigns
         }
 
         open_log();
-        log_line(std::string{"[build] version=0.1.2-prototype compiled="} + __DATE__ + " " + __TIME__ + " flags=F8,F9,F10,phase2-role-aware-sidecar,remote-cache-routing,staticconstruct-gated,phase6-native-udp-bridge,phase7-umg-key-capture");
+        log_line(std::string{"[build] version=0.1.2-prototype compiled="} + __DATE__ + " " + __TIME__ + " flags=F8,F9,F10,phase2-role-aware-sidecar,remote-cache-routing,staticconstruct-gated,phase6-native-udp-bridge,phase7-umg-no-llhook");
         log_line("[role] runtimeRole=" + m_runtime_role +
                  " dataMode=" + m_data_mode +
                  " authorityMode=" + m_authority_mode +
@@ -2433,7 +2531,6 @@ namespace WindroseTextSigns
 
         load_sidecar_json();
         register_input_hotkey();
-        install_phase7_keyboard_capture_hook();
         probe_phase7_native_ui_capabilities();
         install_process_event_probe();
         install_static_construct_probe();
@@ -2473,58 +2570,15 @@ namespace WindroseTextSigns
 
     auto SignTextMod::install_phase7_keyboard_capture_hook() -> void
     {
-        if (m_phase7_keyboard_hook_thread.joinable())
-        {
-            return;
-        }
-
-        g_phase7_keyboard_capture_active = &m_phase7_keyboard_capture_active;
-        g_phase7_enter_requested = &m_phase7_enter_requested;
-        g_phase7_escape_requested = &m_phase7_escape_requested;
-        m_phase7_keyboard_hook_stop.store(false);
+        m_phase7_keyboard_capture_active.store(false);
         m_phase7_keyboard_hook_installed.store(false);
-        m_phase7_keyboard_hook_thread_id.store(0);
-
-        m_phase7_keyboard_hook_thread = std::thread([this]() {
-            m_phase7_keyboard_hook_thread_id.store(GetCurrentThreadId());
-            WtsHhook hook = SetWindowsHookExW(k_wh_keyboard_ll, phase7_keyboard_capture_proc, nullptr, 0);
-            m_phase7_keyboard_hook_installed.store(hook != nullptr);
-
-            WtsMsg msg{};
-            while (!m_phase7_keyboard_hook_stop.load(std::memory_order_relaxed))
-            {
-                const int result = GetMessageW(&msg, nullptr, 0, 0);
-                if (result <= 0)
-                {
-                    break;
-                }
-                (void)TranslateMessage(&msg);
-                (void)DispatchMessageW(&msg);
-            }
-
-            if (hook)
-            {
-                (void)UnhookWindowsHookEx(hook);
-            }
-            m_phase7_keyboard_hook_installed.store(false);
-        });
-
-        log_line("[phase7-umg] keyboard_capture_hook starting");
     }
 
     auto SignTextMod::uninstall_phase7_keyboard_capture_hook() -> void
     {
         m_phase7_keyboard_capture_active.store(false);
-        m_phase7_keyboard_hook_stop.store(true);
-        const auto thread_id = m_phase7_keyboard_hook_thread_id.load();
-        if (thread_id != 0)
-        {
-            (void)PostThreadMessageW(thread_id, k_wm_quit, 0, 0);
-        }
-        if (m_phase7_keyboard_hook_thread.joinable())
-        {
-            m_phase7_keyboard_hook_thread.join();
-        }
+        m_phase7_keyboard_hook_stop.store(false);
+        m_phase7_keyboard_hook_installed.store(false);
         m_phase7_keyboard_hook_thread_id.store(0);
     }
 
@@ -2627,13 +2681,13 @@ namespace WindroseTextSigns
         const bool cursor_set = set_bool_property_if_present(controller, "bshowmousecursor", enable_ui_mode);
         const bool look_ignored = invoke_with_bool_param(controller, STR("SetIgnoreLookInput"), STR("/Script/Engine.Controller:SetIgnoreLookInput"), enable_ui_mode);
         const bool move_ignored = invoke_with_bool_param(controller, STR("SetIgnoreMoveInput"), STR("/Script/Engine.Controller:SetIgnoreMoveInput"), enable_ui_mode);
-        m_phase7_keyboard_capture_active.store(enable_ui_mode);
+        m_phase7_keyboard_capture_active.store(false);
         log_line("[phase7-umg] input_capture enable=" + std::string{enable_ui_mode ? "true" : "false"} +
                  " inputMode=" + std::string{input_mode_applied ? "true" : "false"} +
                  " cursor=" + std::string{cursor_set ? "true" : "false"} +
                  " ignoreLook=" + std::string{look_ignored ? "true" : "false"} +
                  " ignoreMove=" + std::string{move_ignored ? "true" : "false"} +
-                 " llHook=" + std::string{m_phase7_keyboard_hook_installed.load() ? "true" : "false"});
+                 " llHook=disabled");
         return input_mode_applied || cursor_set || look_ignored || move_ignored;
     }
 
@@ -2883,6 +2937,26 @@ namespace WindroseTextSigns
         const bool input_frame_content = invoke_set_content(input_frame, input_background);
         const bool input_background_content = invoke_set_content(input_background, editor);
         const bool set_content = invoke_set_content(editor, text_box);
+
+        const bool layout_ok =
+            frame_slot && slot_pos && slot_size && slot_align &&
+            frame_content && background_content &&
+            title_slot && title_pos && title_size &&
+            divider_slot && divider_pos && divider_size &&
+            input_slot && input_pos && input_size &&
+            hint_slot && hint_pos && hint_size &&
+            input_frame_content && input_background_content && set_content;
+        if (!layout_ok)
+        {
+            log_line("[phase7-umg] open_failed reason=layout_guard rootSet=" + std::string{root_set ? "true" : "false"} +
+                     " slot=" + std::string{(frame_slot && slot_pos && slot_size && slot_align) ? "true" : "false"} +
+                     " content=" + std::string{(frame_content && background_content && input_frame_content && input_background_content && set_content) ? "true" : "false"} +
+                     " title=" + std::string{(title_slot && title_pos && title_size) ? "true" : "false"} +
+                     " divider=" + std::string{(divider_slot && divider_pos && divider_size) ? "true" : "false"} +
+                     " input=" + std::string{(input_slot && input_pos && input_size) ? "true" : "false"} +
+                     " hint=" + std::string{(hint_slot && hint_pos && hint_size) ? "true" : "false"});
+            return false;
+        }
 
         const bool added = invoke_add_to_viewport(widget, 1000);
         const bool input_mode = set_phase7_game_and_ui_input_mode(true);
@@ -5643,6 +5717,68 @@ namespace WindroseTextSigns
         return nullptr;
     }
 
+    auto SignTextMod::resolve_world_text_font_asset() -> UObject*
+    {
+        if (m_world_text_font_resolved)
+        {
+            return m_world_text_font_asset;
+        }
+
+        m_world_text_font_resolved = true;
+        auto* font_class = find_uclass_by_path(STR("/Script/Engine.Font"));
+        if (!font_class)
+        {
+            log_line("[phase4-font] unresolved reason=FontClassMissing");
+            return nullptr;
+        }
+
+        const std::vector<const TCHAR*> candidates = {
+            STR("/Game/WindroseTextSigns/Fonts/PencilantScript_Font.PencilantScript_Font"),
+            STR("/Game/WindroseTextSigns/Fonts/PencilantScript.PencilantScript"),
+            STR("/Game/Fonts/PencilantScript_Font.PencilantScript_Font"),
+            STR("/Game/Fonts/PencilantScript.PencilantScript"),
+            STR("/Game/UI/Fonts/PencilantScript_Font.PencilantScript_Font"),
+            STR("/Game/UI/Fonts/PencilantScript.PencilantScript")};
+
+        m_world_text_font_asset = find_loaded_object_by_path_or_name(font_class, candidates, "pencilant");
+        if (m_world_text_font_asset)
+        {
+            log_line("[phase4-font] resolved asset=" + narrow_ascii(m_world_text_font_asset->GetFullName()));
+            return m_world_text_font_asset;
+        }
+
+        if (!m_world_text_font_missing_logged)
+        {
+            m_world_text_font_missing_logged = true;
+            const auto raw_font_path = m_mod_root / "assets" / "fonts" / "Pencilant Script.ttf";
+            log_line("[phase4-font] unresolved reason=NoLoadedUFont rawFont=" + raw_font_path.string() +
+                     " note=TextRenderComponent requires a packaged UFont asset; falling back to default font");
+        }
+        return nullptr;
+    }
+
+    auto SignTextMod::apply_world_text_font(UObject* text_component) -> bool
+    {
+        if (!text_component)
+        {
+            return false;
+        }
+
+        auto* font_asset = resolve_world_text_font_asset();
+        if (!font_asset)
+        {
+            return false;
+        }
+
+        const bool property_set = set_object_property_if_present(text_component, "Font", font_asset);
+        const bool function_set = invoke_set_object_value(
+            text_component,
+            STR("SetFont"),
+            STR("/Script/Engine.TextRenderComponent:SetFont"),
+            font_asset);
+        return property_set || function_set;
+    }
+
     auto SignTextMod::create_managed_text_component(AActor* actor, const std::string& storage_key, const FVector& relative_location) -> UObject*
     {
         if (!actor)
@@ -5766,6 +5902,7 @@ namespace WindroseTextSigns
             return nullptr;
         }
         m_component_name_cache[storage_key] = narrow_ascii(created_component->GetFullName());
+        const bool font_applied = apply_world_text_font(created_component);
 
         (void)invoke_set_float_value(
             created_component,
@@ -5783,6 +5920,8 @@ namespace WindroseTextSigns
             STR("/Script/Engine.TextRenderComponent:SetVerticalAlignment"),
             1);
         (void)invoke_set_relative_location(created_component, relative_location);
+        log_line("[phase4-font] create_component_font component=" + narrow_ascii(created_component->GetFullName()) +
+                 " applied=" + std::string{font_applied ? "true" : "false"});
         return created_component;
     }
 
@@ -5907,6 +6046,7 @@ namespace WindroseTextSigns
             STR("SetVerticalAlignment"),
             STR("/Script/Engine.TextRenderComponent:SetVerticalAlignment"),
             1);
+        bool fonted = apply_world_text_font(text_component);
         bool colored = invoke_set_text_render_color(text_component, desired_r, desired_g, desired_b, desired_a);
 
         bool text_applied = invoke_set_text(text_component, text_value);
@@ -5918,6 +6058,7 @@ namespace WindroseTextSigns
                      " moved=" + std::string{moved ? "true" : "false"} +
                      " sized=" + std::string{sized ? "true" : "false"} +
                      " vcentered=" + std::string{vcentered ? "true" : "false"} +
+                     " fonted=" + std::string{fonted ? "true" : "false"} +
                      " colored=" + std::string{colored ? "true" : "false"} +
                      " text=" + std::string{text_applied ? "true" : "false"} +
                      " action=rebuild_component");
@@ -5937,6 +6078,7 @@ namespace WindroseTextSigns
                     STR("SetVerticalAlignment"),
                     STR("/Script/Engine.TextRenderComponent:SetVerticalAlignment"),
                     1);
+                fonted = apply_world_text_font(text_component);
                 colored = invoke_set_text_render_color(text_component, desired_r, desired_g, desired_b, desired_a);
                 text_applied = invoke_set_text(text_component, text_value);
             }
@@ -5961,6 +6103,7 @@ namespace WindroseTextSigns
                  " moved=" + std::string{moved ? "true" : "false"} +
                  " sized=" + std::string{sized ? "true" : "false"} +
                  " vcentered=" + std::string{vcentered ? "true" : "false"} +
+                 " fonted=" + std::string{fonted ? "true" : "false"} +
                  " colored=" + std::string{colored ? "true" : "false"} +
                  " relLoc=" + loc.str() +
                  " textChars=" + std::to_string(text_value.size()));

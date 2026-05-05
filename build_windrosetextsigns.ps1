@@ -113,6 +113,7 @@ function New-DeploymentZip {
     $enabledPath = Join-Path $ModRoot "enabled.txt"
     $configDir = Join-Path $ModRoot "Config"
     $dllsDir = Join-Path $ModRoot "dlls"
+    $assetsDir = Join-Path $ModRoot "assets"
     $mainDll = Join-Path $dllsDir "main.dll"
 
     if (!(Test-Path -LiteralPath $enabledPath)) {
@@ -131,6 +132,9 @@ function New-DeploymentZip {
     Copy-Item -LiteralPath $enabledPath -Destination (Join-Path $stageMod "enabled.txt") -Force
     Copy-Item -LiteralPath $configDir -Destination (Join-Path $stageMod "Config") -Recurse -Force
     Copy-Item -LiteralPath $dllsDir -Destination (Join-Path $stageMod "dlls") -Recurse -Force
+    if (Test-Path -LiteralPath $assetsDir) {
+        Copy-Item -LiteralPath $assetsDir -Destination (Join-Path $stageMod "assets") -Recurse -Force
+    }
 
     $readmePath = Join-Path $ModRoot "README.md"
     if (Test-Path -LiteralPath $readmePath) {

@@ -131,6 +131,8 @@ namespace WindroseTextSigns
         auto clear_text_on_selected_label() -> void;
         auto restore_known_text_if_any(RC::Unreal::AActor* actor, const std::string& stable_id) -> void;
         auto apply_text_to_actor_component(RC::Unreal::AActor* actor, const std::string& text_value) -> bool;
+        auto resolve_world_text_font_asset() -> RC::Unreal::UObject*;
+        auto apply_world_text_font(RC::Unreal::UObject* text_component) -> bool;
         auto make_managed_component_name(const std::string& storage_key) const -> std::string;
         auto find_managed_text_component(RC::Unreal::AActor* actor, const std::string& storage_key) -> RC::Unreal::UObject*;
         auto create_managed_text_component(RC::Unreal::AActor* actor, const std::string& storage_key, const RC::Unreal::FVector& relative_location) -> RC::Unreal::UObject*;
@@ -258,6 +260,9 @@ namespace WindroseTextSigns
         std::chrono::steady_clock::time_point m_last_backup_snapshot{};
         std::string m_last_backup_signature{};
         bool m_runtime_text_label_patch_applied{false};
+        RC::Unreal::UObject* m_world_text_font_asset{};
+        bool m_world_text_font_resolved{false};
+        bool m_world_text_font_missing_logged{false};
         bool m_in_process_event_probe{false};
     };
 }

@@ -1,0 +1,48 @@
+This is the FONTLOG file for the "Pencilant-Script" Font.
+
+
+This file provides detailed information on the "Pencilant-Script" Font Software.
+This information should be distributed along with the "Pencilant-Script" font
+and any derivative works.
+
+
+Basic Font Information
+
+"Pencilant-Script" Font is a Unicode typeface family that supports all languages
+that use the Latin script and its variants, and could be expanded to support
+other scripts.
+
+
+"Pencilant-Script" Font you'll find at: https://glottastudio.com
+
+"Pencilant-Script" Font is created with FontCreator.
+
+
+More specifically, this release supports the following Unicode ranges:
+
+ - Basic Latin and Controls 
+ - Latin 1 Supplement And Controls 
+ - General Punctuation 
+ - Currency Symbols 
+ - Letterlike Symbols 
+ - Mathematical Operators 
+
+This release contains:
+
+ - Pencilant-Script.ttf
+ - Pencilant-Script.otf
+ - Pencilant-Script.woff
+ - SIL - OpenFont License.txt - official license text
+
+Acknowledgements
+
+If you make modifications be sure to add your name (N), email (E), web-address
+(if you have one) (W) and description (D).
+
+
+History
+
+This is my idea about hard written font styles.
+
+14 juli 2023 (info@glottastudio.com)
+
