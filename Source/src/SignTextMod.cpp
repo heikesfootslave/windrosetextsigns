@@ -1030,7 +1030,7 @@ namespace
         return "DA_BI_Utilities_Lables_Wooden_Ship";
     }
 
-    auto try_extract_property_log_value(FProperty* prop, UObject* container) -> std::optional<std::string>
+    auto try_extract_property_log_value(FProperty* prop, void* container) -> std::optional<std::string>
     {
         if (!prop || !container)
         {
@@ -2461,6 +2461,11 @@ namespace WindroseTextSigns
         return config_bool_value("WTS_PROCESS_EVENT_PROBE", false);
     }
 
+    auto SignTextMod::is_phase5_placement_probe_enabled() const -> bool
+    {
+        return config_bool_value("WTS_PHASE5_PLACEMENT_PROBE", false);
+    }
+
     auto SignTextMod::now_utc() const -> std::string
     {
         const auto now = std::time(nullptr);
@@ -2534,6 +2539,7 @@ namespace WindroseTextSigns
     {
         m_mod_root = resolve_mod_root();
         m_static_construct_probe_enabled = is_static_construct_probe_enabled();
+        m_phase5_placement_probe_enabled = is_phase5_placement_probe_enabled();
         m_session_id = now_utc() + "-" + sanitize_path_segment(current_executable_path().filename().string());
         configure_data_root();
         m_legacy_sidecar_path = m_mod_root / "SignTexts.json";
@@ -2547,7 +2553,7 @@ namespace WindroseTextSigns
         }
 
         open_log();
-        log_line(std::string{"[build] version=0.1.2-prototype compiled="} + __DATE__ + " " + __TIME__ + " flags=F8-only,phase2-role-aware-sidecar,remote-cache-routing,staticconstruct-gated,phase6-native-udp-bridge,phase7-umg-no-llhook,dedicated-no-render-components,phase4-marker-guard");
+        log_line(std::string{"[build] version=0.1.2-prototype compiled="} + __DATE__ + " " + __TIME__ + " flags=F8-only,phase2-role-aware-sidecar,remote-cache-routing,staticconstruct-gated,phase6-native-udp-bridge,phase7-umg-no-llhook,dedicated-no-render-components,phase4-marker-guard,restore-scan-diag,phase5-placement-probe");
         log_line("[role] runtimeRole=" + m_runtime_role +
                  " dataMode=" + m_data_mode +
                  " authorityMode=" + m_authority_mode +
@@ -2561,6 +2567,8 @@ namespace WindroseTextSigns
         configure_bridge_role("startup");
         log_line("[probe] StaticConstructObject post-probe config enabled=" +
                  std::string{m_static_construct_probe_enabled ? "true" : "false"});
+        log_line("[probe] Phase5 placement probe config enabled=" +
+                 std::string{m_phase5_placement_probe_enabled ? "true" : "false"});
 
         std::error_code mkdir_ec{};
         std::filesystem::create_directories(m_data_root, mkdir_ec);
@@ -3248,7 +3256,7 @@ namespace WindroseTextSigns
 
     auto SignTextMod::install_process_event_probe() -> void
     {
-        if (!is_process_event_probe_enabled())
+        if (!is_process_event_probe_enabled() && !m_phase5_placement_probe_enabled)
         {
             log_line("[probe] ProcessEvent pre-probe skipped reason=disabled");
             return;
@@ -3270,7 +3278,8 @@ namespace WindroseTextSigns
                      std::string{m_static_construct_probe_enabled ? "true" : "false"});
             return;
         }
-        log_line("[probe] ProcessEvent pre-probe installed id=" + std::to_string(m_process_event_probe_id));
+        log_line("[probe] ProcessEvent pre-probe installed id=" + std::to_string(m_process_event_probe_id) +
+                 " phase5Placement=" + std::string{m_phase5_placement_probe_enabled ? "true" : "false"});
     }
 
     auto SignTextMod::install_static_construct_probe() -> void
@@ -6479,6 +6488,45 @@ namespace WindroseTextSigns
                 }
             }
             log_line(row.str());
+
+            if (m_phase5_placement_probe_enabled && params)
+            {
+                uint32_t logged_props = 0;
+                for_each_property_in_chain_compat(function, [&](FProperty* prop) {
+                    if (!prop || logged_props >= 16)
+                    {
+                        return;
+                    }
+                    const auto prop_name = narrow_ascii(prop->GetName());
+                    const auto prop_class = narrow_ascii(prop->GetClass().GetName());
+                    auto value = try_extract_property_log_value(prop, params);
+                    if (!value.has_value())
+                    {
+                        const auto lowered_name = lower_ascii(prop_name);
+                        if (!contains_any_token(lowered_name, {
+                                "item",
+                                "asset",
+                                "recipe",
+                                "build",
+                                "construct",
+                                "label",
+                                "lable",
+                                "plaque",
+                                "index",
+                                "slot",
+                                "category"}))
+                        {
+                            return;
+                        }
+                        value = "unread";
+                    }
+                    log_line("[phase5-probe] fn=" + fn +
+                             " prop=" + prop_name +
+                             " propClass=" + prop_class +
+                             " value=" + *value);
+                    ++logged_props;
+                });
+            }
         }
     }
 
@@ -6633,16 +6681,39 @@ namespace WindroseTextSigns
 
             std::unordered_set<std::string> present_label_keys{};
             std::unordered_map<std::string, uint32_t> present_world_counts{};
+            uint32_t scan_actor_count = 0;
+            uint32_t scan_probable_label_count = 0;
+            uint32_t scan_buildingish_count = 0;
+            std::vector<std::string> scan_samples{};
             UObjectGlobals::ForEachUObject([&](UObject* object, int32, int32) {
                 if (!object || !object->IsA(AActor::StaticClass()))
                 {
                     return LoopAction::Continue;
                 }
                 auto* actor = Cast<AActor>(object);
+                ++scan_actor_count;
+                if (scan_samples.size() < 6)
+                {
+                    const auto actor_full = narrow_ascii(actor->GetFullName());
+                    const auto actor_class = actor->GetClassPrivate()
+                        ? narrow_ascii(actor->GetClassPrivate()->GetFullName())
+                        : std::string{};
+                    const auto haystack = lower_ascii(actor_full + " " + actor_class);
+                    if (haystack.find("building") != std::string::npos ||
+                        haystack.find("wallplaque") != std::string::npos ||
+                        haystack.find("lables") != std::string::npos ||
+                        haystack.find("label") != std::string::npos ||
+                        haystack.find("plaque") != std::string::npos)
+                    {
+                        ++scan_buildingish_count;
+                        scan_samples.push_back("class=" + actor_class + " actor=" + actor_full);
+                    }
+                }
                 if (!actor || !is_probable_label_actor(actor))
                 {
                     return LoopAction::Continue;
                 }
+                ++scan_probable_label_count;
                 const auto stable_id = extract_stable_id(actor);
                 const auto actor_world_id = build_world_id_for_actor(actor);
                 configure_sidecar_for_actor(actor, actor_world_id);
@@ -6701,6 +6772,24 @@ namespace WindroseTextSigns
             else
             {
                 ++m_consecutive_empty_label_scans;
+            }
+
+            if (is_dedicated_runtime_process() &&
+                (now - m_last_restore_scan_diag > std::chrono::seconds(20) ||
+                 (present_label_keys.empty() && m_consecutive_empty_label_scans == 3)))
+            {
+                m_last_restore_scan_diag = now;
+                log_line("[save] restore_scan_diag actorCount=" + std::to_string(scan_actor_count) +
+                         " buildingishSamples=" + std::to_string(scan_buildingish_count) +
+                         " probableLabels=" + std::to_string(scan_probable_label_count) +
+                         " presentKeys=" + std::to_string(present_label_keys.size()) +
+                         " presentWorlds=" + std::to_string(present_world_counts.size()) +
+                         " labelsJson=" + std::to_string(m_labels.size()) +
+                         " emptyScans=" + std::to_string(m_consecutive_empty_label_scans));
+                for (size_t i = 0; i < scan_samples.size(); ++i)
+                {
+                    log_line("[save] restore_scan_sample index=" + std::to_string(i) + " " + scan_samples[i]);
+                }
             }
 
             // Destroy cleanup:

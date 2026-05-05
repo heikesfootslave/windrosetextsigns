@@ -92,6 +92,7 @@ namespace WindroseTextSigns
         auto uninstall_process_event_probe() -> void;
         auto is_static_construct_probe_enabled() const -> bool;
         auto is_process_event_probe_enabled() const -> bool;
+        auto is_phase5_placement_probe_enabled() const -> bool;
         auto config_bool_value(std::string_view key, bool fallback) const -> bool;
 
         auto tick_pending_hotkey() -> void;
@@ -217,6 +218,7 @@ namespace WindroseTextSigns
         bool m_phase7_native_editor_open{false};
         bool m_phase7_imgui_fallback_enabled{true};
         bool m_static_construct_probe_enabled{false};
+        bool m_phase5_placement_probe_enabled{false};
         bool m_f8_poll_was_down{false};
         bool m_phase7_enter_was_down{false};
         bool m_phase7_escape_was_down{false};
@@ -243,6 +245,7 @@ namespace WindroseTextSigns
 
         std::unordered_map<std::string, LabelRecord> m_labels{};
         std::chrono::steady_clock::time_point m_last_restore_scan{};
+        std::chrono::steady_clock::time_point m_last_restore_scan_diag{};
         std::chrono::steady_clock::time_point m_last_probe_status{};
         std::chrono::steady_clock::time_point m_last_ui_tick_log{};
 
