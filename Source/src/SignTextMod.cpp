@@ -1138,17 +1138,17 @@ namespace
             "index",
             "slot",
             "data"});
-        if (!relevant_name)
-        {
-            return std::nullopt;
-        }
 
         const auto prop_hash = prop->GetClass().HashObject();
         if (prop_hash == FNameProperty::StaticClass().HashObject())
         {
             if (auto* value = prop->ContainerPtrToValuePtr<FName>(container))
             {
-                return "name=" + RC::to_string(value->ToString());
+                auto result = "name=" + RC::to_string(value->ToString());
+                if (relevant_name || contains_any_token(lower_copy_ascii(result), {"building_lable_", "da_bi_utilities_lables_wooden_", "wallplaque", "plaque"}))
+                {
+                    return result;
+                }
             }
             return std::nullopt;
         }
@@ -1156,7 +1156,11 @@ namespace
         {
             if (auto* value = prop->ContainerPtrToValuePtr<FText>(container))
             {
-                return "text=" + RC::to_string(value->ToString());
+                auto result = "text=" + RC::to_string(value->ToString());
+                if (relevant_name || contains_any_token(lower_copy_ascii(result), {"building_lable_", "label:", "plaque"}))
+                {
+                    return result;
+                }
             }
             return std::nullopt;
         }
@@ -1164,7 +1168,11 @@ namespace
         {
             if (auto* obj_ptr = prop->ContainerPtrToValuePtr<UObject*>(container); obj_ptr && *obj_ptr)
             {
-                return "obj=" + RC::to_string((*obj_ptr)->GetFullName());
+                auto result = "obj=" + RC::to_string((*obj_ptr)->GetFullName());
+                if (relevant_name || contains_any_token(lower_copy_ascii(result), {"da_bi_utilities_lables_wooden_", "building_lable_", "wallplaque", "plaque"}))
+                {
+                    return result;
+                }
             }
             return std::nullopt;
         }
@@ -1172,12 +1180,20 @@ namespace
         {
             if (auto* class_ptr = prop->ContainerPtrToValuePtr<UClass*>(container); class_ptr && *class_ptr)
             {
-                return "class=" + RC::to_string((*class_ptr)->GetFullName());
+                auto result = "class=" + RC::to_string((*class_ptr)->GetFullName());
+                if (relevant_name || contains_any_token(lower_copy_ascii(result), {"building", "plaque", "label", "lable"}))
+                {
+                    return result;
+                }
             }
             return std::nullopt;
         }
         if (prop_hash == FBoolProperty::StaticClass().HashObject())
         {
+            if (!relevant_name)
+            {
+                return std::nullopt;
+            }
             if (auto* bool_prop = static_cast<FBoolProperty*>(prop))
             {
                 if (auto* storage = prop->ContainerPtrToValuePtr<void>(container))
@@ -1189,7 +1205,8 @@ namespace
         }
 
         const auto prop_class_name = lower_copy_ascii(RC::to_string(prop->GetClass().GetName()));
-        if (contains_any_token(prop_class_name, {"intproperty", "uint32property"}) &&
+        if (relevant_name &&
+            contains_any_token(prop_class_name, {"intproperty", "uint32property"}) &&
             contains_any_token(prop_name_lower, {"index", "slot", "count", "id"}))
         {
             if (auto* value = prop->ContainerPtrToValuePtr<int32_t>(container))
@@ -4544,6 +4561,8 @@ namespace WindroseTextSigns
             bool selectedish_true{false};
             bool references_wooden_label{false};
             bool is_wooden_item{false};
+            bool is_building_item_widget{false};
+            int score{0};
         };
 
         std::vector<CandidateRow> rows{};
@@ -4566,16 +4585,27 @@ namespace WindroseTextSigns
             const auto lower_full = lower_ascii(full_name);
             const auto lower_class = lower_ascii(class_name);
             const auto haystack = lower_full + " " + lower_class;
+            const bool is_default_object = lower_full.find("default__") != std::string::npos;
 
             const bool is_wooden_item = lower_full.find("da_bi_utilities_lables_wooden_") != std::string::npos;
+            const bool is_building_item_widget =
+                contains_any_token(haystack, {"r5buildingitemwidget", "r5buildinggroupwidget"}) ||
+                (contains_any_token(haystack, {"wbp_", "widgetblueprintgeneratedclass", "userwidget"}) &&
+                 contains_any_token(haystack, {"building"}) &&
+                 contains_any_token(haystack, {"item", "entry", "recipe", "lable", "label", "plaque"}));
             const bool is_widgetish =
                 contains_any_token(haystack, {"wbp_", "widget", "userwidget", "buildmenu", "buildingmenu"}) &&
-                contains_any_token(haystack, {"build", "craft", "storage", "beds", "lable", "label", "plaque", "item", "entry"});
+                contains_any_token(haystack, {"build", "storage", "beds", "lable", "label", "plaque"});
             const bool is_menu_stateish =
                 contains_any_token(haystack, {"build", "craft", "storage", "beds", "lable", "label", "plaque"}) &&
                 contains_any_token(haystack, {"selection", "selected", "current", "entry", "item", "viewmodel", "data"});
 
-            if (!is_wooden_item && !is_widgetish && !is_menu_stateish)
+            if (!is_wooden_item && is_default_object)
+            {
+                return LoopAction::Continue;
+            }
+
+            if (!is_wooden_item && !is_building_item_widget && !is_widgetish && !is_menu_stateish)
             {
                 return LoopAction::Continue;
             }
@@ -4593,6 +4623,8 @@ namespace WindroseTextSigns
             row.object = full_name;
             row.class_name = class_name;
             row.is_wooden_item = is_wooden_item;
+            row.is_building_item_widget = is_building_item_widget;
+            row.score = (is_wooden_item ? 20 : 0) + (is_building_item_widget ? 16 : 0) + (is_widgetish ? 6 : 0) + (is_menu_stateish ? 4 : 0);
 
             uint32_t logged_fields = 0;
             for_each_property_in_chain_compat(object->GetClassPrivate(), [&](FProperty* prop) {
@@ -4632,6 +4664,8 @@ namespace WindroseTextSigns
 
                 row.selectedish_true = row.selectedish_true || is_true_selection;
                 row.references_wooden_label = row.references_wooden_label || references_label;
+                row.score += is_true_selection ? 12 : 0;
+                row.score += references_label ? 10 : 0;
                 row.fields.push_back(prop_name + "=" + *value);
                 ++logged_fields;
             });
@@ -4647,6 +4681,14 @@ namespace WindroseTextSigns
             }
 
             return LoopAction::Continue;
+        });
+
+        std::sort(rows.begin(), rows.end(), [](const CandidateRow& left, const CandidateRow& right) {
+            if (left.score != right.score)
+            {
+                return left.score > right.score;
+            }
+            return left.object < right.object;
         });
 
         const bool should_log_summary =
@@ -4692,6 +4734,8 @@ namespace WindroseTextSigns
                      std::string{row.selectedish_true ? "true" : "false"} +
                      " refsWoodenLabel=" + std::string{row.references_wooden_label ? "true" : "false"} +
                      " isWoodenItem=" + std::string{row.is_wooden_item ? "true" : "false"} +
+                     " isBuildingItemWidget=" + std::string{row.is_building_item_widget ? "true" : "false"} +
+                     " score=" + std::to_string(row.score) +
                      " class=" + row.class_name +
                      " object=" + row.object);
 
