@@ -1372,12 +1372,46 @@ namespace
         }
 
         if (contains_any_token(haystack, {
+                "playermappablekeysettings",
+                "enhancedplayermappablekeyprofile",
+                "inputmappingcontext",
+                "inputaction ",
+                "/game/gameplay/game/input/",
+                "/script/enhancedinput.",
+                "imc_",
+                "ia_"}))
+        {
+            return false;
+        }
+
+        // Component templates on generated blueprint classes carry lots of inherited
+        // replicated SceneComponent fields, but they are not live per-player state.
+        if (contains_any_token(haystack, {"blueprintgeneratedclass /game/"}) &&
+            contains_any_token(haystack, {"_gen_variable", "defaultsceneroot"}))
+        {
+            return false;
+        }
+
+        const bool live_context = contains_any_token(haystack, {
+            "persistentlevel",
+            "/engine/transient.gameengine",
+            "/engine/transient.r5gameinstance",
+            "playercontroller_c_",
+            "playerstate_c_",
+            "bp_r5character_c_",
+            "gamestate",
+            "game_state",
+            "netdriver",
+            "replicator"});
+
+        if (contains_any_token(haystack, {
                 "r5markermodelpawn",
                 "r5markermodelship",
                 "r5markermodeluser",
                 "r5markercomponent",
                 "r5playerstate",
                 "r5playercontroller",
+                "r5markersreplicator",
                 "mapcontroller",
                 "playercontroller",
                 "playerstate"}))
@@ -1385,8 +1419,30 @@ namespace
             return true;
         }
 
-        return contains_any_token(haystack, {"marker", "map"}) &&
+        return live_context &&
+            contains_any_token(haystack, {"marker", "map"}) &&
             contains_any_token(haystack, {"player", "pawn", "ship", "party", "account", "owner"});
+    }
+
+    auto is_player_marker_probe_live_context(
+        const std::string& full_name_lower,
+        const std::string& class_name_lower,
+        const std::string& outer_name_lower) -> bool
+    {
+        const auto haystack = full_name_lower + " " + class_name_lower + " " + outer_name_lower;
+        return contains_any_token(haystack, {
+            "persistentlevel",
+            "/engine/transient.gameengine",
+            "/engine/transient.r5gameinstance",
+            "playercontroller_c_",
+            "playerstate_c_",
+            "bp_r5character_c_",
+            "gamestate",
+            "game_state",
+            "netdriver",
+            "replicator",
+            "r5markercomponent",
+            "markermodel"});
     }
 
     auto is_player_marker_probe_property_candidate(FProperty* prop) -> bool
@@ -5746,6 +5802,10 @@ namespace WindroseTextSigns
         rows.reserve(max_objects + 16);
         uint32_t scanned = 0;
         uint32_t candidates_seen = 0;
+        uint32_t non_live_without_net_skipped = 0;
+        uint32_t rows_with_net = 0;
+        uint32_t rows_with_rep_notify = 0;
+        uint32_t rows_with_live_context = 0;
 
         UObjectGlobals::ForEachUObject([&](UObject* object, int32, int32) {
             if (!object || object->IsA(UFunction::StaticClass()))
@@ -5776,9 +5836,11 @@ namespace WindroseTextSigns
             row.class_name = class_name;
             row.outer_name = outer_name;
             row.key = full_name;
+            const bool live_context = is_player_marker_probe_live_context(full_lower, class_lower, outer_lower);
             row.score =
-                (contains_any_token(class_lower + " " + full_lower, {"r5markermodelpawn", "r5playerstate", "mapcontroller"}) ? 20 : 0) +
-                (contains_any_token(class_lower + " " + full_lower, {"marker", "player", "pawn", "ship"}) ? 8 : 0);
+                (live_context ? 35 : 0) +
+                (contains_any_token(class_lower + " " + full_lower, {"r5markermodelpawn", "r5playerstate", "mapcontroller", "r5markersreplicator"}) ? 20 : 0) +
+                (contains_any_token(class_lower + " " + full_lower, {"marker", "player", "pawn", "ship", "replicator"}) ? 8 : 0);
 
             uint32_t logged_fields = 0;
             for_each_property_in_chain_compat(object->GetClassPrivate(), [&](FProperty* prop) {
@@ -5821,6 +5883,23 @@ namespace WindroseTextSigns
             {
                 return LoopAction::Continue;
             }
+            if (row.net_fields == 0 && row.rep_notify_fields == 0 && !live_context)
+            {
+                ++non_live_without_net_skipped;
+                return LoopAction::Continue;
+            }
+            if (row.net_fields > 0)
+            {
+                ++rows_with_net;
+            }
+            if (row.rep_notify_fields > 0)
+            {
+                ++rows_with_rep_notify;
+            }
+            if (live_context)
+            {
+                ++rows_with_live_context;
+            }
 
             std::sort(row.fields.begin(), row.fields.end());
             if (rows.size() < max_objects)
@@ -5842,6 +5921,10 @@ namespace WindroseTextSigns
         log_line("[player-marker-replication-probe] scan scanned=" + std::to_string(scanned) +
                  " candidatesSeen=" + std::to_string(candidates_seen) +
                  " rows=" + std::to_string(rows.size()) +
+                 " liveRows=" + std::to_string(rows_with_live_context) +
+                 " netRows=" + std::to_string(rows_with_net) +
+                 " repNotifyRows=" + std::to_string(rows_with_rep_notify) +
+                 " nonLiveNoNetSkipped=" + std::to_string(non_live_without_net_skipped) +
                  " tracked=" + std::to_string(m_player_marker_replication_probe_last.size()) +
                  " intervalMs=" + std::to_string(interval_ms));
 
