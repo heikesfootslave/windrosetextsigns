@@ -203,9 +203,10 @@ namespace
     auto parse_bridge_message(const std::string& payload) -> std::unordered_map<std::string, std::string>
     {
         std::unordered_map<std::string, std::string> fields{};
-        const std::array<std::string, 14> string_fields = {
+        const std::array<std::string, 15> string_fields = {
             "mod", "type", "session", "key", "stableId", "worldId",
-            "text", "asset", "kind", "backingAsset", "lastSeen", "reason", "schema", "writer"};
+            "text", "asset", "kind", "backingAsset", "lastSeen", "reason", "schema", "writer",
+            "snapshotId"};
         for (const auto& name : string_fields)
         {
             if (auto value = bridge_message_field(payload, name); value.has_value())
@@ -213,9 +214,9 @@ namespace
                 fields[name] = *value;
             }
         }
-        const std::array<std::string, 11> number_fields = {
+        const std::array<std::string, 12> number_fields = {
             "revision", "surfaceAxis", "surfaceSign", "depthOffset", "alignX",
-            "alignY", "fontSize", "colorR", "colorG", "colorB", "colorA"};
+            "alignY", "fontSize", "colorR", "colorG", "colorB", "colorA", "snapshotCount"};
         for (const auto& name : number_fields)
         {
             if (auto value = bridge_message_number(payload, name); value.has_value())
@@ -431,6 +432,14 @@ namespace
             out += ip;
         }
         return out;
+    }
+
+    auto make_bridge_snapshot_id(const std::string& session, const uint64_t revision, const uint32_t count) -> std::string
+    {
+        static std::atomic<uint64_t> sequence{0};
+        std::ostringstream out{};
+        out << session << "-rev" << revision << "-count" << count << "-seq" << sequence.fetch_add(1, std::memory_order_relaxed);
+        return out.str();
     }
 
     auto collect_r5_log_candidates(const std::filesystem::path& preferred) -> std::vector<std::filesystem::path>
@@ -3724,7 +3733,7 @@ namespace WindroseTextSigns
         }
 
         open_log();
-        log_line(std::string{"[build] version=0.1.2-prototype compiled="} + __DATE__ + " " + __TIME__ + " flags=configurable-hotkey,phase2-role-aware-sidecar,remote-cache-routing,staticconstruct-gated,phase6-native-udp-bridge,phase7-umg-no-llhook,dedicated-no-render-components,phase4-marker-guard,restore-scan-diag,phase5-placement-probe,phase5-build-menu-selection-probe,label-text-native-icon-hide,player-marker-replication-probe");
+        log_line(std::string{"[build] version=0.1.2-prototype compiled="} + __DATE__ + " " + __TIME__ + " flags=configurable-hotkey,phase2-role-aware-sidecar,remote-cache-routing,staticconstruct-gated,phase6-native-udp-bridge,bridge-auto-route,bridge-batched-snapshots,phase7-umg-no-llhook,dedicated-no-render-components,phase4-marker-guard,restore-scan-diag,label-text-native-icon-hide,probes-default-off");
         log_line("[role] runtimeRole=" + m_runtime_role +
                  " dataMode=" + m_data_mode +
                  " authorityMode=" + m_authority_mode +
@@ -7610,11 +7619,6 @@ namespace WindroseTextSigns
             if (kind == RelayHttpKind::ClientSnapshot)
             {
                 const auto payloads = relay_extract_payloads(response.body);
-                if (!payloads.empty())
-                {
-                    m_bridge_snapshot_active = true;
-                    m_bridge_snapshot_seen_keys.clear();
-                }
                 for (const auto& payload : payloads)
                 {
                     handle_bridge_payload(payload);
@@ -7689,6 +7693,8 @@ namespace WindroseTextSigns
 
         bool first = true;
         uint32_t count = 0;
+        const auto snapshot_count = static_cast<uint32_t>(m_labels.size());
+        const auto snapshot_id = make_bridge_snapshot_id(m_session_id, m_revision, snapshot_count);
         for (const auto& [_, rec] : m_labels)
         {
             std::ostringstream axis_value{};
@@ -7701,6 +7707,8 @@ namespace WindroseTextSigns
             payload << "{\"mod\":\"WindroseTextSigns\",\"schema\":\"bridge.v1\",\"type\":\"upsert\""
                     << ",\"session\":\"" << escape_json(m_session_id) << "\""
                     << ",\"revision\":" << m_revision
+                    << ",\"snapshotId\":\"" << escape_json(snapshot_id) << "\""
+                    << ",\"snapshotCount\":" << snapshot_count
                     << ",\"stableId\":\"" << escape_json(rec.stable_id) << "\""
                     << ",\"worldId\":\"" << escape_json(rec.world_id) << "\""
                     << ",\"text\":\"" << escape_json(rec.text) << "\""
@@ -7730,6 +7738,8 @@ namespace WindroseTextSigns
         end_payload << "{\"mod\":\"WindroseTextSigns\",\"schema\":\"bridge.v1\",\"type\":\"snapshot_end\""
                     << ",\"session\":\"" << escape_json(m_session_id) << "\""
                     << ",\"revision\":" << m_revision
+                    << ",\"snapshotId\":\"" << escape_json(snapshot_id) << "\""
+                    << ",\"snapshotCount\":" << count
                     << ",\"worldId\":\"" << escape_json(m_world_folder_id) << "\""
                     << ",\"reason\":\"" << escape_json(reason) << "\""
                     << "}";
@@ -7871,6 +7881,12 @@ namespace WindroseTextSigns
                      " message=" + upnp.message);
         }
         m_bridge_snapshot_received = false;
+        m_bridge_snapshot_active = false;
+        m_bridge_snapshot_end_seen = false;
+        m_bridge_snapshot_expected_count = -1;
+        m_bridge_snapshot_id.clear();
+        m_bridge_snapshot_seen_keys.clear();
+        m_bridge_pending_request_keys.clear();
         m_relay_snapshot_received = false;
         m_relay_next_poll = std::chrono::steady_clock::now();
         m_relay_next_server_snapshot = std::chrono::steady_clock::now();
@@ -7895,9 +7911,12 @@ namespace WindroseTextSigns
                 << ",\"worldId\":\"" << escape_json(m_world_folder_id) << "\""
                 << ",\"reason\":\"" << escape_json(reason) << "\""
                 << "}";
-        const bool sent = NativeBridge::instance().send_to_server(payload.str());
-        m_bridge_snapshot_active = true;
+        m_bridge_snapshot_active = false;
+        m_bridge_snapshot_end_seen = false;
+        m_bridge_snapshot_expected_count = -1;
+        m_bridge_snapshot_id.clear();
         m_bridge_snapshot_seen_keys.clear();
+        const bool sent = NativeBridge::instance().send_to_server(payload.str());
         relay_poll_client_snapshot(reason);
         log_line("[bridge] snapshot_request reason=" + reason +
                  " sent=" + std::string{sent ? "true" : "false"} +
@@ -7941,16 +7960,26 @@ namespace WindroseTextSigns
                 << "}";
         const bool sent = NativeBridge::instance().send_to_server(payload.str());
         const bool relay_sent = relay_post_client_payload(payload.str(), request_type);
+        const auto pending_key = build_storage_key(rec.world_id, rec.stable_id);
+        if (sent || relay_sent)
+        {
+            m_bridge_pending_request_keys[pending_key] = std::chrono::steady_clock::now();
+        }
         log_line("[bridge] client_request type=" + request_type +
                  " stableId=" + rec.stable_id +
                  " worldId=" + rec.world_id +
                  " sent=" + std::string{sent ? "true" : "false"} +
                  " relaySent=" + std::string{relay_sent ? "true" : "false"} +
-                 " textChars=" + std::to_string(rec.text.size()));
+                 " textChars=" + std::to_string(rec.text.size()) +
+                 " pendingKey=" + pending_key);
         return sent || relay_sent;
     }
 
-    auto SignTextMod::broadcast_bridge_record(const LabelRecord& rec, const std::string& reason) -> void
+    auto SignTextMod::broadcast_bridge_record(
+        const LabelRecord& rec,
+        const std::string& reason,
+        const std::string& snapshot_id,
+        const int snapshot_count) -> void
     {
         if (m_bridge_role != BridgeRole::DedicatedServer && m_bridge_role != BridgeRole::ListenHost)
         {
@@ -7962,10 +7991,20 @@ namespace WindroseTextSigns
         const auto record_backing_asset = rec.backing_asset.empty()
             ? infer_backing_asset_from_kind(record_kind, rec.asset)
             : rec.backing_asset;
+        std::string snapshot_fields{};
+        if (!snapshot_id.empty())
+        {
+            snapshot_fields += ",\"snapshotId\":\"" + escape_json(snapshot_id) + "\"";
+        }
+        if (snapshot_count >= 0)
+        {
+            snapshot_fields += ",\"snapshotCount\":" + std::to_string(snapshot_count);
+        }
         std::ostringstream payload{};
         payload << "{\"mod\":\"WindroseTextSigns\",\"schema\":\"bridge.v1\",\"type\":\"upsert\""
                 << ",\"session\":\"" << escape_json(m_session_id) << "\""
                 << ",\"revision\":" << m_revision
+                << snapshot_fields
                 << ",\"stableId\":\"" << escape_json(rec.stable_id) << "\""
                 << ",\"worldId\":\"" << escape_json(rec.world_id) << "\""
                 << ",\"text\":\"" << escape_json(rec.text) << "\""
@@ -8028,16 +8067,20 @@ namespace WindroseTextSigns
         {
             return;
         }
+        const auto snapshot_count = static_cast<uint32_t>(m_labels.size());
+        const auto snapshot_id = make_bridge_snapshot_id(m_session_id, m_revision, snapshot_count);
         uint32_t count = 0;
         for (const auto& [_, rec] : m_labels)
         {
-            broadcast_bridge_record(rec, reason);
+            broadcast_bridge_record(rec, reason, snapshot_id, static_cast<int>(snapshot_count));
             ++count;
         }
         std::ostringstream payload{};
         payload << "{\"mod\":\"WindroseTextSigns\",\"schema\":\"bridge.v1\",\"type\":\"snapshot_end\""
                 << ",\"session\":\"" << escape_json(m_session_id) << "\""
                 << ",\"revision\":" << m_revision
+                << ",\"snapshotId\":\"" << escape_json(snapshot_id) << "\""
+                << ",\"snapshotCount\":" << snapshot_count
                 << ",\"worldId\":\"" << escape_json(m_world_folder_id) << "\""
                 << ",\"reason\":\"" << escape_json(reason) << "\""
                 << "}";
@@ -8190,9 +8233,33 @@ namespace WindroseTextSigns
             ? m_world_folder_id
             : unescape_json(fields.count("worldId") ? fields.at("worldId") : "unknown-world");
         const auto key = build_storage_key(local_world_id, stable_id);
-        if (m_bridge_snapshot_active)
+        m_bridge_pending_request_keys.erase(key);
+        const auto snapshot_id = unescape_json(fields.count("snapshotId") ? fields.at("snapshotId") : "");
+        const auto snapshot_count = fields.count("snapshotCount") ? safe_stoi(fields.at("snapshotCount"), -1) : -1;
+        if (!snapshot_id.empty())
         {
+            if (!m_bridge_snapshot_active || snapshot_id != m_bridge_snapshot_id)
+            {
+                m_bridge_snapshot_active = true;
+                m_bridge_snapshot_end_seen = false;
+                m_bridge_snapshot_id = snapshot_id;
+                m_bridge_snapshot_expected_count = snapshot_count;
+                m_bridge_snapshot_seen_keys.clear();
+                log_line("[bridge] snapshot_begin id=" + snapshot_id +
+                         " expected=" + std::to_string(snapshot_count) +
+                         " reason=upsert");
+            }
+            else if (snapshot_count >= 0)
+            {
+                m_bridge_snapshot_expected_count = snapshot_count;
+            }
             m_bridge_snapshot_seen_keys.insert(key);
+        }
+        else
+        {
+            // Protect live server broadcasts from being pruned by an older snapshot
+            // that may already be in flight over UDP.
+            m_bridge_pending_request_keys[key] = std::chrono::steady_clock::now();
         }
 
         LabelRecord rec{};
@@ -8271,6 +8338,19 @@ namespace WindroseTextSigns
                  " localWorldId=" + local_world_id +
                  " changed=" + std::string{changed ? "true" : "false"} +
                  " textChars=" + std::to_string(rec.text.size()));
+
+        if (!snapshot_id.empty() &&
+            m_bridge_snapshot_active &&
+            m_bridge_snapshot_end_seen &&
+            m_bridge_snapshot_expected_count >= 0 &&
+            static_cast<int>(m_bridge_snapshot_seen_keys.size()) >= m_bridge_snapshot_expected_count)
+        {
+            log_line("[bridge] snapshot_complete id=" + snapshot_id +
+                     " seen=" + std::to_string(m_bridge_snapshot_seen_keys.size()) +
+                     " expected=" + std::to_string(m_bridge_snapshot_expected_count) +
+                     " completion=after_upsert");
+            reconcile_bridge_snapshot("snapshot_complete_after_upsert");
+        }
     }
 
     auto SignTextMod::handle_bridge_client_clear(const std::unordered_map<std::string, std::string>& fields) -> void
@@ -8291,6 +8371,7 @@ namespace WindroseTextSigns
             ? m_world_folder_id
             : unescape_json(fields.count("worldId") ? fields.at("worldId") : "unknown-world");
         const auto key = build_storage_key(local_world_id, stable_id);
+        m_bridge_pending_request_keys.erase(key);
         m_labels.erase(key);
         m_rendered_text_cache.erase(key);
         m_component_name_cache.erase(key);
@@ -8420,12 +8501,25 @@ namespace WindroseTextSigns
         }
 
         std::unordered_map<std::string, LabelRecord> removed{};
+        uint32_t pending_skipped = 0;
+        const auto now = std::chrono::steady_clock::now();
         for (auto it = m_labels.begin(); it != m_labels.end();)
         {
             const auto& key = it->first;
             const auto& rec = it->second;
             if (rec.world_id == m_world_folder_id && m_bridge_snapshot_seen_keys.find(key) == m_bridge_snapshot_seen_keys.end())
             {
+                const auto pending = m_bridge_pending_request_keys.find(key);
+                if (pending != m_bridge_pending_request_keys.end())
+                {
+                    if ((now - pending->second) < std::chrono::seconds(120))
+                    {
+                        ++pending_skipped;
+                        ++it;
+                        continue;
+                    }
+                    m_bridge_pending_request_keys.erase(pending);
+                }
                 removed.emplace(key, rec);
                 m_seen_live_label_keys.erase(key);
                 m_live_label_actor_ptrs.erase(key);
@@ -8487,9 +8581,14 @@ namespace WindroseTextSigns
         log_line("[bridge] snapshot_reconcile reason=" + reason +
                  " seen=" + std::to_string(m_bridge_snapshot_seen_keys.size()) +
                  " removed=" + std::to_string(removed.size()) +
+                 " pendingSkipped=" + std::to_string(pending_skipped) +
                  " remaining=" + std::to_string(m_labels.size()) +
                  " worldId=" + m_world_folder_id);
+        m_bridge_snapshot_received = true;
         m_bridge_snapshot_active = false;
+        m_bridge_snapshot_end_seen = false;
+        m_bridge_snapshot_expected_count = -1;
+        m_bridge_snapshot_id.clear();
         m_bridge_snapshot_seen_keys.clear();
     }
 
@@ -8535,14 +8634,55 @@ namespace WindroseTextSigns
         }
         if (type == "snapshot_end")
         {
-            m_bridge_snapshot_received = true;
             if (fields.count("revision"))
             {
                 m_revision = std::max<uint64_t>(m_revision, static_cast<uint64_t>(safe_stoi(fields.at("revision"), static_cast<int>(m_revision))));
             }
-            reconcile_bridge_snapshot("snapshot_end");
+            const auto snapshot_id = unescape_json(fields.count("snapshotId") ? fields.at("snapshotId") : "");
+            const auto snapshot_count = fields.count("snapshotCount") ? safe_stoi(fields.at("snapshotCount"), -1) : -1;
+            if (!snapshot_id.empty())
+            {
+                if (!m_bridge_snapshot_active || snapshot_id != m_bridge_snapshot_id)
+                {
+                    m_bridge_snapshot_active = true;
+                    m_bridge_snapshot_id = snapshot_id;
+                    m_bridge_snapshot_seen_keys.clear();
+                    log_line("[bridge] snapshot_begin id=" + snapshot_id +
+                             " expected=" + std::to_string(snapshot_count) +
+                             " reason=end_arrived_first");
+                }
+                if (snapshot_count >= 0)
+                {
+                    m_bridge_snapshot_expected_count = snapshot_count;
+                }
+                m_bridge_snapshot_end_seen = true;
+
+                const bool complete =
+                    m_bridge_snapshot_expected_count >= 0 &&
+                    static_cast<int>(m_bridge_snapshot_seen_keys.size()) >= m_bridge_snapshot_expected_count;
+                log_line("[bridge] snapshot_end revision=" + std::to_string(m_revision) +
+                         " role=" + bridge_role_name(m_bridge_role) +
+                         " id=" + snapshot_id +
+                         " seen=" + std::to_string(m_bridge_snapshot_seen_keys.size()) +
+                         " expected=" + std::to_string(m_bridge_snapshot_expected_count) +
+                         " complete=" + std::string{complete ? "true" : "false"});
+                if (complete)
+                {
+                    m_bridge_snapshot_received = true;
+                    reconcile_bridge_snapshot("snapshot_complete");
+                }
+                else
+                {
+                    log_line("[bridge] snapshot_reconcile_deferred reason=incomplete_snapshot id=" + snapshot_id);
+                }
+                return;
+            }
+
+            m_bridge_snapshot_received = true;
+            reconcile_bridge_snapshot("snapshot_end_legacy");
             log_line("[bridge] snapshot_end revision=" + std::to_string(m_revision) +
-                     " role=" + bridge_role_name(m_bridge_role));
+                     " role=" + bridge_role_name(m_bridge_role) +
+                     " legacy=true");
             return;
         }
         log_line("[bridge] payload_ignored type=" + type +
@@ -9941,7 +10081,13 @@ namespace WindroseTextSigns
             }
         }
 
-        if (now - m_last_probe_status > std::chrono::seconds(20))
+        const bool any_probe_enabled =
+            is_process_event_probe_enabled() ||
+            m_static_construct_probe_enabled ||
+            m_phase5_placement_probe_enabled ||
+            m_phase5_build_menu_selection_probe_enabled ||
+            m_player_marker_replication_probe_enabled;
+        if (any_probe_enabled && now - m_last_probe_status > std::chrono::seconds(20))
         {
             m_last_probe_status = now;
             log_line("[probe-status] events=" + std::to_string(m_probe_event_count) +

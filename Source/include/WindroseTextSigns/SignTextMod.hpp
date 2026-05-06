@@ -208,7 +208,11 @@ namespace WindroseTextSigns
         auto tick_relay() -> void;
         auto send_bridge_snapshot_request(const std::string& reason) -> void;
         auto send_bridge_record_request(const std::string& request_type, const LabelRecord& rec) -> bool;
-        auto broadcast_bridge_record(const LabelRecord& rec, const std::string& reason) -> void;
+        auto broadcast_bridge_record(
+            const LabelRecord& rec,
+            const std::string& reason,
+            const std::string& snapshot_id = {},
+            int snapshot_count = -1) -> void;
         auto broadcast_bridge_clear(const std::string& stable_id, const std::string& world_id, const std::string& reason) -> void;
         auto broadcast_bridge_snapshot(const std::string& reason) -> void;
         auto handle_bridge_payload(const std::string& payload) -> void;
@@ -271,7 +275,11 @@ namespace WindroseTextSigns
         std::chrono::steady_clock::time_point m_bridge_last_status{};
         bool m_bridge_snapshot_received{false};
         bool m_bridge_snapshot_active{false};
+        bool m_bridge_snapshot_end_seen{false};
+        int m_bridge_snapshot_expected_count{-1};
+        std::string m_bridge_snapshot_id{};
         std::unordered_set<std::string> m_bridge_snapshot_seen_keys{};
+        std::unordered_map<std::string, std::chrono::steady_clock::time_point> m_bridge_pending_request_keys{};
 
         std::atomic<bool> m_hotkey_requested{false};
         std::atomic<bool> m_six_sign_test_requested{false};
