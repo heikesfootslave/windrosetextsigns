@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <ctime>
+#include <functional>
 #include <iomanip>
 #include <ios>
 #include <regex>
@@ -89,7 +90,7 @@ namespace
     constexpr unsigned int k_wm_syskeydown = 0x0104;
     constexpr unsigned int k_wm_syskeyup = 0x0105;
     constexpr unsigned int k_wm_quit = 0x0012;
-    constexpr int k_vk_f8 = 0x77;
+    constexpr int k_default_hotkey_vk = 0x77;
     constexpr int k_vk_return = 0x0D;
     constexpr int k_vk_escape = 0x1B;
     constexpr int k_vk_shift = 0x10;
@@ -1216,6 +1217,138 @@ namespace
         }
 
         return std::nullopt;
+    }
+
+    auto append_flag_name(std::string& out, const char* name) -> void
+    {
+        if (!name || !*name)
+        {
+            return;
+        }
+        if (!out.empty())
+        {
+            out += "|";
+        }
+        out += name;
+    }
+
+    auto function_flag_summary(UFunction* function) -> std::string
+    {
+        if (!function)
+        {
+            return "none";
+        }
+
+        std::string out{};
+        try
+        {
+            const auto flags = static_cast<uint32_t>(function->GetFunctionFlags());
+            const auto has = [&](EFunctionFlags flag) {
+                return (flags & static_cast<uint32_t>(flag)) != 0U;
+            };
+
+            if (has(FUNC_Net)) { append_flag_name(out, "Net"); }
+            if (has(FUNC_NetReliable)) { append_flag_name(out, "Reliable"); }
+            if (has(FUNC_NetServer)) { append_flag_name(out, "Server"); }
+            if (has(FUNC_NetClient)) { append_flag_name(out, "Client"); }
+            if (has(FUNC_NetMulticast)) { append_flag_name(out, "Multicast"); }
+            if (has(FUNC_NetValidate)) { append_flag_name(out, "Validate"); }
+            if (has(FUNC_BlueprintAuthorityOnly)) { append_flag_name(out, "AuthorityOnly"); }
+            if (has(FUNC_Native)) { append_flag_name(out, "Native"); }
+            if (has(FUNC_Event)) { append_flag_name(out, "Event"); }
+            if (has(FUNC_BlueprintCallable)) { append_flag_name(out, "BlueprintCallable"); }
+            if (has(FUNC_BlueprintEvent)) { append_flag_name(out, "BlueprintEvent"); }
+
+            std::ostringstream hex{};
+            hex << "0x" << std::uppercase << std::hex << flags;
+            if (!out.empty())
+            {
+                out += ",";
+            }
+            out += "raw=" + hex.str();
+        }
+        catch (...)
+        {
+            out = "unreadable";
+        }
+
+        return out.empty() ? std::string{"none"} : out;
+    }
+
+    auto property_flag_summary(FProperty* prop) -> std::string
+    {
+        if (!prop)
+        {
+            return "none";
+        }
+
+        std::string out{};
+        try
+        {
+            const auto flags = static_cast<uint64_t>(prop->GetPropertyFlags());
+            const auto has = [&](EPropertyFlags flag) {
+                return (flags & static_cast<uint64_t>(flag)) != 0ULL;
+            };
+
+            if (has(CPF_Parm)) { append_flag_name(out, "Parm"); }
+            if (has(CPF_OutParm)) { append_flag_name(out, "Out"); }
+            if (has(CPF_ReturnParm)) { append_flag_name(out, "Return"); }
+            if (has(CPF_ConstParm)) { append_flag_name(out, "Const"); }
+            if (has(CPF_ReferenceParm)) { append_flag_name(out, "Ref"); }
+            if (has(CPF_Net)) { append_flag_name(out, "Net"); }
+
+            std::ostringstream hex{};
+            hex << "0x" << std::uppercase << std::hex << flags;
+            if (!out.empty())
+            {
+                out += ",";
+            }
+            out += "raw=" + hex.str();
+        }
+        catch (...)
+        {
+            out = "unreadable";
+        }
+
+        return out.empty() ? std::string{"none"} : out;
+    }
+
+    auto score_native_transport_candidate(const std::string& full_name_lower, UFunction* function) -> int
+    {
+        int score = 0;
+        const auto bump = [&](std::initializer_list<const char*> tokens, int amount) {
+            for (const auto* token : tokens)
+            {
+                if (token && full_name_lower.find(token) != std::string::npos)
+                {
+                    score += amount;
+                }
+            }
+        };
+
+        bump({"usermarker", "mapmarker", "marker", "ping", "chat", "message"}, 7);
+        bump({"playerinworld", "player", "session", "account", "island", "world"}, 4);
+        bump({"r5bl", "businessrule", "rule", "request", "response"}, 4);
+        bump({"server", "client", "multicast", "replicate", "replicated", "rpc", "net"}, 5);
+        bump({"add", "update", "remove", "set", "send", "broadcast", "notify"}, 2);
+
+        try
+        {
+            const auto flags = static_cast<uint32_t>(function->GetFunctionFlags());
+            const auto has = [&](EFunctionFlags flag) {
+                return (flags & static_cast<uint32_t>(flag)) != 0U;
+            };
+            if (has(FUNC_Net)) { score += 12; }
+            if (has(FUNC_NetServer)) { score += 10; }
+            if (has(FUNC_NetClient)) { score += 10; }
+            if (has(FUNC_NetMulticast)) { score += 10; }
+            if (has(FUNC_NetReliable)) { score += 3; }
+        }
+        catch (...)
+        {
+        }
+
+        return score;
     }
 
     auto to_hex_guid(const FGuid& guid) -> std::string
@@ -2458,6 +2591,140 @@ namespace
             return fallback;
         }
     }
+
+    auto normalize_hotkey_value(std::string value) -> std::string
+    {
+        value = trim_copy_ascii(value);
+        if (value.size() >= 2 &&
+            ((value.front() == '"' && value.back() == '"') ||
+             (value.front() == '\'' && value.back() == '\'')))
+        {
+            value = value.substr(1, value.size() - 2);
+        }
+        value = trim_copy_ascii(value);
+        std::string out{};
+        out.reserve(value.size());
+        for (const auto ch : value)
+        {
+            if (ch == ' ' || ch == '_' || ch == '-')
+            {
+                continue;
+            }
+            out.push_back(static_cast<char>(std::toupper(static_cast<unsigned char>(ch))));
+        }
+        if (out.rfind("VK", 0) == 0)
+        {
+            out = out.substr(2);
+        }
+        return out;
+    }
+
+    auto display_name_for_vk(int vk) -> std::string
+    {
+        if (vk >= 0x70 && vk <= 0x87)
+        {
+            return "F" + std::to_string(vk - 0x6F);
+        }
+        if (vk >= 0x41 && vk <= 0x5A)
+        {
+            return std::string{static_cast<char>('A' + (vk - 0x41))};
+        }
+        if (vk >= 0x30 && vk <= 0x39)
+        {
+            return std::string{static_cast<char>('0' + (vk - 0x30))};
+        }
+        if (vk >= 0x60 && vk <= 0x69)
+        {
+            return "NUM" + std::to_string(vk - 0x60);
+        }
+        switch (vk)
+        {
+        case 0x08: return "BACKSPACE";
+        case 0x09: return "TAB";
+        case 0x0D: return "ENTER";
+        case 0x1B: return "ESCAPE";
+        case 0x20: return "SPACE";
+        case 0x21: return "PAGEUP";
+        case 0x22: return "PAGEDOWN";
+        case 0x23: return "END";
+        case 0x24: return "HOME";
+        case 0x25: return "LEFT";
+        case 0x26: return "UP";
+        case 0x27: return "RIGHT";
+        case 0x28: return "DOWN";
+        case 0x2D: return "INSERT";
+        case 0x2E: return "DELETE";
+        default: return "VK" + std::to_string(vk);
+        }
+    }
+
+    auto hotkey_vk_from_config(const std::string& raw_value, int fallback) -> int
+    {
+        const auto value = normalize_hotkey_value(raw_value);
+        if (value.empty())
+        {
+            return fallback;
+        }
+        if (value.size() == 1)
+        {
+            const auto ch = value.front();
+            if (ch >= 'A' && ch <= 'Z')
+            {
+                return static_cast<int>(ch);
+            }
+            if (ch >= '0' && ch <= '9')
+            {
+                return static_cast<int>(ch);
+            }
+        }
+        if (value.size() >= 2 && value.front() == 'F')
+        {
+            const auto index = safe_stoi(value.substr(1), -1);
+            if (index >= 1 && index <= 24)
+            {
+                return 0x6F + index;
+            }
+        }
+        if (value.rfind("NUMPAD", 0) == 0 || value.rfind("NUM", 0) == 0)
+        {
+            const auto digits = value.rfind("NUMPAD", 0) == 0 ? value.substr(6) : value.substr(3);
+            const auto index = safe_stoi(digits, -1);
+            if (index >= 0 && index <= 9)
+            {
+                return 0x60 + index;
+            }
+        }
+        if (value == "RETURN" || value == "ENTER") return 0x0D;
+        if (value == "ESC" || value == "ESCAPE") return 0x1B;
+        if (value == "DEL" || value == "DELETE") return 0x2E;
+        if (value == "INS" || value == "INSERT") return 0x2D;
+        if (value == "SPACE" || value == "SPACEBAR") return 0x20;
+        if (value == "TAB") return 0x09;
+        if (value == "BACKSPACE") return 0x08;
+        if (value == "PAGEUP" || value == "PGUP") return 0x21;
+        if (value == "PAGEDOWN" || value == "PGDN") return 0x22;
+        if (value == "HOME") return 0x24;
+        if (value == "END") return 0x23;
+        if (value == "LEFT" || value == "LEFTARROW") return 0x25;
+        if (value == "UP" || value == "UPARROW") return 0x26;
+        if (value == "RIGHT" || value == "RIGHTARROW") return 0x27;
+        if (value == "DOWN" || value == "DOWNARROW") return 0x28;
+        if (value.rfind("0X", 0) == 0)
+        {
+            try
+            {
+                const auto parsed = std::stoi(value, nullptr, 16);
+                if (parsed > 0 && parsed <= 0xFF)
+                {
+                    return parsed;
+                }
+            }
+            catch (...)
+            {
+            }
+        }
+        return fallback;
+    }
 }
 
 namespace WindroseTextSigns
@@ -2552,6 +2819,45 @@ namespace WindroseTextSigns
         return fallback;
     }
 
+    auto SignTextMod::config_string_value(std::string_view key, std::string fallback) const -> std::string
+    {
+        if (key.empty())
+        {
+            return fallback;
+        }
+
+        std::string content{};
+        if (!read_text_file(m_mod_root / "Config" / "WindroseTextSigns.ini", content))
+        {
+            return fallback;
+        }
+
+        const auto key_lower = lower_copy_ascii(std::string{key});
+        std::istringstream rows{content};
+        std::string row{};
+        while (std::getline(rows, row))
+        {
+            auto trimmed = trim_copy_ascii(row);
+            if (trimmed.empty() || trimmed.front() == '#' || trimmed.front() == ';' || trimmed.front() == '[')
+            {
+                continue;
+            }
+            const auto eq = trimmed.find('=');
+            if (eq == std::string::npos)
+            {
+                continue;
+            }
+            auto found_key = lower_copy_ascii(trim_copy_ascii(trimmed.substr(0, eq)));
+            if (found_key != key_lower)
+            {
+                continue;
+            }
+            return trim_copy_ascii(trimmed.substr(eq + 1));
+        }
+
+        return fallback;
+    }
+
     auto SignTextMod::is_static_construct_probe_enabled() const -> bool
     {
         if (std::filesystem::exists(m_mod_root / "Config" / "enable_static_construct_probe.flag"))
@@ -2592,6 +2898,11 @@ namespace WindroseTextSigns
         return config_bool_value(
             "WTS_LABEL_TEXT_VISUAL_DIAGNOSTICS",
             config_bool_value("WTS_PHASE5_VISUAL_PATCH_PROBE", false));
+    }
+
+    auto SignTextMod::is_native_transport_inventory_probe_enabled() const -> bool
+    {
+        return config_bool_value("WTS_NATIVE_TRANSPORT_INVENTORY_PROBE", false);
     }
 
     auto SignTextMod::now_utc() const -> std::string
@@ -2671,6 +2982,10 @@ namespace WindroseTextSigns
         m_phase5_build_menu_selection_probe_enabled = is_phase5_build_menu_selection_probe_enabled();
         m_hide_native_label_icon_enabled = is_hide_native_label_icon_enabled();
         m_label_text_visual_diagnostics_enabled = is_label_text_visual_diagnostics_enabled();
+        m_native_transport_inventory_probe_enabled = is_native_transport_inventory_probe_enabled();
+        const auto hotkey_config_value = config_string_value("WTS_HOTKEY", "F8");
+        m_hotkey_vk = hotkey_vk_from_config(hotkey_config_value, k_default_hotkey_vk);
+        m_hotkey_name = display_name_for_vk(m_hotkey_vk);
         m_session_id = now_utc() + "-" + sanitize_path_segment(current_executable_path().filename().string());
         configure_data_root();
         m_legacy_sidecar_path = m_mod_root / "SignTexts.json";
@@ -2684,7 +2999,7 @@ namespace WindroseTextSigns
         }
 
         open_log();
-        log_line(std::string{"[build] version=0.1.2-prototype compiled="} + __DATE__ + " " + __TIME__ + " flags=F8-only,phase2-role-aware-sidecar,remote-cache-routing,staticconstruct-gated,phase6-native-udp-bridge,phase7-umg-no-llhook,dedicated-no-render-components,phase4-marker-guard,restore-scan-diag,phase5-placement-probe,phase5-build-menu-selection-probe,label-text-native-icon-hide");
+        log_line(std::string{"[build] version=0.1.2-prototype compiled="} + __DATE__ + " " + __TIME__ + " flags=configurable-hotkey,phase2-role-aware-sidecar,remote-cache-routing,staticconstruct-gated,phase6-native-udp-bridge,phase7-umg-no-llhook,dedicated-no-render-components,phase4-marker-guard,restore-scan-diag,phase5-placement-probe,phase5-build-menu-selection-probe,label-text-native-icon-hide");
         log_line("[role] runtimeRole=" + m_runtime_role +
                  " dataMode=" + m_data_mode +
                  " authorityMode=" + m_authority_mode +
@@ -2706,6 +3021,11 @@ namespace WindroseTextSigns
                  std::string{m_hide_native_label_icon_enabled ? "true" : "false"} +
                  " diagnostics=" +
                  std::string{m_label_text_visual_diagnostics_enabled ? "true" : "false"});
+        log_line("[native-transport-probe] config enabled=" +
+                 std::string{m_native_transport_inventory_probe_enabled ? "true" : "false"});
+        log_line("[input] hotkey config=" + hotkey_config_value +
+                 " resolved=" + m_hotkey_name +
+                 " vk=" + std::to_string(m_hotkey_vk));
 
         std::error_code mkdir_ec{};
         std::filesystem::create_directories(m_data_root, mkdir_ec);
@@ -2738,6 +3058,10 @@ namespace WindroseTextSigns
         m_unreal_ready = true;
         m_last_restore_scan = std::chrono::steady_clock::now();
         m_last_probe_status = std::chrono::steady_clock::now();
+        if (m_native_transport_inventory_probe_enabled)
+        {
+            m_native_transport_inventory_requested.store(true);
+        }
 
         log_line("[phase] Phase 1 bootstrap active: hooks + hotkey + sidecar loaded");
     }
@@ -2749,7 +3073,7 @@ namespace WindroseTextSigns
             log_line("[input] Hotkey registration skipped reason=dedicated_server");
             return;
         }
-        register_keydown_event(Input::Key::F8, [this]() {
+        register_keydown_event(static_cast<Input::Key>(m_hotkey_vk), [this]() {
             m_hotkey_requested.store(true);
         });
         register_keydown_event(Input::Key::RETURN, [this]() {
@@ -2764,7 +3088,7 @@ namespace WindroseTextSigns
                 m_phase7_escape_requested.store(true);
             }
         });
-        log_line("[input] Registered hotkeys: F8=target/open_editor");
+        log_line("[input] Registered hotkeys: " + m_hotkey_name + "=target/open_editor");
     }
 
     auto SignTextMod::install_phase7_keyboard_capture_hook() -> void
@@ -4135,7 +4459,7 @@ namespace WindroseTextSigns
 
         if (!best.actor)
         {
-            log_line("[target] F8 selection found no Wooden Label candidate candidateCount=0 worldId=" + controller_world_id +
+            log_line("[target] hotkey selection found no Wooden Label candidate candidateCount=0 worldId=" + controller_world_id +
                      " controller=" + controller_name);
             return std::nullopt;
         }
@@ -4289,7 +4613,7 @@ namespace WindroseTextSigns
         {
             if (m_hotkey_retry_remaining == 0)
             {
-                log_line("[target] F8 selection retries_exhausted");
+                log_line("[target] hotkey selection retries_exhausted");
                 m_ui_open = m_phase7_imgui_fallback_enabled;
             }
             return;
@@ -4327,7 +4651,7 @@ namespace WindroseTextSigns
         }
 
         m_ui_open = m_phase7_imgui_fallback_enabled;
-        log_line("[phase7] F8 fallback_to_imgui=" + std::string{m_phase7_imgui_fallback_enabled ? "true" : "false"} +
+        log_line("[phase7] hotkey fallback_to_imgui=" + std::string{m_phase7_imgui_fallback_enabled ? "true" : "false"} +
                  " nativeSupported=" + std::string{m_phase7_native_supported ? "true" : "false"} +
                  " umgOpened=" + std::string{umg_opened ? "true" : "false"} +
                  " win32Default=false");
@@ -4376,6 +4700,10 @@ namespace WindroseTextSigns
         if (m_buildmenu_probe_requested.exchange(false))
         {
             run_buildmenu_asset_probe();
+        }
+        if (m_native_transport_inventory_requested.exchange(false))
+        {
+            run_native_transport_inventory_probe("request");
         }
     }
 
@@ -4557,6 +4885,167 @@ namespace WindroseTextSigns
         }
 
         log_line("[buildmenu-probe] complete");
+    }
+
+    auto SignTextMod::run_native_transport_inventory_probe(const std::string& reason) -> void
+    {
+        m_native_transport_inventory_probe_ran = true;
+
+        uint32_t max_logged = 120;
+        try
+        {
+            const auto configured = std::stoul(config_string_value("WTS_NATIVE_TRANSPORT_INVENTORY_MAX", "120"));
+            max_logged = static_cast<uint32_t>(std::clamp<unsigned long>(configured, 10UL, 500UL));
+        }
+        catch (...)
+        {
+            max_logged = 120;
+        }
+
+        struct CandidateRow
+        {
+            UFunction* function{};
+            std::string full_name{};
+            std::string class_name{};
+            std::string outer_name{};
+            std::string flags{};
+            int score{0};
+            uint32_t param_count{0};
+        };
+
+        std::vector<CandidateRow> rows{};
+        rows.reserve(max_logged + 64);
+        uint32_t scanned_functions = 0;
+        uint32_t net_functions = 0;
+
+        log_line("[native-transport-probe] start reason=" + reason +
+                 " maxLogged=" + std::to_string(max_logged) +
+                 " passive=true");
+
+        UObjectGlobals::ForEachUObject([&](UObject* object, int32, int32) {
+            if (!object || !object->IsA(UFunction::StaticClass()))
+            {
+                return LoopAction::Continue;
+            }
+
+            auto* function = Cast<UFunction>(object);
+            if (!function)
+            {
+                return LoopAction::Continue;
+            }
+
+            ++scanned_functions;
+            const auto full_name = narrow_ascii(function->GetFullName());
+            const auto lower_full_name = lower_ascii(full_name);
+            const auto flags = function_flag_summary(function);
+            const bool is_net_function = flags.find("Net") != std::string::npos ||
+                flags.find("Server") != std::string::npos ||
+                flags.find("Client") != std::string::npos ||
+                flags.find("Multicast") != std::string::npos;
+            if (is_net_function)
+            {
+                ++net_functions;
+            }
+
+            const auto score = score_native_transport_candidate(lower_full_name, function);
+            const bool name_interesting = contains_any_token(lower_full_name, {
+                "usermarker",
+                "mapmarker",
+                "marker",
+                "ping",
+                "chat",
+                "message",
+                "playerinworld",
+                "player",
+                "session",
+                "account",
+                "r5bl",
+                "businessrule",
+                "server",
+                "client",
+                "multicast",
+                "replicate",
+                "rpc"});
+            if (score < 10 && !is_net_function && !name_interesting)
+            {
+                return LoopAction::Continue;
+            }
+
+            uint32_t param_count = 0;
+            for_each_property_in_chain_compat(function, [&](FProperty* prop) {
+                if (prop && prop->HasAnyPropertyFlags(CPF_Parm))
+                {
+                    ++param_count;
+                }
+            });
+
+            const auto class_name = function->GetClassPrivate()
+                ? narrow_ascii(function->GetClassPrivate()->GetFullName())
+                : std::string{"unknown"};
+            const auto outer_name = function->GetOuterPrivate()
+                ? narrow_ascii(function->GetOuterPrivate()->GetFullName())
+                : std::string{"none"};
+
+            rows.push_back(CandidateRow{
+                function,
+                full_name,
+                class_name,
+                outer_name,
+                flags,
+                score,
+                param_count});
+
+            return LoopAction::Continue;
+        });
+
+        std::sort(rows.begin(), rows.end(), [](const CandidateRow& a, const CandidateRow& b) {
+            if (a.score != b.score)
+            {
+                return a.score > b.score;
+            }
+            return a.full_name < b.full_name;
+        });
+
+        log_line("[native-transport-probe] summary scannedFunctions=" + std::to_string(scanned_functions) +
+                 " netFunctions=" + std::to_string(net_functions) +
+                 " matched=" + std::to_string(rows.size()) +
+                 " logging=" + std::to_string(std::min<uint32_t>(max_logged, static_cast<uint32_t>(rows.size()))));
+
+        uint32_t logged = 0;
+        for (const auto& row : rows)
+        {
+            if (!row.function || logged >= max_logged)
+            {
+                break;
+            }
+            ++logged;
+
+            log_line("[native-transport-probe] function index=" + std::to_string(logged) +
+                     " score=" + std::to_string(row.score) +
+                     " params=" + std::to_string(row.param_count) +
+                     " flags=" + row.flags +
+                     " path=" + row.full_name +
+                     " class=" + row.class_name +
+                     " outer=" + row.outer_name);
+
+            uint32_t param_index = 0;
+            for_each_property_in_chain_compat(row.function, [&](FProperty* prop) {
+                if (!prop || !prop->HasAnyPropertyFlags(CPF_Parm))
+                {
+                    return;
+                }
+                ++param_index;
+                const auto prop_name = RC::to_string(prop->GetName());
+                log_line("[native-transport-probe] param functionIndex=" + std::to_string(logged) +
+                         " paramIndex=" + std::to_string(param_index) +
+                         " name=" + prop_name +
+                         " class=" + RC::to_string(prop->GetClass().GetName()) +
+                         " size=" + std::to_string(prop->GetSize()) +
+                         " flags=" + property_flag_summary(prop));
+            });
+        }
+
+        log_line("[native-transport-probe] complete logged=" + std::to_string(logged));
     }
 
     auto SignTextMod::tick_phase5_build_menu_selection_probe() -> void
@@ -4816,6 +5305,21 @@ namespace WindroseTextSigns
             {
                 log_line("[buildmenu-probe] trigger file remove failed path=" + buildmenu_trigger_path.string() +
                          " error=" + remove_ec.message());
+            }
+        }
+
+        const auto native_transport_trigger_path = m_mod_root / "Config" / "run_native_transport_inventory.flag";
+        if (std::filesystem::exists(native_transport_trigger_path))
+        {
+            log_line("[native-transport-probe] trigger file detected path=" + native_transport_trigger_path.string());
+            m_native_transport_inventory_requested.store(true);
+
+            std::error_code remove_ec{};
+            std::filesystem::remove(native_transport_trigger_path, remove_ec);
+            if (remove_ec)
+            {
+                log_line("[native-transport-probe] trigger file remove failed path=" +
+                         native_transport_trigger_path.string() + " error=" + remove_ec.message());
             }
         }
     }
@@ -7131,16 +7635,16 @@ namespace WindroseTextSigns
 
         if (!is_dedicated_runtime_process())
         {
-            // F8 reliability fallback:
+            // Hotkey reliability fallback:
             // capture hardware edge directly in case callback registration misses events
             // while input focus/context changes.
-            const bool f8_is_down = ((GetAsyncKeyState(k_vk_f8) & 0x8000) != 0);
-            if (f8_is_down && !m_f8_poll_was_down)
+            const bool hotkey_is_down = ((GetAsyncKeyState(m_hotkey_vk) & 0x8000) != 0);
+            if (hotkey_is_down && !m_hotkey_poll_was_down)
             {
                 m_hotkey_requested.store(true);
-                log_line("[input] F8 polled_edge");
+                log_line("[input] hotkey polled_edge key=" + m_hotkey_name);
             }
-            m_f8_poll_was_down = f8_is_down;
+            m_hotkey_poll_was_down = hotkey_is_down;
 
             tick_pending_hotkey();
             tick_phase7_umg_editor();
@@ -7400,7 +7904,7 @@ namespace WindroseTextSigns
 
         ImGui::Text("WindroseTextSigns prototype");
         ImGui::Separator();
-        ImGui::Text("Hotkey: F8");
+        ImGui::Text("Hotkey: %s", m_hotkey_name.c_str());
         ImGui::Text("Build-menu probe: Config/run_buildmenu_probe.flag or button below");
         ImGui::Text("Clear text: open editor, delete text, press Enter");
         ImGui::Text("Tests: Config/run_test6.flag, Config/run_buildmenu_probe.flag");
@@ -7437,7 +7941,7 @@ namespace WindroseTextSigns
             }
         }
 
-        if (ImGui::Button("Target Label From Camera (F8 logic)"))
+        if (ImGui::Button("Target Label From Camera (hotkey logic)"))
         {
             m_hotkey_requested.store(true);
         }
@@ -7459,12 +7963,12 @@ namespace WindroseTextSigns
 
         if (!m_selected.has_value())
         {
-            ImGui::TextDisabled("Look at Wooden Label then press F8.");
+            ImGui::TextDisabled("Look at Wooden Label then press %s.", m_hotkey_name.c_str());
             return;
         }
         if (!ensure_selected_actor_valid("render_ui"))
         {
-            ImGui::TextDisabled("Selected label no longer exists. Look at a Wooden Label and press F8.");
+            ImGui::TextDisabled("Selected label no longer exists. Look at a Wooden Label and press %s.", m_hotkey_name.c_str());
             return;
         }
 
@@ -7472,7 +7976,7 @@ namespace WindroseTextSigns
         {
             ImGui::Separator();
             ImGui::TextDisabled("ImGui text editor is disabled (Phase 7 native-first mode).");
-            ImGui::TextDisabled("Use F8 to invoke native path, or enable fallback above for diagnostics.");
+            ImGui::TextDisabled("Use %s to invoke native path, or enable fallback above for diagnostics.", m_hotkey_name.c_str());
             return;
         }
 

@@ -96,13 +96,16 @@ namespace WindroseTextSigns
         auto is_phase5_build_menu_selection_probe_enabled() const -> bool;
         auto is_hide_native_label_icon_enabled() const -> bool;
         auto is_label_text_visual_diagnostics_enabled() const -> bool;
+        auto is_native_transport_inventory_probe_enabled() const -> bool;
         auto config_bool_value(std::string_view key, bool fallback) const -> bool;
+        auto config_string_value(std::string_view key, std::string fallback) const -> std::string;
 
         auto tick_pending_hotkey() -> void;
         auto tick_pending_fallback_hotkeys() -> void;
         auto tick_file_triggers() -> void;
         auto run_six_sign_targeting_test() -> void;
         auto run_buildmenu_asset_probe() -> void;
+        auto run_native_transport_inventory_probe(const std::string& reason) -> void;
         auto tick_phase5_build_menu_selection_probe() -> void;
         auto is_restore_scan_world_active() -> bool;
         auto ensure_selected_label_for_action(const std::string& action_name) -> bool;
@@ -212,6 +215,7 @@ namespace WindroseTextSigns
         std::atomic<bool> m_hotkey_requested{false};
         std::atomic<bool> m_six_sign_test_requested{false};
         std::atomic<bool> m_buildmenu_probe_requested{false};
+        std::atomic<bool> m_native_transport_inventory_requested{false};
         std::atomic<bool> m_phase7_enter_requested{false};
         std::atomic<bool> m_phase7_escape_requested{false};
         uint32_t m_hotkey_retry_remaining{0};
@@ -227,7 +231,11 @@ namespace WindroseTextSigns
         bool m_phase5_build_menu_selection_probe_enabled{false};
         bool m_hide_native_label_icon_enabled{true};
         bool m_label_text_visual_diagnostics_enabled{false};
-        bool m_f8_poll_was_down{false};
+        bool m_native_transport_inventory_probe_enabled{false};
+        bool m_native_transport_inventory_probe_ran{false};
+        int m_hotkey_vk{0x77};
+        std::string m_hotkey_name{"F8"};
+        bool m_hotkey_poll_was_down{false};
         bool m_phase7_enter_was_down{false};
         bool m_phase7_escape_was_down{false};
         std::atomic<bool> m_phase7_keyboard_capture_active{false};
