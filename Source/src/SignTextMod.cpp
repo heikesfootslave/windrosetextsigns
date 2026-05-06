@@ -1424,6 +1424,32 @@ namespace
             contains_any_token(haystack, {"player", "pawn", "ship", "party", "account", "owner"});
     }
 
+    auto is_player_marker_focused_probe_object(
+        const std::string& full_name_lower,
+        const std::string& class_name_lower,
+        const std::string& outer_name_lower) -> bool
+    {
+        const auto haystack = full_name_lower + " " + class_name_lower + " " + outer_name_lower;
+        if (haystack.find("default__") != std::string::npos)
+        {
+            return false;
+        }
+
+        if (contains_any_token(haystack, {"blueprintgeneratedclass /game/"}) &&
+            contains_any_token(haystack, {"_gen_variable", "defaultsceneroot"}))
+        {
+            return false;
+        }
+
+        return contains_any_token(haystack, {
+            "r5markersreplicator",
+            "r5markersreplicationcomponent",
+            "r5markermodelbase",
+            "r5markermodelsimple",
+            "r5markermodeluser",
+            "bp_markermodel_simple"});
+    }
+
     auto is_player_marker_probe_live_context(
         const std::string& full_name_lower,
         const std::string& class_name_lower,
@@ -1512,6 +1538,42 @@ namespace
             "state"});
 
         return replicatedish || ((stringish || objectish || numericish || vectorish) && name_interesting);
+    }
+
+    auto is_player_marker_focused_probe_property_candidate(FProperty* prop) -> bool
+    {
+        if (!prop)
+        {
+            return false;
+        }
+
+        const auto prop_name_lower = lower_copy_ascii(RC::to_string(prop->GetName()));
+        const auto prop_class_lower = lower_copy_ascii(RC::to_string(prop->GetClass().GetName()));
+        const auto flags = static_cast<uint64_t>(prop->GetPropertyFlags());
+        const bool replicatedish =
+            (flags & static_cast<uint64_t>(CPF_Net)) != 0ULL ||
+            (flags & static_cast<uint64_t>(CPF_RepNotify)) != 0ULL;
+
+        if (replicatedish)
+        {
+            return true;
+        }
+
+        return contains_any_token(prop_name_lower + " " + prop_class_lower, {
+            "shownname",
+            "displayname",
+            "markername",
+            "markerguid",
+            "markerid",
+            "markertype",
+            "selectedicon",
+            "icon",
+            "location",
+            "position",
+            "rotationangle",
+            "owner",
+            "worldcache",
+            "snapping"});
     }
 
     auto truncate_probe_value(std::string value, const size_t max_len = 220) -> std::string
@@ -5800,8 +5862,11 @@ namespace WindroseTextSigns
 
         std::vector<ProbeObjectRow> rows{};
         rows.reserve(max_objects + 16);
+        std::vector<ProbeObjectRow> focused_rows{};
+        focused_rows.reserve(256);
         uint32_t scanned = 0;
         uint32_t candidates_seen = 0;
+        uint32_t focused_candidates_seen = 0;
         uint32_t non_live_without_net_skipped = 0;
         uint32_t rows_with_net = 0;
         uint32_t rows_with_rep_notify = 0;
@@ -5825,11 +5890,17 @@ namespace WindroseTextSigns
             const auto class_lower = lower_ascii(class_name);
             const auto outer_lower = lower_ascii(outer_name);
 
-            if (!is_player_marker_probe_object_candidate(full_lower, class_lower, outer_lower))
+            const bool focused_marker_object = is_player_marker_focused_probe_object(full_lower, class_lower, outer_lower);
+            if (!focused_marker_object &&
+                !is_player_marker_probe_object_candidate(full_lower, class_lower, outer_lower))
             {
                 return LoopAction::Continue;
             }
             ++candidates_seen;
+            if (focused_marker_object)
+            {
+                ++focused_candidates_seen;
+            }
 
             ProbeObjectRow row{};
             row.full_name = full_name;
@@ -5855,7 +5926,9 @@ namespace WindroseTextSigns
                 {
                     return;
                 }
-                if (!is_player_marker_probe_property_candidate(prop))
+                if (!(focused_marker_object
+                        ? is_player_marker_focused_probe_property_candidate(prop)
+                        : is_player_marker_probe_property_candidate(prop)))
                 {
                     return;
                 }
@@ -5909,6 +5982,33 @@ namespace WindroseTextSigns
             }
 
             std::sort(row.fields.begin(), row.fields.end());
+            if (focused_marker_object)
+            {
+                if (focused_rows.size() < 256)
+                {
+                    focused_rows.push_back(row);
+                }
+                else
+                {
+                    auto weakest_focused = std::min_element(
+                        focused_rows.begin(),
+                        focused_rows.end(),
+                        [](const ProbeObjectRow& left, const ProbeObjectRow& right) {
+                            if (left.score != right.score)
+                            {
+                                return left.score < right.score;
+                            }
+                            return left.full_name > right.full_name;
+                        });
+                    if (weakest_focused != focused_rows.end() &&
+                        (row.score > weakest_focused->score ||
+                         (row.score == weakest_focused->score && row.full_name < weakest_focused->full_name)))
+                    {
+                        *weakest_focused = row;
+                    }
+                }
+            }
+
             if (rows.size() < max_objects)
             {
                 rows.push_back(std::move(row));
@@ -5943,10 +6043,19 @@ namespace WindroseTextSigns
             }
             return left.full_name < right.full_name;
         });
+        std::sort(focused_rows.begin(), focused_rows.end(), [](const ProbeObjectRow& left, const ProbeObjectRow& right) {
+            if (left.score != right.score)
+            {
+                return left.score > right.score;
+            }
+            return left.full_name < right.full_name;
+        });
 
         log_line("[player-marker-replication-probe] scan scanned=" + std::to_string(scanned) +
                  " candidatesSeen=" + std::to_string(candidates_seen) +
+                 " focusedCandidatesSeen=" + std::to_string(focused_candidates_seen) +
                  " rows=" + std::to_string(rows.size()) +
+                 " focusedRows=" + std::to_string(focused_rows.size()) +
                  " liveRows=" + std::to_string(rows_with_live_context) +
                  " netRows=" + std::to_string(rows_with_net) +
                  " repNotifyRows=" + std::to_string(rows_with_rep_notify) +
@@ -5955,6 +6064,54 @@ namespace WindroseTextSigns
                  " intervalMs=" + std::to_string(interval_ms));
 
         uint32_t delta_logs = 0;
+        for (const auto& row : focused_rows)
+        {
+            std::ostringstream fingerprint{};
+            fingerprint << row.class_name << "|" << row.outer_name;
+            for (const auto& field : row.fields)
+            {
+                fingerprint << "|" << field;
+            }
+            const auto fp = fingerprint.str();
+            const auto focused_key = "focused|" + row.key;
+            const auto found = m_player_marker_replication_probe_last.find(focused_key);
+            const bool is_new = found == m_player_marker_replication_probe_last.end();
+            const bool changed = !is_new && found->second != fp;
+            if (!is_new && !changed)
+            {
+                continue;
+            }
+
+            m_player_marker_replication_probe_last[focused_key] = fp;
+            if (delta_logs >= max_delta_logs)
+            {
+                continue;
+            }
+            ++delta_logs;
+
+            log_line("[player-marker-focused] " +
+                     std::string{is_new ? "object" : "delta"} +
+                     " score=" + std::to_string(row.score) +
+                     " netFields=" + std::to_string(row.net_fields) +
+                     " repNotifyFields=" + std::to_string(row.rep_notify_fields) +
+                     " class=" + row.class_name +
+                     " object=" + row.full_name +
+                     " outer=" + row.outer_name);
+
+            uint32_t field_index = 0;
+            for (const auto& field : row.fields)
+            {
+                if (field_index >= max_fields)
+                {
+                    break;
+                }
+                log_line("[player-marker-focused] field object=" + row.full_name +
+                         " index=" + std::to_string(field_index) +
+                         " " + field);
+                ++field_index;
+            }
+        }
+
         for (const auto& row : rows)
         {
             std::ostringstream fingerprint{};
