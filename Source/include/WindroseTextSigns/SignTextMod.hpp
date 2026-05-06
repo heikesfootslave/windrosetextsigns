@@ -246,6 +246,10 @@ namespace WindroseTextSigns
         uint64_t m_revision{0};
         std::string m_session_id{};
         BridgeRole m_bridge_role{BridgeRole::Unknown};
+        std::string m_bridge_remote_server_host{"127.0.0.1"};
+        int m_bridge_udp_port{45801};
+        bool m_bridge_upnp_enabled{false};
+        bool m_bridge_upnp_attempted{false};
         bool m_relay_enabled{false};
         std::string m_relay_base_url{};
         std::string m_relay_shared_secret{};

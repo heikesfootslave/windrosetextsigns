@@ -8,6 +8,7 @@ add_library(${TARGET} SHARED
     src/NativeBridge.cpp
     src/RelayHttp.cpp
     src/SignTextMod.cpp
+    src/UpnpNat.cpp
 )
 
 target_include_directories(${TARGET} PRIVATE include)
@@ -48,5 +49,5 @@ endif()
 target_compile_features(${TARGET} PUBLIC cxx_std_23)
 
 if(WIN32)
-    target_link_libraries(${TARGET} PRIVATE ws2_32 winhttp)
+    target_link_libraries(${TARGET} PRIVATE ws2_32 winhttp ole32 oleaut32)
 endif()

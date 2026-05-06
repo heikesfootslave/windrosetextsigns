@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cstring>
 #include <sstream>
 #include <utility>
 
@@ -58,6 +59,20 @@ namespace WindroseTextSigns
         {
             (void)ensure_client_socket_locked();
         }
+    }
+
+    auto NativeBridge::set_remote_server(std::string host, const uint16_t port) -> void
+    {
+        std::scoped_lock lock(m_mutex);
+        if (host.empty())
+        {
+            host = "127.0.0.1";
+        }
+        m_udp_server_port = port == 0 ? k_default_udp_server_port : port;
+        m_remote_server_host = std::move(host);
+        m_remote_server_port = port == 0 ? k_default_udp_server_port : port;
+        m_remote_server_endpoint = Endpoint{0, 0};
+        m_remote_server_resolved = false;
     }
 
     auto NativeBridge::role() const -> BridgeRole
@@ -125,7 +140,7 @@ namespace WindroseTextSigns
 
         sockaddr_in addr{};
         addr.sin_family = AF_INET;
-        addr.sin_port = htons(k_udp_server_port);
+        addr.sin_port = htons(m_udp_server_port);
         addr.sin_addr.s_addr = htonl(INADDR_ANY);
         if (bind(sock, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == SOCKET_ERROR)
         {
@@ -199,6 +214,46 @@ namespace WindroseTextSigns
                                 reinterpret_cast<sockaddr*>(&dest),
                                 sizeof(dest));
         return sent > 0;
+    }
+
+    auto NativeBridge::resolve_remote_server_locked() -> bool
+    {
+        if (m_remote_server_resolved && m_remote_server_endpoint.ip_be != 0 && m_remote_server_endpoint.port_be != 0)
+        {
+            return true;
+        }
+
+        if (!ensure_runtime_ready_locked())
+        {
+            return false;
+        }
+
+        addrinfo hints{};
+        hints.ai_family = AF_INET;
+        hints.ai_socktype = SOCK_DGRAM;
+        hints.ai_protocol = IPPROTO_UDP;
+
+        addrinfo* result = nullptr;
+        const auto port_text = std::to_string(m_remote_server_port == 0 ? k_default_udp_server_port : m_remote_server_port);
+        const int rc = getaddrinfo(m_remote_server_host.c_str(), port_text.c_str(), &hints, &result);
+        if (rc != 0 || !result)
+        {
+            return false;
+        }
+
+        for (auto* row = result; row; row = row->ai_next)
+        {
+            if (!row->ai_addr || row->ai_addrlen < static_cast<int>(sizeof(sockaddr_in)))
+            {
+                continue;
+            }
+            const auto* addr = reinterpret_cast<const sockaddr_in*>(row->ai_addr);
+            m_remote_server_endpoint = Endpoint{addr->sin_addr.s_addr, addr->sin_port};
+            m_remote_server_resolved = true;
+            break;
+        }
+        freeaddrinfo(result);
+        return m_remote_server_resolved;
     }
 
     auto NativeBridge::receive_server_packets_locked() -> void
@@ -309,7 +364,11 @@ namespace WindroseTextSigns
         {
             return false;
         }
-        return send_udp_locked(payload, htonl(INADDR_LOOPBACK), htons(k_udp_server_port));
+        if (!resolve_remote_server_locked())
+        {
+            return false;
+        }
+        return send_udp_locked(payload, m_remote_server_endpoint.ip_be, m_remote_server_endpoint.port_be);
     }
 
     auto NativeBridge::broadcast_to_clients(const std::string& payload) -> bool
@@ -406,6 +465,10 @@ namespace WindroseTextSigns
         out << "\"mode\":\"wts_native_bridge_udp\"";
         out << ",\"role\":" << static_cast<uint32_t>(role());
         out << ",\"known_clients\":" << known_client_count();
+        out << ",\"udp_server_port\":" << m_udp_server_port;
+        out << ",\"remote_server_host\":\"" << m_remote_server_host << "\"";
+        out << ",\"remote_server_port\":" << m_remote_server_port;
+        out << ",\"remote_server_resolved\":" << (m_remote_server_resolved ? "true" : "false");
         out << ",\"send_to_server_calls\":" << c.send_to_server_calls;
         out << ",\"broadcast_to_clients_calls\":" << c.broadcast_to_clients_calls;
         out << ",\"poll_calls\":" << c.poll_calls;

@@ -1,5 +1,6 @@
 #include <WindroseTextSigns/SignTextMod.hpp>
 #include <WindroseTextSigns/RelayHttp.hpp>
+#include <WindroseTextSigns/UpnpNat.hpp>
 
 #include <algorithm>
 #include <array>
@@ -3458,6 +3459,13 @@ namespace WindroseTextSigns
         const auto hotkey_config_value = config_string_value("WTS_HOTKEY", "F8");
         m_hotkey_vk = hotkey_vk_from_config(hotkey_config_value, k_default_hotkey_vk);
         m_hotkey_name = display_name_for_vk(m_hotkey_vk);
+        m_bridge_remote_server_host = config_string_value("WTS_BRIDGE_SERVER_HOST", "127.0.0.1");
+        m_bridge_udp_port = std::clamp(
+            safe_stoi(config_string_value("WTS_BRIDGE_UDP_PORT", "45801"), 45801),
+            1,
+            65535);
+        m_bridge_upnp_enabled = config_bool_value("WTS_BRIDGE_UPNP_ENABLED", false);
+        NativeBridge::instance().set_remote_server(m_bridge_remote_server_host, static_cast<uint16_t>(m_bridge_udp_port));
         m_relay_enabled = config_bool_value("WTS_RELAY_ENABLED", false);
         m_relay_base_url = config_string_value("WTS_RELAY_BASE_URL", "");
         m_relay_shared_secret = config_string_value("WTS_RELAY_SHARED_SECRET", "");
@@ -3493,6 +3501,9 @@ namespace WindroseTextSigns
                  " pollMs=" + std::to_string(m_relay_poll_interval_ms) +
                  " auth=" + std::string{m_relay_shared_secret.empty() ? "none" : "configured"} +
                  " transport=cloudflare-http-poll status=scaffold");
+        log_line("[bridge] config udpPort=" + std::to_string(m_bridge_udp_port) +
+                 " remoteServerHost=" + (m_bridge_remote_server_host.empty() ? "none" : m_bridge_remote_server_host) +
+                 " upnpEnabled=" + std::string{m_bridge_upnp_enabled ? "true" : "false"});
         log_line("[save] data_root=" + m_data_root.string() +
                  " sidecar=" + m_sidecar_path.string() +
                  " backups=" + m_backup_root.string());
@@ -5500,7 +5511,22 @@ namespace WindroseTextSigns
                 "client",
                 "multicast",
                 "replicate",
-                "rpc"});
+                "rpc",
+                "r5p2p",
+                "p2pgate",
+                "coturn",
+                "stun",
+                "iceprotocol",
+                "r5socket",
+                "socketsubsystem",
+                "netdriver",
+                "netconnection",
+                "ipconnection",
+                "remotaddr",
+                "remoteaddr",
+                "sendto",
+                "recvfrom",
+                "datagram"});
             const bool marker_or_rule_specific = contains_any_token(lower_full_name, {
                 "r5blplayerinworld",
                 "playerinworld",
@@ -5513,7 +5539,18 @@ namespace WindroseTextSigns
                 "r5netbl",
                 "rulerequest",
                 "rule_request",
-                "businessrule"});
+                "businessrule",
+                "r5p2p",
+                "p2pgate",
+                "coturn",
+                "stun",
+                "iceprotocol",
+                "r5socket",
+                "socketsubsystem",
+                "netdriver",
+                "netconnection",
+                "ipconnection",
+                "remoteaddr"});
 
             if (marker_or_rule_specific)
             {
@@ -5589,7 +5626,18 @@ namespace WindroseTextSigns
                     "r5netbl",
                     "rulerequest",
                     "rule_request",
-                    "businessrule"}))
+                    "businessrule",
+                    "r5p2p",
+                    "p2pgate",
+                    "coturn",
+                    "stun",
+                    "iceprotocol",
+                    "r5socket",
+                    "socketsubsystem",
+                    "netdriver",
+                    "netconnection",
+                    "ipconnection",
+                    "remoteaddr"}))
             {
                 return LoopAction::Continue;
             }
@@ -7564,6 +7612,25 @@ namespace WindroseTextSigns
 
         m_bridge_role = desired;
         NativeBridge::instance().set_role(desired);
+        if (!m_bridge_upnp_attempted &&
+            m_bridge_upnp_enabled &&
+            (desired == BridgeRole::DedicatedServer || desired == BridgeRole::ListenHost))
+        {
+            m_bridge_upnp_attempted = true;
+            const auto upnp = UpnpNat::map_udp_port(
+                static_cast<uint16_t>(m_bridge_udp_port),
+                static_cast<uint16_t>(m_bridge_udp_port),
+                "WindroseTextSigns bridge");
+            log_line("[bridge-upnp] attempted=" + std::string{upnp.attempted ? "true" : "false"} +
+                     " ok=" + std::string{upnp.ok ? "true" : "false"} +
+                     " comAvailable=" + std::string{upnp.com_available ? "true" : "false"} +
+                     " collectionAvailable=" + std::string{upnp.collection_available ? "true" : "false"} +
+                     " localIp=" + (upnp.local_ip.empty() ? "none" : upnp.local_ip) +
+                     " internalPort=" + std::to_string(upnp.internal_port) +
+                     " externalPort=" + std::to_string(upnp.external_port) +
+                     " protocol=" + upnp.protocol +
+                     " message=" + upnp.message);
+        }
         m_bridge_snapshot_received = false;
         m_relay_snapshot_received = false;
         m_relay_next_poll = std::chrono::steady_clock::now();

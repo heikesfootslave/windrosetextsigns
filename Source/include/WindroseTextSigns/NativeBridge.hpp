@@ -34,6 +34,7 @@ namespace WindroseTextSigns
         static auto instance() -> NativeBridge&;
 
         auto set_role(BridgeRole role) -> void;
+        auto set_remote_server(std::string host, uint16_t port) -> void;
         [[nodiscard]] auto role() const -> BridgeRole;
 
         auto send_to_server(const std::string& payload) -> bool;
@@ -73,6 +74,7 @@ namespace WindroseTextSigns
         auto receive_server_packets_locked() -> void;
         auto receive_client_packets_locked() -> void;
         auto send_udp_locked(const std::string& payload, uint32_t ip_be, uint16_t port_be) -> bool;
+        auto resolve_remote_server_locked() -> bool;
         auto prune_stale_clients_locked() -> void;
 
         mutable std::mutex m_mutex{};
@@ -81,13 +83,18 @@ namespace WindroseTextSigns
         std::deque<std::string> m_rx_client{};
         static constexpr size_t k_max_queue_items = 2048;
         static constexpr size_t k_max_payload_bytes = 16384;
-        static constexpr uint16_t k_udp_server_port = 45801;
+        static constexpr uint16_t k_default_udp_server_port = 45801;
         static constexpr int64_t k_client_expire_ms = 90000;
 
         bool m_runtime_ready{false};
         bool m_winsock_ready{false};
         uintptr_t m_server_socket{static_cast<uintptr_t>(~0ull)};
         uintptr_t m_client_socket{static_cast<uintptr_t>(~0ull)};
+        std::string m_remote_server_host{"127.0.0.1"};
+        uint16_t m_udp_server_port{k_default_udp_server_port};
+        uint16_t m_remote_server_port{k_default_udp_server_port};
+        Endpoint m_remote_server_endpoint{0, 0};
+        bool m_remote_server_resolved{false};
         std::unordered_map<Endpoint, std::chrono::steady_clock::time_point, EndpointHasher> m_known_clients{};
 
         std::atomic<uint64_t> m_send_to_server_calls{0};
