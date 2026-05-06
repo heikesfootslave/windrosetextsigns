@@ -169,6 +169,7 @@ namespace WindroseTextSigns
 
         auto configure_bridge_role(const std::string& reason) -> void;
         auto tick_bridge() -> void;
+        auto refresh_relay_room_id(const std::string& reason) -> void;
         auto send_bridge_snapshot_request(const std::string& reason) -> void;
         auto send_bridge_record_request(const std::string& request_type, const LabelRecord& rec) -> bool;
         auto broadcast_bridge_record(const LabelRecord& rec, const std::string& reason) -> void;
@@ -210,6 +211,10 @@ namespace WindroseTextSigns
         uint64_t m_revision{0};
         std::string m_session_id{};
         BridgeRole m_bridge_role{BridgeRole::Unknown};
+        bool m_relay_enabled{false};
+        std::string m_relay_base_url{};
+        std::string m_relay_shared_secret{};
+        std::string m_relay_room_id{};
         std::chrono::steady_clock::time_point m_bridge_next_snapshot_request{};
         std::chrono::steady_clock::time_point m_bridge_last_status{};
         bool m_bridge_snapshot_received{false};

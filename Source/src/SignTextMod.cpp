@@ -241,6 +241,71 @@ namespace
         });
     }
 
+    auto get_env_var(const char* name) -> std::string;
+    auto read_text_file(const std::filesystem::path& path, std::string& out_content) -> bool;
+
+    auto try_latest_connected_island_id_from_local_log() -> std::optional<std::string>
+    {
+        static auto last_check = std::chrono::steady_clock::time_point{};
+        static std::optional<std::string> cached_result{};
+        const auto now = std::chrono::steady_clock::now();
+        if (last_check.time_since_epoch().count() != 0 && (now - last_check) < std::chrono::seconds(2))
+        {
+            return cached_result;
+        }
+        last_check = now;
+        cached_result.reset();
+
+        const auto local_app_data = get_env_var("LOCALAPPDATA");
+        if (local_app_data.empty())
+        {
+            return std::nullopt;
+        }
+
+        std::string content{};
+        if (!read_text_file(std::filesystem::path{local_app_data} / "R5" / "Saved" / "Logs" / "R5.log", content))
+        {
+            return std::nullopt;
+        }
+
+        static const std::regex connected_island_rx{
+            R"(BL connected\. IslandId\s*'([A-Fa-f0-9]{32})')",
+            std::regex::icase};
+        std::optional<std::string> result{};
+        for (auto it = std::sregex_iterator(content.begin(), content.end(), connected_island_rx);
+             it != std::sregex_iterator{};
+             ++it)
+        {
+            if (it->size() > 1)
+            {
+                auto value = (*it)[1].str();
+                std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
+                    return static_cast<char>(std::toupper(c));
+                });
+                result = value;
+            }
+        }
+        cached_result = result;
+        return cached_result;
+    }
+
+    auto make_relay_room_id(const std::string& world_id) -> std::string
+    {
+        auto safe = world_id.empty() ? std::string{"unknown-world"} : world_id;
+        for (auto& ch : safe)
+        {
+            const auto uch = static_cast<unsigned char>(ch);
+            if (std::isalnum(uch) == 0 && ch != '-' && ch != '_' && ch != '.')
+            {
+                ch = '_';
+            }
+        }
+        std::transform(safe.begin(), safe.end(), safe.begin(), [](unsigned char c) {
+            return static_cast<char>(std::tolower(c));
+        });
+        return "wts-v1-" + safe;
+    }
+
     auto normalized_path_for_compare(const std::filesystem::path& path) -> std::string
     {
         std::error_code ec{};
@@ -3392,8 +3457,12 @@ namespace WindroseTextSigns
         const auto hotkey_config_value = config_string_value("WTS_HOTKEY", "F8");
         m_hotkey_vk = hotkey_vk_from_config(hotkey_config_value, k_default_hotkey_vk);
         m_hotkey_name = display_name_for_vk(m_hotkey_vk);
+        m_relay_enabled = config_bool_value("WTS_RELAY_ENABLED", false);
+        m_relay_base_url = config_string_value("WTS_RELAY_BASE_URL", "");
+        m_relay_shared_secret = config_string_value("WTS_RELAY_SHARED_SECRET", "");
         m_session_id = now_utc() + "-" + sanitize_path_segment(current_executable_path().filename().string());
         configure_data_root();
+        refresh_relay_room_id("startup");
         m_legacy_sidecar_path = m_mod_root / "SignTexts.json";
         m_sidecar_path = m_data_root / "SignTexts.json";
         m_backup_root = m_data_root / "Backups";
@@ -3413,6 +3482,11 @@ namespace WindroseTextSigns
                  " authoritative=" + std::string{m_sidecar_authoritative ? "true" : "false"} +
                  " profileRoot=" + (m_save_profile_root.empty() ? "none" : m_save_profile_root) +
                  " worldFolderId=" + m_world_folder_id);
+        log_line("[relay] config enabled=" + std::string{m_relay_enabled ? "true" : "false"} +
+                 " baseUrl=" + (m_relay_base_url.empty() ? "none" : m_relay_base_url) +
+                 " roomId=" + (m_relay_room_id.empty() ? "none" : m_relay_room_id) +
+                 " auth=" + std::string{m_relay_shared_secret.empty() ? "none" : "configured"} +
+                 " transport=cloudflare-http-poll status=scaffold");
         log_line("[save] data_root=" + m_data_root.string() +
                  " sidecar=" + m_sidecar_path.string() +
                  " backups=" + m_backup_root.string());
@@ -4531,6 +4605,7 @@ namespace WindroseTextSigns
             load_sidecar_json();
         }
         configure_bridge_role("sidecar_route");
+        refresh_relay_room_id("sidecar_route");
     }
 
     auto SignTextMod::configure_sidecar_for_actor(AActor* actor, const std::string& world_id) -> void
@@ -4612,15 +4687,22 @@ namespace WindroseTextSigns
             cache_base = moddata_roots.empty() ? (m_mod_root / "Cache") : moddata_roots.front();
         }
 
+        auto remote_world_id = safe_world_id;
+        if (auto connected_island_id = try_latest_connected_island_id_from_local_log();
+            connected_island_id.has_value() && is_hex_world_id(*connected_island_id))
+        {
+            remote_world_id = *connected_island_id;
+        }
+
         set_sidecar_route(
-            cache_base / "RemoteCache" / safe_world_id,
+            cache_base / "RemoteCache" / remote_world_id,
             "RemoteClient",
             "RemoteClientCache",
             "ServerAuthoritativePendingBridge",
             "cache",
             false,
             profile_root,
-            safe_world_id,
+            remote_world_id,
             "world_authority_absent_remote_cache");
     }
 
@@ -4737,6 +4819,14 @@ namespace WindroseTextSigns
         }
         if (auto* world = actor->GetWorld())
         {
+            if (!is_local_hosted_runtime())
+            {
+                if (auto connected_island_id = try_latest_connected_island_id_from_local_log();
+                    connected_island_id.has_value() && is_hex_world_id(*connected_island_id))
+                {
+                    return *connected_island_id;
+                }
+            }
             const auto world_name = lower_ascii(narrow_ascii(world->GetName()));
             if (!world_name.empty())
             {
@@ -7019,6 +7109,23 @@ namespace WindroseTextSigns
         m_last_backup_signature = signature;
         m_last_backup_snapshot = now;
         log_line("[save] snapshot_write path=" + snapshot_path.string() + " reason=" + reason);
+    }
+
+    auto SignTextMod::refresh_relay_room_id(const std::string& reason) -> void
+    {
+        const auto next_room_id = make_relay_room_id(m_world_folder_id);
+        if (next_room_id == m_relay_room_id)
+        {
+            return;
+        }
+
+        const auto old_room_id = m_relay_room_id.empty() ? std::string{"none"} : m_relay_room_id;
+        m_relay_room_id = next_room_id;
+        log_line("[relay] room_set reason=" + reason +
+                 " oldRoomId=" + old_room_id +
+                 " roomId=" + m_relay_room_id +
+                 " worldId=" + m_world_folder_id +
+                 " enabled=" + std::string{m_relay_enabled ? "true" : "false"});
     }
 
     auto SignTextMod::configure_bridge_role(const std::string& reason) -> void
