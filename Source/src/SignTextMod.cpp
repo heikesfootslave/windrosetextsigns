@@ -5837,10 +5837,17 @@ namespace WindroseTextSigns
             row.outer_name = outer_name;
             row.key = full_name;
             const bool live_context = is_player_marker_probe_live_context(full_lower, class_lower, outer_lower);
+            const auto object_score_haystack = class_lower + " " + full_lower + " " + outer_lower;
             row.score =
                 (live_context ? 35 : 0) +
-                (contains_any_token(class_lower + " " + full_lower, {"r5markermodelpawn", "r5playerstate", "mapcontroller", "r5markersreplicator"}) ? 20 : 0) +
-                (contains_any_token(class_lower + " " + full_lower, {"marker", "player", "pawn", "ship", "replicator"}) ? 8 : 0);
+                (contains_any_token(object_score_haystack, {"r5markermodelpawn", "r5playerstate", "mapcontroller", "r5markersreplicator"}) ? 20 : 0) +
+                (contains_any_token(object_score_haystack, {"r5markersreplicationcomponent"}) ? 35 : 0) +
+                (contains_any_token(object_score_haystack, {"r5markermodeluser", "bp_markermodel_simple"}) ? 45 : 0) +
+                (contains_any_token(object_score_haystack, {"r5markersreplicator_"}) &&
+                 contains_any_token(object_score_haystack, {"bp_markermodel_simple", "bp_markermodel_user"}) ? 35 : 0) +
+                (contains_any_token(object_score_haystack, {"shownname", "markerguid"}) ? 10 : 0) +
+                (contains_any_token(object_score_haystack, {"marker", "player", "pawn", "ship", "replicator"}) ? 8 : 0) -
+                (contains_any_token(object_score_haystack, {"scenario", "quest", "poi_"}) ? 12 : 0);
 
             uint32_t logged_fields = 0;
             for_each_property_in_chain_compat(object->GetClassPrivate(), [&](FProperty* prop) {
@@ -5905,6 +5912,25 @@ namespace WindroseTextSigns
             if (rows.size() < max_objects)
             {
                 rows.push_back(std::move(row));
+            }
+            else
+            {
+                auto weakest = std::min_element(
+                    rows.begin(),
+                    rows.end(),
+                    [](const ProbeObjectRow& left, const ProbeObjectRow& right) {
+                        if (left.score != right.score)
+                        {
+                            return left.score < right.score;
+                        }
+                        return left.full_name > right.full_name;
+                    });
+                if (weakest != rows.end() &&
+                    (row.score > weakest->score ||
+                     (row.score == weakest->score && row.full_name < weakest->full_name)))
+                {
+                    *weakest = std::move(row);
+                }
             }
 
             return LoopAction::Continue;
