@@ -30,11 +30,12 @@ The Durable Object is only a room router/cache. The game server remains authorit
 
 ## Deploy Notes
 
-This scaffold is not wired into the C++ mod yet. Keep `WTS_RELAY_ENABLED=false` until the HTTP client pass is implemented.
+The first C++ HTTP polling pass is wired behind `WTS_RELAY_ENABLED=false`.
+Keep it disabled for normal local tests; enable it only when testing a deployed
+relay URL.
 
 ```powershell
 cd "C:\Users\User\Documents\Windrose Addons\WindroseTextSigns\relay\cloudflare-worker"
 npm install
 npx wrangler deploy
 ```
-

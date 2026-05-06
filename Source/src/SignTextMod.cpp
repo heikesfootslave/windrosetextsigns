@@ -1,4 +1,5 @@
 #include <WindroseTextSigns/SignTextMod.hpp>
+#include <WindroseTextSigns/RelayHttp.hpp>
 
 #include <algorithm>
 #include <array>
@@ -3460,6 +3461,10 @@ namespace WindroseTextSigns
         m_relay_enabled = config_bool_value("WTS_RELAY_ENABLED", false);
         m_relay_base_url = config_string_value("WTS_RELAY_BASE_URL", "");
         m_relay_shared_secret = config_string_value("WTS_RELAY_SHARED_SECRET", "");
+        m_relay_poll_interval_ms = std::clamp(
+            safe_stoi(config_string_value("WTS_RELAY_POLL_INTERVAL_MS", "5000"), 5000),
+            1000,
+            60000);
         m_session_id = now_utc() + "-" + sanitize_path_segment(current_executable_path().filename().string());
         configure_data_root();
         refresh_relay_room_id("startup");
@@ -3485,6 +3490,7 @@ namespace WindroseTextSigns
         log_line("[relay] config enabled=" + std::string{m_relay_enabled ? "true" : "false"} +
                  " baseUrl=" + (m_relay_base_url.empty() ? "none" : m_relay_base_url) +
                  " roomId=" + (m_relay_room_id.empty() ? "none" : m_relay_room_id) +
+                 " pollMs=" + std::to_string(m_relay_poll_interval_ms) +
                  " auth=" + std::string{m_relay_shared_secret.empty() ? "none" : "configured"} +
                  " transport=cloudflare-http-poll status=scaffold");
         log_line("[save] data_root=" + m_data_root.string() +
@@ -6654,7 +6660,7 @@ namespace WindroseTextSigns
 
             ParsedCandidate parsed{};
             parsed.path = path;
-            if (std::smatch revision_match{}; std::regex_search(content, revision_match, std::regex{R"("revision"\s*:\s*([0-9]+))"}) && revision_match.size() > 1)
+            if (std::smatch revision_match{}; std::regex_search(content, revision_match, std::regex{"\\\"revision\\\"\\s*:\\s*([0-9]+)"}) && revision_match.size() > 1)
             {
                 try
                 {
@@ -7121,11 +7127,290 @@ namespace WindroseTextSigns
 
         const auto old_room_id = m_relay_room_id.empty() ? std::string{"none"} : m_relay_room_id;
         m_relay_room_id = next_room_id;
+        m_relay_last_request_seq = 0;
+        m_relay_snapshot_received = false;
+        m_relay_next_poll = std::chrono::steady_clock::now();
+        m_relay_next_server_snapshot = std::chrono::steady_clock::now();
         log_line("[relay] room_set reason=" + reason +
                  " oldRoomId=" + old_room_id +
                  " roomId=" + m_relay_room_id +
                  " worldId=" + m_world_folder_id +
                  " enabled=" + std::string{m_relay_enabled ? "true" : "false"});
+    }
+
+    auto SignTextMod::relay_is_configured() const -> bool
+    {
+        return m_relay_enabled &&
+            !m_relay_base_url.empty() &&
+            !m_relay_room_id.empty() &&
+            m_relay_room_id.find("unknown-world") == std::string::npos &&
+            is_hex_world_id(m_world_folder_id);
+    }
+
+    auto SignTextMod::relay_url(const std::string& path_and_query) const -> std::string
+    {
+        auto base = m_relay_base_url;
+        while (!base.empty() && base.back() == '/')
+        {
+            base.pop_back();
+        }
+        return base + path_and_query;
+    }
+
+    auto SignTextMod::relay_extract_payloads(const std::string& json) const -> std::vector<std::string>
+    {
+        std::vector<std::string> out{};
+        static const std::regex payload_rx{"\\\"payload\\\"\\s*:\\s*\\\"((?:\\\\.|[^\\\"\\\\])*)\\\"", std::regex::icase};
+        for (auto it = std::sregex_iterator(json.begin(), json.end(), payload_rx);
+             it != std::sregex_iterator{};
+             ++it)
+        {
+            if (it->size() > 1)
+            {
+                out.push_back(unescape_json((*it)[1].str()));
+            }
+        }
+        return out;
+    }
+
+    auto SignTextMod::relay_extract_max_seq(const std::string& json) const -> int
+    {
+        int out = m_relay_last_request_seq;
+        static const std::regex seq_rx{"\\\"seq\\\"\\s*:\\s*([0-9]+)", std::regex::icase};
+        for (auto it = std::sregex_iterator(json.begin(), json.end(), seq_rx);
+             it != std::sregex_iterator{};
+             ++it)
+        {
+            if (it->size() > 1)
+            {
+                out = std::max(out, safe_stoi((*it)[1].str(), out));
+            }
+        }
+        return out;
+    }
+
+    auto SignTextMod::relay_post_client_payload(const std::string& payload, const std::string& reason) -> bool
+    {
+        if (!relay_is_configured() || m_bridge_role != BridgeRole::RemoteClient)
+        {
+            return false;
+        }
+
+        std::ostringstream body{};
+        body << "{\"mod\":\"WindroseTextSigns\",\"schema\":\"relay.clientRequest.v1\""
+             << ",\"session\":\"" << escape_json(m_session_id) << "\""
+             << ",\"worldId\":\"" << escape_json(m_world_folder_id) << "\""
+             << ",\"reason\":\"" << escape_json(reason) << "\""
+             << ",\"payload\":\"" << escape_json(payload) << "\""
+             << "}";
+
+        const auto response = RelayHttp::post_json(
+            relay_url("/v1/rooms/" + m_relay_room_id + "/client/requests"),
+            m_relay_shared_secret,
+            body.str(),
+            static_cast<unsigned long>(m_relay_poll_interval_ms));
+        log_line("[relay] client_post reason=" + reason +
+                 " ok=" + std::string{response.ok ? "true" : "false"} +
+                 " status=" + std::to_string(response.status_code) +
+                 " bytes=" + std::to_string(payload.size()) +
+                 " error=" + (response.error.empty() ? "none" : response.error));
+        return response.ok;
+    }
+
+    auto SignTextMod::relay_publish_server_snapshot(const std::string& reason) -> void
+    {
+        if (!relay_is_configured() ||
+            (m_bridge_role != BridgeRole::DedicatedServer && m_bridge_role != BridgeRole::ListenHost))
+        {
+            return;
+        }
+
+        std::ostringstream body{};
+        body << "{\"mod\":\"WindroseTextSigns\",\"schema\":\"relay.serverSnapshot.v1\""
+             << ",\"session\":\"" << escape_json(m_session_id) << "\""
+             << ",\"revision\":" << m_revision
+             << ",\"worldId\":\"" << escape_json(m_world_folder_id) << "\""
+             << ",\"reason\":\"" << escape_json(reason) << "\""
+             << ",\"payloads\":[";
+
+        bool first = true;
+        uint32_t count = 0;
+        for (const auto& [_, rec] : m_labels)
+        {
+            std::ostringstream axis_value{};
+            axis_value << std::fixed << std::setprecision(2) << std::clamp(rec.surface_axis, 0.0f, 1.0f);
+            const auto record_kind = rec.kind.empty() ? infer_new_record_kind_from_asset(rec.asset) : rec.kind;
+            const auto record_backing_asset = rec.backing_asset.empty()
+                ? infer_backing_asset_from_kind(record_kind, rec.asset)
+                : rec.backing_asset;
+            std::ostringstream payload{};
+            payload << "{\"mod\":\"WindroseTextSigns\",\"schema\":\"bridge.v1\",\"type\":\"upsert\""
+                    << ",\"session\":\"" << escape_json(m_session_id) << "\""
+                    << ",\"revision\":" << m_revision
+                    << ",\"stableId\":\"" << escape_json(rec.stable_id) << "\""
+                    << ",\"worldId\":\"" << escape_json(rec.world_id) << "\""
+                    << ",\"text\":\"" << escape_json(rec.text) << "\""
+                    << ",\"asset\":\"" << escape_json(rec.asset) << "\""
+                    << ",\"kind\":\"" << escape_json(record_kind) << "\""
+                    << ",\"backingAsset\":\"" << escape_json(record_backing_asset) << "\""
+                    << ",\"surfaceAxis\":" << axis_value.str()
+                    << ",\"surfaceSign\":" << rec.surface_sign
+                    << ",\"depthOffset\":" << rec.depth_offset
+                    << ",\"alignX\":" << rec.align_x
+                    << ",\"alignY\":" << rec.align_y
+                    << ",\"fontSize\":" << rec.font_size
+                    << ",\"colorR\":" << rec.color_r
+                    << ",\"colorG\":" << rec.color_g
+                    << ",\"colorB\":" << rec.color_b
+                    << ",\"colorA\":" << rec.color_a
+                    << ",\"lastSeen\":\"" << escape_json(rec.last_seen_utc) << "\""
+                    << ",\"reason\":\"" << escape_json(reason) << "\""
+                    << "}";
+            if (!first) { body << ","; }
+            first = false;
+            body << "{\"payload\":\"" << escape_json(payload.str()) << "\"}";
+            ++count;
+        }
+
+        std::ostringstream end_payload{};
+        end_payload << "{\"mod\":\"WindroseTextSigns\",\"schema\":\"bridge.v1\",\"type\":\"snapshot_end\""
+                    << ",\"session\":\"" << escape_json(m_session_id) << "\""
+                    << ",\"revision\":" << m_revision
+                    << ",\"worldId\":\"" << escape_json(m_world_folder_id) << "\""
+                    << ",\"reason\":\"" << escape_json(reason) << "\""
+                    << "}";
+        if (!first) { body << ","; }
+        body << "{\"payload\":\"" << escape_json(end_payload.str()) << "\"}";
+        body << "]}";
+
+        const auto response = RelayHttp::post_json(
+            relay_url("/v1/rooms/" + m_relay_room_id + "/server/snapshot"),
+            m_relay_shared_secret,
+            body.str(),
+            static_cast<unsigned long>(m_relay_poll_interval_ms));
+        log_line("[relay] server_snapshot_post reason=" + reason +
+                 " ok=" + std::string{response.ok ? "true" : "false"} +
+                 " status=" + std::to_string(response.status_code) +
+                 " records=" + std::to_string(count) +
+                 " error=" + (response.error.empty() ? "none" : response.error));
+    }
+
+    auto SignTextMod::relay_poll_server_requests() -> void
+    {
+        if (!relay_is_configured() ||
+            (m_bridge_role != BridgeRole::DedicatedServer && m_bridge_role != BridgeRole::ListenHost))
+        {
+            return;
+        }
+
+        const auto response = RelayHttp::get(
+            relay_url("/v1/rooms/" + m_relay_room_id + "/server/requests?after=" + std::to_string(m_relay_last_request_seq)),
+            m_relay_shared_secret,
+            static_cast<unsigned long>(m_relay_poll_interval_ms));
+        if (!response.ok)
+        {
+            log_line("[relay] server_requests_get ok=false status=" + std::to_string(response.status_code) +
+                     " error=" + (response.error.empty() ? "none" : response.error));
+            return;
+        }
+
+        const auto payloads = relay_extract_payloads(response.body);
+        m_relay_last_request_seq = relay_extract_max_seq(response.body);
+        for (const auto& payload : payloads)
+        {
+            handle_bridge_payload(payload);
+        }
+        if (!payloads.empty())
+        {
+            log_line("[relay] server_requests_applied count=" + std::to_string(payloads.size()) +
+                     " lastSeq=" + std::to_string(m_relay_last_request_seq));
+        }
+    }
+
+    auto SignTextMod::relay_poll_client_snapshot(const std::string& reason) -> void
+    {
+        if (!relay_is_configured() || m_bridge_role != BridgeRole::RemoteClient)
+        {
+            return;
+        }
+
+        const auto response = RelayHttp::get(
+            relay_url("/v1/rooms/" + m_relay_room_id + "/client/snapshot"),
+            m_relay_shared_secret,
+            static_cast<unsigned long>(m_relay_poll_interval_ms));
+        if (!response.ok)
+        {
+            log_line("[relay] client_snapshot_get reason=" + reason +
+                     " ok=false status=" + std::to_string(response.status_code) +
+                     " error=" + (response.error.empty() ? "none" : response.error));
+            return;
+        }
+
+        const auto payloads = relay_extract_payloads(response.body);
+        if (!payloads.empty())
+        {
+            m_bridge_snapshot_active = true;
+            m_bridge_snapshot_seen_keys.clear();
+        }
+        for (const auto& payload : payloads)
+        {
+            handle_bridge_payload(payload);
+        }
+        m_relay_snapshot_received = m_relay_snapshot_received || !payloads.empty();
+        log_line("[relay] client_snapshot_applied reason=" + reason +
+                 " payloads=" + std::to_string(payloads.size()) +
+                 " received=" + std::string{m_relay_snapshot_received ? "true" : "false"});
+    }
+
+    auto SignTextMod::tick_relay() -> void
+    {
+        if (!m_relay_enabled)
+        {
+            return;
+        }
+
+        const auto now = std::chrono::steady_clock::now();
+        if (!relay_is_configured())
+        {
+            if (now - m_relay_last_status > std::chrono::seconds(20))
+            {
+                m_relay_last_status = now;
+                log_line("[relay] waiting reason=not_configured baseUrl=" +
+                         (m_relay_base_url.empty() ? "none" : m_relay_base_url) +
+                         " roomId=" + (m_relay_room_id.empty() ? "none" : m_relay_room_id) +
+                         " worldId=" + m_world_folder_id);
+            }
+            return;
+        }
+
+        if (m_relay_next_poll.time_since_epoch().count() == 0)
+        {
+            m_relay_next_poll = now;
+        }
+        if (m_relay_next_server_snapshot.time_since_epoch().count() == 0)
+        {
+            m_relay_next_server_snapshot = now;
+        }
+
+        if (now >= m_relay_next_poll)
+        {
+            if (m_bridge_role == BridgeRole::RemoteClient)
+            {
+                relay_poll_client_snapshot(m_relay_snapshot_received ? "periodic_poll" : "initial_poll");
+            }
+            else if (m_bridge_role == BridgeRole::DedicatedServer || m_bridge_role == BridgeRole::ListenHost)
+            {
+                relay_poll_server_requests();
+            }
+            m_relay_next_poll = now + std::chrono::milliseconds(m_relay_poll_interval_ms);
+        }
+
+        if ((m_bridge_role == BridgeRole::DedicatedServer || m_bridge_role == BridgeRole::ListenHost) &&
+            now >= m_relay_next_server_snapshot)
+        {
+            relay_publish_server_snapshot("periodic_publish");
+            m_relay_next_server_snapshot = now + std::chrono::seconds(30);
+        }
     }
 
     auto SignTextMod::configure_bridge_role(const std::string& reason) -> void
@@ -7152,6 +7437,9 @@ namespace WindroseTextSigns
         m_bridge_role = desired;
         NativeBridge::instance().set_role(desired);
         m_bridge_snapshot_received = false;
+        m_relay_snapshot_received = false;
+        m_relay_next_poll = std::chrono::steady_clock::now();
+        m_relay_next_server_snapshot = std::chrono::steady_clock::now();
         m_bridge_next_snapshot_request = std::chrono::steady_clock::now();
         log_line("[bridge] role_set reason=" + reason +
                  " role=" + bridge_role_name(m_bridge_role) +
@@ -7176,6 +7464,7 @@ namespace WindroseTextSigns
         const bool sent = NativeBridge::instance().send_to_server(payload.str());
         m_bridge_snapshot_active = true;
         m_bridge_snapshot_seen_keys.clear();
+        relay_poll_client_snapshot(reason);
         log_line("[bridge] snapshot_request reason=" + reason +
                  " sent=" + std::string{sent ? "true" : "false"} +
                  " role=" + bridge_role_name(m_bridge_role) +
@@ -7217,12 +7506,14 @@ namespace WindroseTextSigns
                 << ",\"lastSeen\":\"" << escape_json(rec.last_seen_utc) << "\""
                 << "}";
         const bool sent = NativeBridge::instance().send_to_server(payload.str());
+        const bool relay_sent = relay_post_client_payload(payload.str(), request_type);
         log_line("[bridge] client_request type=" + request_type +
                  " stableId=" + rec.stable_id +
                  " worldId=" + rec.world_id +
                  " sent=" + std::string{sent ? "true" : "false"} +
+                 " relaySent=" + std::string{relay_sent ? "true" : "false"} +
                  " textChars=" + std::to_string(rec.text.size()));
-        return sent;
+        return sent || relay_sent;
     }
 
     auto SignTextMod::broadcast_bridge_record(const LabelRecord& rec, const std::string& reason) -> void
@@ -7261,6 +7552,10 @@ namespace WindroseTextSigns
                 << ",\"reason\":\"" << escape_json(reason) << "\""
                 << "}";
         const bool sent = NativeBridge::instance().broadcast_to_clients(payload.str());
+        if (reason != "snapshot_request")
+        {
+            relay_publish_server_snapshot(reason);
+        }
         log_line("[bridge] broadcast_upsert reason=" + reason +
                  " stableId=" + rec.stable_id +
                  " worldId=" + rec.world_id +
@@ -7284,6 +7579,7 @@ namespace WindroseTextSigns
                 << ",\"reason\":\"" << escape_json(reason) << "\""
                 << "}";
         const bool sent = NativeBridge::instance().broadcast_to_clients(payload.str());
+        relay_publish_server_snapshot(reason);
         log_line("[bridge] broadcast_clear reason=" + reason +
                  " stableId=" + stable_id +
                  " worldId=" + world_id +
@@ -7312,6 +7608,7 @@ namespace WindroseTextSigns
                 << ",\"reason\":\"" << escape_json(reason) << "\""
                 << "}";
         const bool sent = NativeBridge::instance().broadcast_to_clients(payload.str());
+        relay_publish_server_snapshot(reason);
         log_line("[bridge] broadcast_snapshot reason=" + reason +
                  " records=" + std::to_string(count) +
                  " revision=" + std::to_string(m_revision) +
@@ -7833,6 +8130,8 @@ namespace WindroseTextSigns
             send_bridge_snapshot_request(m_bridge_snapshot_received ? "periodic_sync" : "initial_sync");
             m_bridge_next_snapshot_request = now + (m_bridge_snapshot_received ? std::chrono::seconds(30) : std::chrono::seconds(5));
         }
+
+        tick_relay();
 
         if (now - m_bridge_last_status > std::chrono::seconds(20))
         {

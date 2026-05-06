@@ -170,6 +170,15 @@ namespace WindroseTextSigns
         auto configure_bridge_role(const std::string& reason) -> void;
         auto tick_bridge() -> void;
         auto refresh_relay_room_id(const std::string& reason) -> void;
+        auto relay_is_configured() const -> bool;
+        auto relay_url(const std::string& path_and_query) const -> std::string;
+        auto relay_extract_payloads(const std::string& json) const -> std::vector<std::string>;
+        auto relay_extract_max_seq(const std::string& json) const -> int;
+        auto relay_post_client_payload(const std::string& payload, const std::string& reason) -> bool;
+        auto relay_publish_server_snapshot(const std::string& reason) -> void;
+        auto relay_poll_server_requests() -> void;
+        auto relay_poll_client_snapshot(const std::string& reason) -> void;
+        auto tick_relay() -> void;
         auto send_bridge_snapshot_request(const std::string& reason) -> void;
         auto send_bridge_record_request(const std::string& request_type, const LabelRecord& rec) -> bool;
         auto broadcast_bridge_record(const LabelRecord& rec, const std::string& reason) -> void;
@@ -215,6 +224,12 @@ namespace WindroseTextSigns
         std::string m_relay_base_url{};
         std::string m_relay_shared_secret{};
         std::string m_relay_room_id{};
+        int m_relay_poll_interval_ms{5000};
+        int m_relay_last_request_seq{0};
+        bool m_relay_snapshot_received{false};
+        std::chrono::steady_clock::time_point m_relay_next_poll{};
+        std::chrono::steady_clock::time_point m_relay_next_server_snapshot{};
+        std::chrono::steady_clock::time_point m_relay_last_status{};
         std::chrono::steady_clock::time_point m_bridge_next_snapshot_request{};
         std::chrono::steady_clock::time_point m_bridge_last_status{};
         bool m_bridge_snapshot_received{false};
