@@ -108,6 +108,7 @@ namespace WindroseTextSigns
         auto run_six_sign_targeting_test() -> void;
         auto run_buildmenu_asset_probe() -> void;
         auto run_native_transport_inventory_probe(const std::string& reason) -> void;
+        auto poll_player_marker_log_action_trigger() -> void;
         auto tick_player_marker_replication_probe() -> void;
         auto tick_phase5_build_menu_selection_probe() -> void;
         auto is_restore_scan_world_active() -> bool;
@@ -296,7 +297,11 @@ namespace WindroseTextSigns
         std::chrono::steady_clock::time_point m_player_marker_replication_probe_next{};
         std::chrono::steady_clock::time_point m_player_marker_replication_probe_end{};
         std::chrono::steady_clock::time_point m_player_marker_replication_probe_last_summary{};
+        std::chrono::steady_clock::time_point m_player_marker_replication_probe_log_next{};
         std::unordered_map<std::string, std::string> m_player_marker_replication_probe_last{};
+        std::filesystem::path m_player_marker_replication_probe_log_path{};
+        uintmax_t m_player_marker_replication_probe_log_offset{0};
+        bool m_player_marker_replication_probe_log_initialized{false};
         std::chrono::steady_clock::time_point m_last_backup_snapshot{};
         std::string m_last_backup_signature{};
         bool m_runtime_text_label_patch_applied{false};

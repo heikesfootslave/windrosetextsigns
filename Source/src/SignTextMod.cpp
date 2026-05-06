@@ -5504,9 +5504,125 @@ namespace WindroseTextSigns
         log_line("[native-transport-probe] complete logged=" + std::to_string(logged));
     }
 
+    auto SignTextMod::poll_player_marker_log_action_trigger() -> void
+    {
+        if (!m_player_marker_replication_probe_action_trigger_enabled ||
+            m_player_marker_replication_probe_active ||
+            m_player_marker_replication_probe_ran ||
+            m_player_marker_replication_probe_requested.load())
+        {
+            return;
+        }
+
+        const auto now = std::chrono::steady_clock::now();
+        if (now < m_player_marker_replication_probe_log_next)
+        {
+            return;
+        }
+        m_player_marker_replication_probe_log_next = now + std::chrono::seconds(1);
+
+        if (m_player_marker_replication_probe_log_path.empty() ||
+            !std::filesystem::exists(m_player_marker_replication_probe_log_path))
+        {
+            std::vector<std::filesystem::path> candidates{};
+            const auto local_app_data = get_env_var("LOCALAPPDATA");
+            if (!local_app_data.empty())
+            {
+                candidates.push_back(std::filesystem::path{local_app_data} / "R5" / "Saved" / "Logs" / "R5.log");
+            }
+            const auto cwd = std::filesystem::current_path();
+            candidates.push_back(cwd / ".." / ".." / "Saved" / "Logs" / "R5.log");
+            candidates.push_back(cwd / "R5" / "Saved" / "Logs" / "R5.log");
+            candidates.push_back(cwd / "Saved" / "Logs" / "R5.log");
+
+            for (const auto& candidate : candidates)
+            {
+                std::error_code ec{};
+                const auto resolved = std::filesystem::weakly_canonical(candidate, ec);
+                const auto path = ec ? candidate : resolved;
+                if (std::filesystem::exists(path))
+                {
+                    m_player_marker_replication_probe_log_path = path;
+                    m_player_marker_replication_probe_log_initialized = false;
+                    log_line("[player-marker-replication-probe] log_trigger_path path=" + path.string());
+                    break;
+                }
+            }
+        }
+
+        if (m_player_marker_replication_probe_log_path.empty() ||
+            !std::filesystem::exists(m_player_marker_replication_probe_log_path))
+        {
+            return;
+        }
+
+        std::error_code size_ec{};
+        const auto size = std::filesystem::file_size(m_player_marker_replication_probe_log_path, size_ec);
+        if (size_ec)
+        {
+            return;
+        }
+
+        if (!m_player_marker_replication_probe_log_initialized ||
+            m_player_marker_replication_probe_log_offset > size)
+        {
+            m_player_marker_replication_probe_log_initialized = true;
+            m_player_marker_replication_probe_log_offset = size;
+            log_line("[player-marker-replication-probe] log_trigger_armed offset=" +
+                     std::to_string(static_cast<unsigned long long>(size)));
+            return;
+        }
+
+        if (size == m_player_marker_replication_probe_log_offset)
+        {
+            return;
+        }
+
+        std::ifstream input{m_player_marker_replication_probe_log_path, std::ios::binary};
+        if (!input)
+        {
+            return;
+        }
+        input.seekg(static_cast<std::streamoff>(m_player_marker_replication_probe_log_offset), std::ios::beg);
+        std::string chunk{};
+        chunk.resize(static_cast<size_t>(std::min<uintmax_t>(size - m_player_marker_replication_probe_log_offset, 65536)));
+        input.read(chunk.data(), static_cast<std::streamsize>(chunk.size()));
+        chunk.resize(static_cast<size_t>(std::max<std::streamsize>(0, input.gcount())));
+        m_player_marker_replication_probe_log_offset = size;
+        if (chunk.empty())
+        {
+            return;
+        }
+
+        auto tokens = config_string_value(
+            "WTS_PLAYER_MARKER_REPLICATION_PROBE_LOG_TOKENS",
+            "R5LogMeleeAbility,RuleRequestServer,R5BLPlayerInWorld_AddUserMarkerRule,R5BLPlayerInWorld_UpdateUserMarkerRule");
+        tokens += ",";
+        tokens += m_player_marker_replication_probe_action_tokens;
+        std::replace(tokens.begin(), tokens.end(), ';', ',');
+
+        const auto chunk_lower = lower_ascii(chunk);
+        std::istringstream token_rows{tokens};
+        std::string token{};
+        while (std::getline(token_rows, token, ','))
+        {
+            token = lower_ascii(trim_copy_ascii(token));
+            if (token.empty() || chunk_lower.find(token) == std::string::npos)
+            {
+                continue;
+            }
+
+            m_player_marker_replication_probe_requested.store(true);
+            log_line("[player-marker-replication-probe] log_action_trigger token=" + token +
+                     " bytesRead=" + std::to_string(chunk.size()));
+            return;
+        }
+    }
+
     auto SignTextMod::tick_player_marker_replication_probe() -> void
     {
         const auto now = std::chrono::steady_clock::now();
+        poll_player_marker_log_action_trigger();
         const bool requested = m_player_marker_replication_probe_requested.exchange(false);
         const auto start_mode = lower_ascii(config_string_value("WTS_PLAYER_MARKER_REPLICATION_PROBE_START", "action"));
         const bool should_start_from_config =
