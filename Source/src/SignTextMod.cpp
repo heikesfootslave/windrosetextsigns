@@ -334,6 +334,237 @@ namespace
         paths.push_back(path);
     }
 
+    struct BridgeRouteDiscovery
+    {
+        bool found{false};
+        std::filesystem::path log_path{};
+        std::string host{};
+        std::string reason{};
+        std::string remote_host_candidate{};
+        std::string remote_public_candidate{};
+        std::string local_host_summary{};
+    };
+
+    auto parse_ipv4_octets(const std::string& ip) -> std::optional<std::array<int, 4>>
+    {
+        std::array<int, 4> out{};
+        std::istringstream input{ip};
+        std::string part{};
+        for (size_t i = 0; i < out.size(); ++i)
+        {
+            if (!std::getline(input, part, '.'))
+            {
+                return std::nullopt;
+            }
+            if (part.empty() || part.size() > 3 ||
+                !std::all_of(part.begin(), part.end(), [](unsigned char c) { return std::isdigit(c) != 0; }))
+            {
+                return std::nullopt;
+            }
+            const auto value = std::stoi(part);
+            if (value < 0 || value > 255)
+            {
+                return std::nullopt;
+            }
+            out[i] = value;
+        }
+        if (std::getline(input, part, '.'))
+        {
+            return std::nullopt;
+        }
+        return out;
+    }
+
+    auto is_private_ipv4(const std::string& ip) -> bool
+    {
+        const auto parsed = parse_ipv4_octets(ip);
+        if (!parsed)
+        {
+            return false;
+        }
+        const auto& o = *parsed;
+        return o[0] == 10 ||
+               (o[0] == 172 && o[1] >= 16 && o[1] <= 31) ||
+               (o[0] == 192 && o[1] == 168) ||
+               (o[0] == 169 && o[1] == 254);
+    }
+
+    auto is_public_ipv4(const std::string& ip) -> bool
+    {
+        const auto parsed = parse_ipv4_octets(ip);
+        if (!parsed)
+        {
+            return false;
+        }
+        const auto& o = *parsed;
+        if (o[0] == 0 || o[0] == 127 || o[0] >= 224)
+        {
+            return false;
+        }
+        return !is_private_ipv4(ip);
+    }
+
+    auto is_same_lan_hint(const std::string& a, const std::string& b) -> bool
+    {
+        const auto left = parse_ipv4_octets(a);
+        const auto right = parse_ipv4_octets(b);
+        if (!left || !right || !is_private_ipv4(a) || !is_private_ipv4(b))
+        {
+            return false;
+        }
+        return (*left)[0] == (*right)[0] && (*left)[1] == (*right)[1] && (*left)[2] == (*right)[2];
+    }
+
+    auto summarize_ips(const std::vector<std::string>& ips) -> std::string
+    {
+        if (ips.empty())
+        {
+            return "none";
+        }
+        std::string out{};
+        for (const auto& ip : ips)
+        {
+            if (!out.empty())
+            {
+                out += ",";
+            }
+            out += ip;
+        }
+        return out;
+    }
+
+    auto collect_r5_log_candidates(const std::filesystem::path& preferred) -> std::vector<std::filesystem::path>
+    {
+        std::vector<std::filesystem::path> candidates{};
+        if (!preferred.empty())
+        {
+            append_unique_path(candidates, preferred);
+        }
+
+        const auto local_app_data = get_env_var("LOCALAPPDATA");
+        if (!local_app_data.empty())
+        {
+            append_unique_path(candidates, std::filesystem::path{local_app_data} / "R5" / "Saved" / "Logs" / "R5.log");
+        }
+
+        const auto cwd = std::filesystem::current_path();
+        append_unique_path(candidates, cwd / ".." / ".." / "Saved" / "Logs" / "R5.log");
+        append_unique_path(candidates, cwd / "R5" / "Saved" / "Logs" / "R5.log");
+        append_unique_path(candidates, cwd / "Saved" / "Logs" / "R5.log");
+        return candidates;
+    }
+
+    auto discover_bridge_route_from_r5_log(const std::filesystem::path& preferred) -> BridgeRouteDiscovery
+    {
+        static const std::regex candidate_rx{
+            R"(\b(?:UDP|TCP)\s+([0-9]{1,3}(?:\.[0-9]{1,3}){3}):([0-9]+)\s+[A-Fa-f0-9]+\s+\d+\s+(host|srflx)\b)",
+            std::regex::icase};
+
+        for (const auto& candidate_path : collect_r5_log_candidates(preferred))
+        {
+            std::string content{};
+            if (!read_text_file(candidate_path, content))
+            {
+                continue;
+            }
+
+            std::vector<std::string> local_hosts{};
+            std::string remote_host{};
+            std::string remote_public{};
+            std::istringstream lines{content};
+            std::string line{};
+            while (std::getline(lines, line))
+            {
+                const bool local_line = line.find("Added Local Ice Candidates") != std::string::npos;
+                const bool remote_line =
+                    line.find("SetRemoteIceData") != std::string::npos ||
+                    line.find("Added remote candidates") != std::string::npos;
+                if (!local_line && !remote_line)
+                {
+                    continue;
+                }
+
+                for (auto it = std::sregex_iterator(line.begin(), line.end(), candidate_rx);
+                     it != std::sregex_iterator{};
+                     ++it)
+                {
+                    if (it->size() < 4)
+                    {
+                        continue;
+                    }
+                    const auto ip = (*it)[1].str();
+                    auto type = (*it)[3].str();
+                    std::transform(type.begin(), type.end(), type.begin(), [](unsigned char c) {
+                        return static_cast<char>(std::tolower(c));
+                    });
+
+                    if (local_line && type == "host")
+                    {
+                        if (std::find(local_hosts.begin(), local_hosts.end(), ip) == local_hosts.end())
+                        {
+                            local_hosts.push_back(ip);
+                        }
+                    }
+                    else if (remote_line && type == "host")
+                    {
+                        remote_host = ip;
+                    }
+                    else if (remote_line && type == "srflx" && is_public_ipv4(ip))
+                    {
+                        remote_public = ip;
+                    }
+                }
+            }
+
+            BridgeRouteDiscovery result{};
+            result.log_path = candidate_path;
+            result.remote_host_candidate = remote_host;
+            result.remote_public_candidate = remote_public;
+            result.local_host_summary = summarize_ips(local_hosts);
+
+            if (!remote_host.empty() &&
+                std::find(local_hosts.begin(), local_hosts.end(), remote_host) != local_hosts.end())
+            {
+                result.found = true;
+                result.host = "127.0.0.1";
+                result.reason = "same_machine_host_candidate";
+                return result;
+            }
+
+            if (!remote_host.empty())
+            {
+                for (const auto& local_host : local_hosts)
+                {
+                    if (is_same_lan_hint(local_host, remote_host))
+                    {
+                        result.found = true;
+                        result.host = remote_host;
+                        result.reason = "same_lan_host_candidate";
+                        return result;
+                    }
+                }
+            }
+
+            if (!remote_public.empty())
+            {
+                result.found = true;
+                result.host = remote_public;
+                result.reason = "public_srflx_candidate";
+                return result;
+            }
+
+            if (!remote_host.empty())
+            {
+                result.found = true;
+                result.host = remote_host;
+                result.reason = "remote_host_fallback";
+                return result;
+            }
+        }
+
+        return {};
+    }
+
     auto get_env_var(const char* name) -> std::string
     {
         if (!name || !*name)
@@ -3459,7 +3690,13 @@ namespace WindroseTextSigns
         const auto hotkey_config_value = config_string_value("WTS_HOTKEY", "F8");
         m_hotkey_vk = hotkey_vk_from_config(hotkey_config_value, k_default_hotkey_vk);
         m_hotkey_name = display_name_for_vk(m_hotkey_vk);
-        m_bridge_remote_server_host = config_string_value("WTS_BRIDGE_SERVER_HOST", "127.0.0.1");
+        m_bridge_remote_server_host_config = config_string_value("WTS_BRIDGE_SERVER_HOST", "auto");
+        const auto bridge_host_config_lower = lower_copy_ascii(trim_copy_ascii(m_bridge_remote_server_host_config));
+        m_bridge_route_auto_enabled =
+            bridge_host_config_lower.empty() ||
+            bridge_host_config_lower == "auto" ||
+            bridge_host_config_lower == "discover";
+        m_bridge_remote_server_host = m_bridge_route_auto_enabled ? "127.0.0.1" : m_bridge_remote_server_host_config;
         m_bridge_udp_port = std::clamp(
             safe_stoi(config_string_value("WTS_BRIDGE_UDP_PORT", "45801"), 45801),
             1,
@@ -3503,6 +3740,8 @@ namespace WindroseTextSigns
                  " transport=cloudflare-http-poll status=scaffold");
         log_line("[bridge] config udpPort=" + std::to_string(m_bridge_udp_port) +
                  " remoteServerHost=" + (m_bridge_remote_server_host.empty() ? "none" : m_bridge_remote_server_host) +
+                 " configuredHost=" + (m_bridge_remote_server_host_config.empty() ? "none" : m_bridge_remote_server_host_config) +
+                 " autoRoute=" + std::string{m_bridge_route_auto_enabled ? "true" : "false"} +
                  " upnpEnabled=" + std::string{m_bridge_upnp_enabled ? "true" : "false"});
         log_line("[save] data_root=" + m_data_root.string() +
                  " sidecar=" + m_sidecar_path.string() +
@@ -8310,9 +8549,63 @@ namespace WindroseTextSigns
                  " role=" + bridge_role_name(m_bridge_role));
     }
 
+    auto SignTextMod::tick_bridge_route_discovery() -> void
+    {
+        if (!m_bridge_route_auto_enabled || m_bridge_role != BridgeRole::RemoteClient)
+        {
+            return;
+        }
+
+        const auto now = std::chrono::steady_clock::now();
+        if (now < m_bridge_route_next_check)
+        {
+            return;
+        }
+        m_bridge_route_next_check = now + std::chrono::seconds(5);
+
+        const auto discovered = discover_bridge_route_from_r5_log(m_bridge_route_log_path);
+        if (!discovered.log_path.empty())
+        {
+            m_bridge_route_log_path = discovered.log_path;
+        }
+
+        if (!discovered.found || discovered.host.empty())
+        {
+            log_line("[bridge-route] waiting reason=no_candidate logPath=" +
+                     (m_bridge_route_log_path.empty() ? "unknown" : m_bridge_route_log_path.string()));
+            return;
+        }
+
+        if (discovered.host == m_bridge_route_last_discovered_host &&
+            discovered.host == m_bridge_remote_server_host)
+        {
+            return;
+        }
+
+        m_bridge_route_last_discovered_host = discovered.host;
+        if (discovered.host != m_bridge_remote_server_host)
+        {
+            m_bridge_remote_server_host = discovered.host;
+            NativeBridge::instance().set_remote_server(
+                m_bridge_remote_server_host,
+                static_cast<uint16_t>(m_bridge_udp_port));
+            m_bridge_next_snapshot_request = now;
+            m_bridge_snapshot_received = false;
+        }
+
+        log_line("[bridge-route] discovered host=" + m_bridge_remote_server_host +
+                 " reason=" + discovered.reason +
+                 " port=" + std::to_string(m_bridge_udp_port) +
+                 " logPath=" + (discovered.log_path.empty() ? "unknown" : discovered.log_path.string()) +
+                 " remoteHostCandidate=" + (discovered.remote_host_candidate.empty() ? "none" : discovered.remote_host_candidate) +
+                 " remotePublicCandidate=" + (discovered.remote_public_candidate.empty() ? "none" : discovered.remote_public_candidate) +
+                 " localHosts=" + discovered.local_host_summary);
+    }
+
     auto SignTextMod::tick_bridge() -> void
     {
         configure_bridge_role("tick");
+        tick_bridge_route_discovery();
         const auto payloads = NativeBridge::instance().poll_incoming();
         for (const auto& payload : payloads)
         {

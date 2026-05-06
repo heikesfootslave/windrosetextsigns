@@ -189,6 +189,7 @@ namespace WindroseTextSigns
         auto sanitize_backup_reason(std::string reason) const -> std::string;
 
         auto configure_bridge_role(const std::string& reason) -> void;
+        auto tick_bridge_route_discovery() -> void;
         auto tick_bridge() -> void;
         auto refresh_relay_room_id(const std::string& reason) -> void;
         auto relay_is_configured() const -> bool;
@@ -247,6 +248,11 @@ namespace WindroseTextSigns
         std::string m_session_id{};
         BridgeRole m_bridge_role{BridgeRole::Unknown};
         std::string m_bridge_remote_server_host{"127.0.0.1"};
+        std::string m_bridge_remote_server_host_config{"127.0.0.1"};
+        bool m_bridge_route_auto_enabled{false};
+        std::filesystem::path m_bridge_route_log_path{};
+        std::chrono::steady_clock::time_point m_bridge_route_next_check{};
+        std::string m_bridge_route_last_discovered_host{};
         int m_bridge_udp_port{45801};
         bool m_bridge_upnp_enabled{false};
         bool m_bridge_upnp_attempted{false};
