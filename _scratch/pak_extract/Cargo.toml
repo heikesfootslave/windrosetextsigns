@@ -1,7 +1,0 @@
-[package]
-name = "pak_extract"
-version = "0.1.0"
-edition = "2021"
-
-[dependencies]
-unpak = "1.0.5"

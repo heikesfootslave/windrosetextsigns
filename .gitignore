@@ -1,6 +1,15 @@
 # Build and runtime outputs
 build_logs/
 Deployments/
+_scratch/
+assets/
+build_scripts/
+design/
+tools/
+relay/cloudflare-worker/
+LuaMods/
+enabled.txt
+*.ps1
 
 # Compiled module outputs
 dlls/*.dll

@@ -1,1 +1,0 @@
-C:\Users\User\Documents\Windrose\ Addons\WindroseTextSigns\_scratch\pak_extract\target\debug\pak_extract.exe: C:\Users\User\Documents\Windrose\ Addons\WindroseTextSigns\_scratch\pak_extract\src\main.rs
