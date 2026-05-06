@@ -97,6 +97,8 @@ namespace WindroseTextSigns
         auto is_hide_native_label_icon_enabled() const -> bool;
         auto is_label_text_visual_diagnostics_enabled() const -> bool;
         auto is_native_transport_inventory_probe_enabled() const -> bool;
+        auto is_player_marker_replication_probe_enabled() const -> bool;
+        auto is_player_marker_replication_probe_action_trigger_enabled() const -> bool;
         auto config_bool_value(std::string_view key, bool fallback) const -> bool;
         auto config_string_value(std::string_view key, std::string fallback) const -> std::string;
 
@@ -106,6 +108,7 @@ namespace WindroseTextSigns
         auto run_six_sign_targeting_test() -> void;
         auto run_buildmenu_asset_probe() -> void;
         auto run_native_transport_inventory_probe(const std::string& reason) -> void;
+        auto tick_player_marker_replication_probe() -> void;
         auto tick_phase5_build_menu_selection_probe() -> void;
         auto is_restore_scan_world_active() -> bool;
         auto ensure_selected_label_for_action(const std::string& action_name) -> bool;
@@ -216,6 +219,7 @@ namespace WindroseTextSigns
         std::atomic<bool> m_six_sign_test_requested{false};
         std::atomic<bool> m_buildmenu_probe_requested{false};
         std::atomic<bool> m_native_transport_inventory_requested{false};
+        std::atomic<bool> m_player_marker_replication_probe_requested{false};
         std::atomic<bool> m_phase7_enter_requested{false};
         std::atomic<bool> m_phase7_escape_requested{false};
         uint32_t m_hotkey_retry_remaining{0};
@@ -233,6 +237,11 @@ namespace WindroseTextSigns
         bool m_label_text_visual_diagnostics_enabled{false};
         bool m_native_transport_inventory_probe_enabled{false};
         bool m_native_transport_inventory_probe_ran{false};
+        bool m_player_marker_replication_probe_enabled{false};
+        bool m_player_marker_replication_probe_action_trigger_enabled{false};
+        bool m_player_marker_replication_probe_active{false};
+        bool m_player_marker_replication_probe_ran{false};
+        std::string m_player_marker_replication_probe_action_tokens{};
         int m_hotkey_vk{0x77};
         std::string m_hotkey_name{"F8"};
         bool m_hotkey_poll_was_down{false};
@@ -284,6 +293,10 @@ namespace WindroseTextSigns
         std::chrono::steady_clock::time_point m_phase5_build_menu_selection_probe_next{};
         std::chrono::steady_clock::time_point m_phase5_build_menu_selection_probe_last_summary{};
         std::unordered_map<std::string, std::string> m_phase5_build_menu_selection_probe_last{};
+        std::chrono::steady_clock::time_point m_player_marker_replication_probe_next{};
+        std::chrono::steady_clock::time_point m_player_marker_replication_probe_end{};
+        std::chrono::steady_clock::time_point m_player_marker_replication_probe_last_summary{};
+        std::unordered_map<std::string, std::string> m_player_marker_replication_probe_last{};
         std::chrono::steady_clock::time_point m_last_backup_snapshot{};
         std::string m_last_backup_signature{};
         bool m_runtime_text_label_patch_applied{false};

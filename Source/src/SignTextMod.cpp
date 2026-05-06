@@ -31,6 +31,7 @@
 #include <Unreal/Property/FNameProperty.hpp>
 #include <Unreal/Property/FObjectProperty.hpp>
 #include <Unreal/Property/FStructProperty.hpp>
+#include <Unreal/Property/FStrProperty.hpp>
 #include <Unreal/Property/FTextProperty.hpp>
 #include <Unreal/Transform.hpp>
 #include <Unreal/UActorComponent.hpp>
@@ -1296,6 +1297,12 @@ namespace
             if (has(CPF_ConstParm)) { append_flag_name(out, "Const"); }
             if (has(CPF_ReferenceParm)) { append_flag_name(out, "Ref"); }
             if (has(CPF_Net)) { append_flag_name(out, "Net"); }
+            if (has(CPF_RepNotify)) { append_flag_name(out, "RepNotify"); }
+            if (has(CPF_RepSkip)) { append_flag_name(out, "RepSkip"); }
+            if (has(CPF_SaveGame)) { append_flag_name(out, "SaveGame"); }
+            if (has(CPF_Transient)) { append_flag_name(out, "Transient"); }
+            if (has(CPF_BlueprintVisible)) { append_flag_name(out, "BlueprintVisible"); }
+            if (has(CPF_Edit)) { append_flag_name(out, "Edit"); }
 
             std::ostringstream hex{};
             hex << "0x" << std::uppercase << std::hex << flags;
@@ -1349,6 +1356,267 @@ namespace
         }
 
         return score;
+    }
+
+    auto to_hex_guid(const FGuid& guid) -> std::string;
+
+    auto is_player_marker_probe_object_candidate(
+        const std::string& full_name_lower,
+        const std::string& class_name_lower,
+        const std::string& outer_name_lower) -> bool
+    {
+        const auto haystack = full_name_lower + " " + class_name_lower + " " + outer_name_lower;
+        if (haystack.find("default__") != std::string::npos)
+        {
+            return false;
+        }
+
+        if (contains_any_token(haystack, {
+                "r5markermodelpawn",
+                "r5markermodelship",
+                "r5markermodeluser",
+                "r5markercomponent",
+                "r5playerstate",
+                "r5playercontroller",
+                "mapcontroller",
+                "playercontroller",
+                "playerstate"}))
+        {
+            return true;
+        }
+
+        return contains_any_token(haystack, {"marker", "map"}) &&
+            contains_any_token(haystack, {"player", "pawn", "ship", "party", "account", "owner"});
+    }
+
+    auto is_player_marker_probe_property_candidate(FProperty* prop) -> bool
+    {
+        if (!prop)
+        {
+            return false;
+        }
+
+        const auto prop_name_lower = lower_copy_ascii(RC::to_string(prop->GetName()));
+        const auto prop_class_lower = lower_copy_ascii(RC::to_string(prop->GetClass().GetName()));
+        const auto flags = static_cast<uint64_t>(prop->GetPropertyFlags());
+        const bool replicatedish =
+            (flags & static_cast<uint64_t>(CPF_Net)) != 0ULL ||
+            (flags & static_cast<uint64_t>(CPF_RepNotify)) != 0ULL;
+        const bool stringish = contains_any_token(prop_class_lower, {
+            "strproperty",
+            "textproperty",
+            "nameproperty"});
+        const bool objectish = contains_any_token(prop_class_lower, {
+            "objectproperty",
+            "classproperty"});
+        const bool numericish = contains_any_token(prop_class_lower, {
+            "boolproperty",
+            "floatproperty",
+            "doubleproperty",
+            "intproperty",
+            "uint32property",
+            "uint64property",
+            "byteproperty",
+            "enumproperty"});
+        const bool vectorish =
+            prop->GetSize() >= FVector::StaticSize() &&
+            contains_any_token(prop_name_lower + " " + prop_class_lower, {
+                "location",
+                "position",
+                "vector",
+                "transform",
+                "rotation",
+                "rotator"});
+        const bool name_interesting = contains_any_token(prop_name_lower, {
+            "player",
+            "pawn",
+            "controller",
+            "marker",
+            "map",
+            "location",
+            "position",
+            "rotation",
+            "transform",
+            "velocity",
+            "ship",
+            "island",
+            "world",
+            "party",
+            "team",
+            "owner",
+            "account",
+            "name",
+            "display",
+            "icon",
+            "visible",
+            "selected",
+            "target",
+            "id",
+            "guid",
+            "state"});
+
+        return replicatedish || ((stringish || objectish || numericish || vectorish) && name_interesting);
+    }
+
+    auto truncate_probe_value(std::string value, const size_t max_len = 220) -> std::string
+    {
+        std::replace(value.begin(), value.end(), '\n', ' ');
+        std::replace(value.begin(), value.end(), '\r', ' ');
+        if (value.size() > max_len)
+        {
+            value.resize(max_len);
+            value += "...";
+        }
+        return value;
+    }
+
+    auto try_extract_player_marker_probe_property_value(FProperty* prop, void* container) -> std::optional<std::string>
+    {
+        if (!prop || !container)
+        {
+            return std::nullopt;
+        }
+
+        try
+        {
+            const auto prop_hash = prop->GetClass().HashObject();
+            const auto prop_name_lower = lower_copy_ascii(RC::to_string(prop->GetName()));
+            const auto prop_class_lower = lower_copy_ascii(RC::to_string(prop->GetClass().GetName()));
+
+            if (prop_hash == FNameProperty::StaticClass().HashObject())
+            {
+                if (auto* value = prop->ContainerPtrToValuePtr<FName>(container))
+                {
+                    return truncate_probe_value("name=" + RC::to_string(value->ToString()));
+                }
+                return std::nullopt;
+            }
+            if (prop_hash == FTextProperty::StaticClass().HashObject())
+            {
+                if (auto* value = prop->ContainerPtrToValuePtr<FText>(container))
+                {
+                    return truncate_probe_value("text=" + RC::to_string(value->ToString()));
+                }
+                return std::nullopt;
+            }
+            if (prop_hash == FStrProperty::StaticClass().HashObject())
+            {
+                if (auto* value = prop->ContainerPtrToValuePtr<FString>(container))
+                {
+                    return truncate_probe_value("str=" + RC::to_string(**value));
+                }
+                return std::nullopt;
+            }
+            if (prop_hash == FObjectProperty::StaticClass().HashObject())
+            {
+                if (auto* obj_ptr = prop->ContainerPtrToValuePtr<UObject*>(container); obj_ptr && *obj_ptr)
+                {
+                    return truncate_probe_value("obj=" + RC::to_string((*obj_ptr)->GetFullName()));
+                }
+                return std::string{"obj=null"};
+            }
+            if (prop_hash == FClassProperty::StaticClass().HashObject())
+            {
+                if (auto* class_ptr = prop->ContainerPtrToValuePtr<UClass*>(container); class_ptr && *class_ptr)
+                {
+                    return truncate_probe_value("class=" + RC::to_string((*class_ptr)->GetFullName()));
+                }
+                return std::string{"class=null"};
+            }
+            if (prop_hash == FBoolProperty::StaticClass().HashObject())
+            {
+                if (auto* bool_prop = static_cast<FBoolProperty*>(prop))
+                {
+                    if (auto* storage = prop->ContainerPtrToValuePtr<void>(container))
+                    {
+                        return std::string{"bool="} + (bool_prop->GetPropertyValue(storage) ? "true" : "false");
+                    }
+                }
+                return std::nullopt;
+            }
+            if (prop_hash == FStructProperty::StaticClass().HashObject() &&
+                prop->GetSize() >= FVector::StaticSize() &&
+                contains_any_token(prop_name_lower + " " + prop_class_lower, {"location", "position", "vector"}))
+            {
+                if (auto* value = prop->ContainerPtrToValuePtr<FVector>(container))
+                {
+                    std::ostringstream out{};
+                    out << std::fixed << std::setprecision(1)
+                        << "vec=(" << value->GetX() << "," << value->GetY() << "," << value->GetZ() << ")";
+                    return out.str();
+                }
+                return std::nullopt;
+            }
+            if (prop_hash == FStructProperty::StaticClass().HashObject() &&
+                prop->GetSize() >= static_cast<int32_t>(sizeof(FRotator)) &&
+                contains_any_token(prop_name_lower + " " + prop_class_lower, {"rotation", "rotator"}))
+            {
+                if (auto* value = prop->ContainerPtrToValuePtr<FRotator>(container))
+                {
+                    std::ostringstream out{};
+                    out << std::fixed << std::setprecision(1)
+                        << "rot=(" << value->GetPitch() << "," << value->GetYaw() << "," << value->GetRoll() << ")";
+                    return out.str();
+                }
+                return std::nullopt;
+            }
+            if (prop_hash == FStructProperty::StaticClass().HashObject() &&
+                prop->GetSize() >= static_cast<int32_t>(sizeof(FGuid)) &&
+                contains_any_token(prop_name_lower + " " + prop_class_lower, {"guid", "id"}))
+            {
+                if (auto* value = prop->ContainerPtrToValuePtr<FGuid>(container))
+                {
+                    return "guid=" + to_hex_guid(*value);
+                }
+                return std::nullopt;
+            }
+
+            if (contains_any_token(prop_class_lower, {"floatproperty"}) && prop->GetSize() == static_cast<int32_t>(sizeof(float)))
+            {
+                if (auto* value = prop->ContainerPtrToValuePtr<float>(container))
+                {
+                    std::ostringstream out{};
+                    out << std::fixed << std::setprecision(3) << "float=" << *value;
+                    return out.str();
+                }
+            }
+            if (contains_any_token(prop_class_lower, {"doubleproperty"}) && prop->GetSize() == static_cast<int32_t>(sizeof(double)))
+            {
+                if (auto* value = prop->ContainerPtrToValuePtr<double>(container))
+                {
+                    std::ostringstream out{};
+                    out << std::fixed << std::setprecision(3) << "double=" << *value;
+                    return out.str();
+                }
+            }
+            if (contains_any_token(prop_class_lower, {"intproperty"}) && prop->GetSize() == static_cast<int32_t>(sizeof(int32_t)))
+            {
+                if (auto* value = prop->ContainerPtrToValuePtr<int32_t>(container))
+                {
+                    return "int=" + std::to_string(*value);
+                }
+            }
+            if (contains_any_token(prop_class_lower, {"uint32property"}) && prop->GetSize() == static_cast<int32_t>(sizeof(uint32_t)))
+            {
+                if (auto* value = prop->ContainerPtrToValuePtr<uint32_t>(container))
+                {
+                    return "uint32=" + std::to_string(*value);
+                }
+            }
+            if (contains_any_token(prop_class_lower, {"byteproperty", "enumproperty"}) && prop->GetSize() == static_cast<int32_t>(sizeof(uint8_t)))
+            {
+                if (auto* value = prop->ContainerPtrToValuePtr<uint8_t>(container))
+                {
+                    return "byte=" + std::to_string(static_cast<uint32_t>(*value));
+                }
+            }
+        }
+        catch (...)
+        {
+            return std::string{"unreadable"};
+        }
+
+        return std::nullopt;
     }
 
     auto to_hex_guid(const FGuid& guid) -> std::string
@@ -2905,6 +3173,21 @@ namespace WindroseTextSigns
         return config_bool_value("WTS_NATIVE_TRANSPORT_INVENTORY_PROBE", false);
     }
 
+    auto SignTextMod::is_player_marker_replication_probe_enabled() const -> bool
+    {
+        return config_bool_value("WTS_PLAYER_MARKER_REPLICATION_PROBE", false);
+    }
+
+    auto SignTextMod::is_player_marker_replication_probe_action_trigger_enabled() const -> bool
+    {
+        if (!is_player_marker_replication_probe_enabled())
+        {
+            return false;
+        }
+        const auto mode = lower_ascii(config_string_value("WTS_PLAYER_MARKER_REPLICATION_PROBE_START", "action"));
+        return mode == "action" || mode == "playeraction" || mode == "player_action";
+    }
+
     auto SignTextMod::now_utc() const -> std::string
     {
         const auto now = std::time(nullptr);
@@ -2983,6 +3266,11 @@ namespace WindroseTextSigns
         m_hide_native_label_icon_enabled = is_hide_native_label_icon_enabled();
         m_label_text_visual_diagnostics_enabled = is_label_text_visual_diagnostics_enabled();
         m_native_transport_inventory_probe_enabled = is_native_transport_inventory_probe_enabled();
+        m_player_marker_replication_probe_enabled = is_player_marker_replication_probe_enabled();
+        m_player_marker_replication_probe_action_trigger_enabled = is_player_marker_replication_probe_action_trigger_enabled();
+        m_player_marker_replication_probe_action_tokens = config_string_value(
+            "WTS_PLAYER_MARKER_REPLICATION_PROBE_ACTION_TOKENS",
+            "melee,attack,weapon,swing,ability,combat,primaryfire,fire,dodge,jump");
         const auto hotkey_config_value = config_string_value("WTS_HOTKEY", "F8");
         m_hotkey_vk = hotkey_vk_from_config(hotkey_config_value, k_default_hotkey_vk);
         m_hotkey_name = display_name_for_vk(m_hotkey_vk);
@@ -2999,7 +3287,7 @@ namespace WindroseTextSigns
         }
 
         open_log();
-        log_line(std::string{"[build] version=0.1.2-prototype compiled="} + __DATE__ + " " + __TIME__ + " flags=configurable-hotkey,phase2-role-aware-sidecar,remote-cache-routing,staticconstruct-gated,phase6-native-udp-bridge,phase7-umg-no-llhook,dedicated-no-render-components,phase4-marker-guard,restore-scan-diag,phase5-placement-probe,phase5-build-menu-selection-probe,label-text-native-icon-hide");
+        log_line(std::string{"[build] version=0.1.2-prototype compiled="} + __DATE__ + " " + __TIME__ + " flags=configurable-hotkey,phase2-role-aware-sidecar,remote-cache-routing,staticconstruct-gated,phase6-native-udp-bridge,phase7-umg-no-llhook,dedicated-no-render-components,phase4-marker-guard,restore-scan-diag,phase5-placement-probe,phase5-build-menu-selection-probe,label-text-native-icon-hide,player-marker-replication-probe");
         log_line("[role] runtimeRole=" + m_runtime_role +
                  " dataMode=" + m_data_mode +
                  " authorityMode=" + m_authority_mode +
@@ -3023,6 +3311,12 @@ namespace WindroseTextSigns
                  std::string{m_label_text_visual_diagnostics_enabled ? "true" : "false"});
         log_line("[native-transport-probe] config enabled=" +
                  std::string{m_native_transport_inventory_probe_enabled ? "true" : "false"});
+        log_line("[player-marker-replication-probe] config enabled=" +
+                 std::string{m_player_marker_replication_probe_enabled ? "true" : "false"} +
+                 " startMode=" + config_string_value("WTS_PLAYER_MARKER_REPLICATION_PROBE_START", "action") +
+                 " actionTrigger=" +
+                 std::string{m_player_marker_replication_probe_action_trigger_enabled ? "true" : "false"} +
+                 " actionTokens=" + m_player_marker_replication_probe_action_tokens);
         log_line("[input] hotkey config=" + hotkey_config_value +
                  " resolved=" + m_hotkey_name +
                  " vk=" + std::to_string(m_hotkey_vk));
@@ -3717,7 +4011,9 @@ namespace WindroseTextSigns
 
     auto SignTextMod::install_process_event_probe() -> void
     {
-        if (!is_process_event_probe_enabled() && !m_phase5_placement_probe_enabled)
+        if (!is_process_event_probe_enabled() &&
+            !m_phase5_placement_probe_enabled &&
+            !m_player_marker_replication_probe_action_trigger_enabled)
         {
             log_line("[probe] ProcessEvent pre-probe skipped reason=disabled");
             return;
@@ -3740,7 +4036,9 @@ namespace WindroseTextSigns
             return;
         }
         log_line("[probe] ProcessEvent pre-probe installed id=" + std::to_string(m_process_event_probe_id) +
-                 " phase5Placement=" + std::string{m_phase5_placement_probe_enabled ? "true" : "false"});
+                 " phase5Placement=" + std::string{m_phase5_placement_probe_enabled ? "true" : "false"} +
+                 " playerMarkerActionTrigger=" +
+                 std::string{m_player_marker_replication_probe_action_trigger_enabled ? "true" : "false"});
     }
 
     auto SignTextMod::install_static_construct_probe() -> void
@@ -5206,6 +5504,285 @@ namespace WindroseTextSigns
         log_line("[native-transport-probe] complete logged=" + std::to_string(logged));
     }
 
+    auto SignTextMod::tick_player_marker_replication_probe() -> void
+    {
+        const auto now = std::chrono::steady_clock::now();
+        const bool requested = m_player_marker_replication_probe_requested.exchange(false);
+        const auto start_mode = lower_ascii(config_string_value("WTS_PLAYER_MARKER_REPLICATION_PROBE_START", "action"));
+        const bool should_start_from_config =
+            m_player_marker_replication_probe_enabled &&
+            (start_mode == "startup" || start_mode == "auto") &&
+            !m_player_marker_replication_probe_ran &&
+            !m_player_marker_replication_probe_active;
+
+        if (!requested && !should_start_from_config && !m_player_marker_replication_probe_active)
+        {
+            return;
+        }
+
+        if (!m_player_marker_replication_probe_active)
+        {
+            if (!is_restore_scan_world_active())
+            {
+                if (requested || should_start_from_config)
+                {
+                    m_player_marker_replication_probe_requested.store(true);
+                    if (now - m_player_marker_replication_probe_last_summary > std::chrono::seconds(5))
+                    {
+                        m_player_marker_replication_probe_last_summary = now;
+                        log_line("[player-marker-replication-probe] waiting reason=no_active_world");
+                    }
+                }
+                return;
+            }
+
+            uint32_t duration_seconds = 90;
+            try
+            {
+                const auto configured = std::stoul(config_string_value("WTS_PLAYER_MARKER_REPLICATION_PROBE_SECONDS", "90"));
+                duration_seconds = static_cast<uint32_t>(std::clamp<unsigned long>(configured, 10UL, 600UL));
+            }
+            catch (...)
+            {
+                duration_seconds = 90;
+            }
+
+            m_player_marker_replication_probe_active = true;
+            m_player_marker_replication_probe_ran = true;
+            m_player_marker_replication_probe_last.clear();
+            m_player_marker_replication_probe_next = now;
+            m_player_marker_replication_probe_end = now + std::chrono::seconds(duration_seconds);
+            m_player_marker_replication_probe_last_summary = now;
+            log_line("[player-marker-replication-probe] start reason=" +
+                     std::string{requested ? "trigger" : "config"} +
+                     " durationSeconds=" + std::to_string(duration_seconds) +
+                     " passive=true");
+        }
+
+        if (now >= m_player_marker_replication_probe_end)
+        {
+            m_player_marker_replication_probe_active = false;
+            log_line("[player-marker-replication-probe] complete trackedObjects=" +
+                     std::to_string(m_player_marker_replication_probe_last.size()));
+            return;
+        }
+
+        uint32_t interval_ms = 1500;
+        uint32_t max_objects = 96;
+        uint32_t max_fields = 24;
+        uint32_t max_delta_logs = 80;
+        try
+        {
+            const auto configured = std::stoul(config_string_value("WTS_PLAYER_MARKER_REPLICATION_PROBE_INTERVAL_MS", "1500"));
+            interval_ms = static_cast<uint32_t>(std::clamp<unsigned long>(configured, 250UL, 10000UL));
+        }
+        catch (...)
+        {
+            interval_ms = 1500;
+        }
+        try
+        {
+            const auto configured = std::stoul(config_string_value("WTS_PLAYER_MARKER_REPLICATION_PROBE_MAX_OBJECTS", "96"));
+            max_objects = static_cast<uint32_t>(std::clamp<unsigned long>(configured, 10UL, 500UL));
+        }
+        catch (...)
+        {
+            max_objects = 96;
+        }
+        try
+        {
+            const auto configured = std::stoul(config_string_value("WTS_PLAYER_MARKER_REPLICATION_PROBE_MAX_FIELDS", "24"));
+            max_fields = static_cast<uint32_t>(std::clamp<unsigned long>(configured, 4UL, 80UL));
+        }
+        catch (...)
+        {
+            max_fields = 24;
+        }
+        try
+        {
+            const auto configured = std::stoul(config_string_value("WTS_PLAYER_MARKER_REPLICATION_PROBE_MAX_DELTAS", "80"));
+            max_delta_logs = static_cast<uint32_t>(std::clamp<unsigned long>(configured, 10UL, 500UL));
+        }
+        catch (...)
+        {
+            max_delta_logs = 80;
+        }
+
+        if (now < m_player_marker_replication_probe_next)
+        {
+            return;
+        }
+        m_player_marker_replication_probe_next = now + std::chrono::milliseconds(interval_ms);
+
+        struct ProbeObjectRow
+        {
+            std::string key{};
+            std::string full_name{};
+            std::string class_name{};
+            std::string outer_name{};
+            std::vector<std::string> fields{};
+            uint32_t net_fields{0};
+            uint32_t rep_notify_fields{0};
+            int score{0};
+        };
+
+        std::vector<ProbeObjectRow> rows{};
+        rows.reserve(max_objects + 16);
+        uint32_t scanned = 0;
+        uint32_t candidates_seen = 0;
+
+        UObjectGlobals::ForEachUObject([&](UObject* object, int32, int32) {
+            if (!object || object->IsA(UFunction::StaticClass()))
+            {
+                return LoopAction::Continue;
+            }
+            ++scanned;
+
+            const auto full_name = narrow_ascii(object->GetFullName());
+            const auto class_name = object->GetClassPrivate()
+                ? narrow_ascii(object->GetClassPrivate()->GetFullName())
+                : std::string{"unknown"};
+            const auto outer_name = object->GetOuterPrivate()
+                ? narrow_ascii(object->GetOuterPrivate()->GetFullName())
+                : std::string{"none"};
+            const auto full_lower = lower_ascii(full_name);
+            const auto class_lower = lower_ascii(class_name);
+            const auto outer_lower = lower_ascii(outer_name);
+
+            if (!is_player_marker_probe_object_candidate(full_lower, class_lower, outer_lower))
+            {
+                return LoopAction::Continue;
+            }
+            ++candidates_seen;
+
+            ProbeObjectRow row{};
+            row.full_name = full_name;
+            row.class_name = class_name;
+            row.outer_name = outer_name;
+            row.key = full_name;
+            row.score =
+                (contains_any_token(class_lower + " " + full_lower, {"r5markermodelpawn", "r5playerstate", "mapcontroller"}) ? 20 : 0) +
+                (contains_any_token(class_lower + " " + full_lower, {"marker", "player", "pawn", "ship"}) ? 8 : 0);
+
+            uint32_t logged_fields = 0;
+            for_each_property_in_chain_compat(object->GetClassPrivate(), [&](FProperty* prop) {
+                if (!prop || logged_fields >= max_fields)
+                {
+                    return;
+                }
+                if (!is_player_marker_probe_property_candidate(prop))
+                {
+                    return;
+                }
+
+                const auto value = try_extract_player_marker_probe_property_value(prop, object);
+                if (!value.has_value())
+                {
+                    return;
+                }
+
+                const auto flags = static_cast<uint64_t>(prop->GetPropertyFlags());
+                if ((flags & static_cast<uint64_t>(CPF_Net)) != 0ULL)
+                {
+                    ++row.net_fields;
+                    row.score += 8;
+                }
+                if ((flags & static_cast<uint64_t>(CPF_RepNotify)) != 0ULL)
+                {
+                    ++row.rep_notify_fields;
+                    row.score += 10;
+                }
+
+                row.fields.push_back(
+                    RC::to_string(prop->GetName()) +
+                    "[" + RC::to_string(prop->GetClass().GetName()) + "]" +
+                    " flags=" + property_flag_summary(prop) +
+                    " value=" + *value);
+                ++logged_fields;
+            });
+
+            if (row.fields.empty())
+            {
+                return LoopAction::Continue;
+            }
+
+            std::sort(row.fields.begin(), row.fields.end());
+            if (rows.size() < max_objects)
+            {
+                rows.push_back(std::move(row));
+            }
+
+            return LoopAction::Continue;
+        });
+
+        std::sort(rows.begin(), rows.end(), [](const ProbeObjectRow& left, const ProbeObjectRow& right) {
+            if (left.score != right.score)
+            {
+                return left.score > right.score;
+            }
+            return left.full_name < right.full_name;
+        });
+
+        log_line("[player-marker-replication-probe] scan scanned=" + std::to_string(scanned) +
+                 " candidatesSeen=" + std::to_string(candidates_seen) +
+                 " rows=" + std::to_string(rows.size()) +
+                 " tracked=" + std::to_string(m_player_marker_replication_probe_last.size()) +
+                 " intervalMs=" + std::to_string(interval_ms));
+
+        uint32_t delta_logs = 0;
+        for (const auto& row : rows)
+        {
+            std::ostringstream fingerprint{};
+            fingerprint << row.class_name << "|" << row.outer_name;
+            for (const auto& field : row.fields)
+            {
+                fingerprint << "|" << field;
+            }
+            const auto fp = fingerprint.str();
+            const auto found = m_player_marker_replication_probe_last.find(row.key);
+            const bool is_new = found == m_player_marker_replication_probe_last.end();
+            const bool changed = !is_new && found->second != fp;
+            if (!is_new && !changed)
+            {
+                continue;
+            }
+
+            m_player_marker_replication_probe_last[row.key] = fp;
+            if (delta_logs >= max_delta_logs)
+            {
+                continue;
+            }
+            ++delta_logs;
+
+            log_line("[player-marker-replication-probe] " +
+                     std::string{is_new ? "object" : "delta"} +
+                     " score=" + std::to_string(row.score) +
+                     " netFields=" + std::to_string(row.net_fields) +
+                     " repNotifyFields=" + std::to_string(row.rep_notify_fields) +
+                     " class=" + row.class_name +
+                     " object=" + row.full_name +
+                     " outer=" + row.outer_name);
+
+            uint32_t field_index = 0;
+            for (const auto& field : row.fields)
+            {
+                if (field_index >= max_fields)
+                {
+                    break;
+                }
+                log_line("[player-marker-replication-probe] field object=" + row.full_name +
+                         " index=" + std::to_string(field_index) +
+                         " " + field);
+                ++field_index;
+            }
+        }
+
+        if (delta_logs >= max_delta_logs)
+        {
+            log_line("[player-marker-replication-probe] delta_log_cap_reached cap=" + std::to_string(max_delta_logs));
+        }
+    }
+
     auto SignTextMod::tick_phase5_build_menu_selection_probe() -> void
     {
         if (!m_phase5_build_menu_selection_probe_enabled || is_dedicated_runtime_process())
@@ -5478,6 +6055,21 @@ namespace WindroseTextSigns
             {
                 log_line("[native-transport-probe] trigger file remove failed path=" +
                          native_transport_trigger_path.string() + " error=" + remove_ec.message());
+            }
+        }
+
+        const auto player_marker_trigger_path = m_mod_root / "Config" / "run_player_marker_replication_probe.flag";
+        if (std::filesystem::exists(player_marker_trigger_path))
+        {
+            log_line("[player-marker-replication-probe] trigger file detected path=" + player_marker_trigger_path.string());
+            m_player_marker_replication_probe_requested.store(true);
+
+            std::error_code remove_ec{};
+            std::filesystem::remove(player_marker_trigger_path, remove_ec);
+            if (remove_ec)
+            {
+                log_line("[player-marker-replication-probe] trigger file remove failed path=" +
+                         player_marker_trigger_path.string() + " error=" + remove_ec.message());
             }
         }
     }
@@ -7610,6 +8202,34 @@ namespace WindroseTextSigns
         } reset_scope{m_in_process_event_probe};
 
         const auto fn = lower_ascii(narrow_ascii(function->GetFullName()));
+        if (m_player_marker_replication_probe_action_trigger_enabled &&
+            !m_player_marker_replication_probe_active &&
+            !m_player_marker_replication_probe_ran &&
+            !m_player_marker_replication_probe_requested.load())
+        {
+            auto tokens = m_player_marker_replication_probe_action_tokens;
+            std::replace(tokens.begin(), tokens.end(), ';', ',');
+            std::istringstream token_rows{tokens};
+            std::string token{};
+            bool matched_action_token = false;
+            while (std::getline(token_rows, token, ','))
+            {
+                token = lower_ascii(trim_copy_ascii(token));
+                if (!token.empty() && fn.find(token) != std::string::npos)
+                {
+                    matched_action_token = true;
+                    break;
+                }
+            }
+
+            if (matched_action_token && is_restore_scan_world_active())
+            {
+                m_player_marker_replication_probe_requested.store(true);
+                log_line("[player-marker-replication-probe] action_trigger fn=" + fn +
+                         " context=" + narrow_ascii(context->GetFullName()));
+            }
+        }
+
         // Stability hardening: keep ProcessEvent probing scoped to construction
         // events only. UI telemetry was removed after it destabilized native map UI.
         const bool construct_interesting = fn.find("makeconstructcommand") != std::string::npos ||
@@ -7814,6 +8434,7 @@ namespace WindroseTextSigns
         }
         tick_pending_fallback_hotkeys();
         tick_file_triggers();
+        tick_player_marker_replication_probe();
         tick_bridge();
         const auto now = std::chrono::steady_clock::now();
 
