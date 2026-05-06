@@ -8879,19 +8879,75 @@ namespace WindroseTextSigns
             return nullptr;
         }
 
-        const std::vector<const TCHAR*> candidates = {
+        std::vector<RC::StringType> configured_candidates{};
+        const auto configured_font_asset = trim_copy_ascii(config_string_value(
+            "WTS_WORLD_TEXT_FONT_ASSET",
+            "/Game/WindroseTextSigns/Fonts/PencilantScript.PencilantScript"));
+        if (!configured_font_asset.empty() &&
+            lower_copy_ascii(configured_font_asset) != "none" &&
+            lower_copy_ascii(configured_font_asset) != "false")
+        {
+            configured_candidates.push_back(RC::to_wstring(configured_font_asset));
+        }
+
+        const std::vector<const TCHAR*> builtin_candidates = {
             STR("/Game/WindroseTextSigns/Fonts/PencilantScript_Font.PencilantScript_Font"),
             STR("/Game/WindroseTextSigns/Fonts/PencilantScript.PencilantScript"),
             STR("/Game/Fonts/PencilantScript_Font.PencilantScript_Font"),
             STR("/Game/Fonts/PencilantScript.PencilantScript"),
             STR("/Game/UI/Fonts/PencilantScript_Font.PencilantScript_Font"),
             STR("/Game/UI/Fonts/PencilantScript.PencilantScript")};
+        std::vector<const TCHAR*> candidates{};
+        for (const auto& candidate : configured_candidates)
+        {
+            candidates.push_back(candidate.c_str());
+        }
+        candidates.insert(candidates.end(), builtin_candidates.begin(), builtin_candidates.end());
 
-        m_world_text_font_asset = find_loaded_object_by_path_or_name(font_class, candidates, "pencilant");
+        const auto name_hint = lower_copy_ascii(trim_copy_ascii(config_string_value("WTS_WORLD_TEXT_FONT_NAME_HINT", "pencilant")));
+        m_world_text_font_asset = find_loaded_object_by_path_or_name(
+            font_class,
+            candidates,
+            name_hint.empty() ? "pencilant" : name_hint);
         if (m_world_text_font_asset)
         {
             log_line("[phase4-font] resolved asset=" + narrow_ascii(m_world_text_font_asset->GetFullName()));
             return m_world_text_font_asset;
+        }
+
+        if (config_bool_value("WTS_WORLD_TEXT_FONT_NATIVE_FALLBACK", false))
+        {
+            const std::vector<const TCHAR*> native_candidates = {
+                STR("/Game/UI/System/Fonts/F_CWindSerif.F_CWindSerif"),
+                STR("/Game/UI/System/Fonts/F_PTSans.F_PTSans"),
+                STR("/Engine/EngineFonts/Roboto.Roboto"),
+                STR("/Engine/EngineFonts/RobotoDistanceField.RobotoDistanceField")};
+            m_world_text_font_asset = find_loaded_object_by_path_or_name(font_class, native_candidates, "font");
+            if (m_world_text_font_asset)
+            {
+                log_line("[phase4-font] resolved nativeFallback=true asset=" + narrow_ascii(m_world_text_font_asset->GetFullName()));
+                return m_world_text_font_asset;
+            }
+        }
+
+        if (config_bool_value("WTS_WORLD_TEXT_FONT_INVENTORY_PROBE", false))
+        {
+            const auto max_fonts = static_cast<size_t>(std::clamp(
+                safe_stoi(config_string_value("WTS_WORLD_TEXT_FONT_INVENTORY_MAX", "80"), 80),
+                1,
+                500));
+            size_t seen = 0;
+            UObjectGlobals::ForEachUObject([&](UObject* object, int32, int32) {
+                if (!object || !object->IsA(font_class) || seen >= max_fonts)
+                {
+                    return LoopAction::Continue;
+                }
+                ++seen;
+                log_line("[phase4-font-inventory] font=" + narrow_ascii(object->GetFullName()));
+                return LoopAction::Continue;
+            });
+            log_line("[phase4-font-inventory] complete countLogged=" + std::to_string(seen) +
+                     " max=" + std::to_string(max_fonts));
         }
 
         if (!m_world_text_font_missing_logged)
@@ -8899,6 +8955,7 @@ namespace WindroseTextSigns
             m_world_text_font_missing_logged = true;
             const auto raw_font_path = m_mod_root / "assets" / "fonts" / "Pencilant Script.ttf";
             log_line("[phase4-font] unresolved reason=NoLoadedUFont rawFont=" + raw_font_path.string() +
+                     " configuredAsset=" + (configured_font_asset.empty() ? "none" : configured_font_asset) +
                      " note=TextRenderComponent requires a packaged UFont asset; falling back to default font");
         }
         return nullptr;

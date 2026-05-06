@@ -27,6 +27,7 @@ param(
     [switch]$SkipServer,
     [switch]$SkipContentBuild,
     [switch]$SkipContentDeploy,
+    [switch]$EnableContentPackage,
     [switch]$DisableContentPackage
 )
 
@@ -346,9 +347,12 @@ if (!(Test-Path -LiteralPath $DeploymentsDir)) {
 }
 
 $contentSubfolderName = Resolve-ContentDeploySubfolderName -RawName $ContentDeploySubfolderName -DefaultName $ContentPackageBaseName
+$contentPackageEnabled = $EnableContentPackage -and (-not $DisableContentPackage)
 
 if ($DisableContentPackage) {
     Write-Step "DisableContentPackage set; content pak will be cleaned from targets and not rebuilt/deployed"
+} elseif (-not $contentPackageEnabled) {
+    Write-Step "Content package disabled by default after F8-convert pivot; stale build-menu/content paks will be cleaned from targets"
 } elseif (-not $SkipContentBuild) {
     Invoke-ContentPackageBuild -BuildScript $ContentBuildScript -StageRoot $ContentPackageStageRoot -PackageBaseName $ContentPackageBaseName
 } else {
@@ -357,6 +361,8 @@ if ($DisableContentPackage) {
 
 if ($DisableContentPackage) {
     Write-Step "DisableContentPackage set; content package output verification skipped"
+} elseif (-not $contentPackageEnabled) {
+    Write-Step "Content package output verification skipped because content package is not enabled"
 } elseif (-not $SkipContentDeploy) {
     foreach ($ext in @("utoc", "ucas", "pak")) {
         $source = Join-Path $ContentPackageStageRoot ($ContentPackageBaseName + "." + $ext)
@@ -397,7 +403,7 @@ try {
 
     if (-not $SkipClient) {
         Deploy-ToTarget -ExtractedModDir $extractedModDir -ModsRoot $ClientModsRoot
-        if ($DisableContentPackage) {
+        if (-not $contentPackageEnabled) {
             Clean-ContentPackagesFromTarget `
                 -TargetPakModsRoot $ClientPakModsRoot `
                 -PackageBaseName $ContentPackageBaseName `
@@ -417,7 +423,7 @@ try {
 
     if (-not $SkipServer) {
         Deploy-ToTarget -ExtractedModDir $extractedModDir -ModsRoot $ServerModsRoot
-        if ($DisableContentPackage) {
+        if (-not $contentPackageEnabled) {
             Clean-ContentPackagesFromTarget `
                 -TargetPakModsRoot $ServerPakModsRoot `
                 -PackageBaseName $ContentPackageBaseName `

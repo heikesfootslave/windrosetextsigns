@@ -1,5 +1,41 @@
 # WindroseTextSigns (UE4SS C++ Prototype)
 
+## Production Defaults
+
+Current release direction is the F8-convert workflow:
+
+- No custom build-menu label is required.
+- Target any native wooden label, press the configured hotkey, and the mod converts it into a text label by hiding the native icon and rendering sidecar-backed text.
+- `deploy_TextSigns_clean.ps1` now cleans the old content pak by default so the duplicate `Label: Ship` build-menu entry is removed on the next clean deploy.
+- Only use `-EnableContentPackage` when deliberately testing packaged content assets such as future cooked font/UI assets.
+
+Important production config defaults live near the top of `Config\WindroseTextSigns.ini`:
+
+```ini
+WTS_BRIDGE_SERVER_HOST=auto
+WTS_BRIDGE_UDP_PORT=45801
+WTS_BRIDGE_UPNP_ENABLED=true
+WTS_MAX_TARGET_DISTANCE=1000
+```
+
+Bridge behavior:
+
+- `WTS_BRIDGE_SERVER_HOST=auto` is the normal path. Remote clients infer the server route from Windrose connection/log data.
+- `WTS_BRIDGE_UPNP_ENABLED=true` lets a dedicated server try to open the UDP bridge port automatically.
+- UPnP is the intended production default for dedicated servers where the router allows it.
+- Static IP fallback remains available by setting `WTS_BRIDGE_SERVER_HOST=<ip-or-hostname>` on clients that cannot discover the server route automatically.
+
+World Text Font:
+
+- Raw fonts are copied under `assets\fonts`, but `TextRenderComponent` needs a loaded Unreal `UFont` asset.
+- The desired asset path is configurable with:
+
+```ini
+WTS_WORLD_TEXT_FONT_ASSET=/Game/WindroseTextSigns/Fonts/PencilantScript.PencilantScript
+```
+
+- Until a cooked `UFont` asset is created and packaged at that path, the mod falls back to the engine/game default font.
+
 ## Goal
 Prototype a **mod-owned** custom text flow for placed Wooden Labels using:
 - F8 hotkey
