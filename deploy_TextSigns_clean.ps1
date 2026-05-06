@@ -27,8 +27,7 @@ param(
     [switch]$SkipServer,
     [switch]$SkipContentBuild,
     [switch]$SkipContentDeploy,
-    [switch]$EnableContentPackage,
-    [switch]$DisableContentPackage
+    [switch]$EnableContentPackage
 )
 
 Set-StrictMode -Version Latest
@@ -347,21 +346,17 @@ if (!(Test-Path -LiteralPath $DeploymentsDir)) {
 }
 
 $contentSubfolderName = Resolve-ContentDeploySubfolderName -RawName $ContentDeploySubfolderName -DefaultName $ContentPackageBaseName
-$contentPackageEnabled = $EnableContentPackage -and (-not $DisableContentPackage)
+$contentPackageEnabled = [bool]$EnableContentPackage
 
-if ($DisableContentPackage) {
-    Write-Step "DisableContentPackage set; content pak will be cleaned from targets and not rebuilt/deployed"
-} elseif (-not $contentPackageEnabled) {
-    Write-Step "Content package disabled by default after F8-convert pivot; stale build-menu/content paks will be cleaned from targets"
+if (-not $contentPackageEnabled) {
+    Write-Step "Content package disabled by default after F8-convert pivot; stale build-menu/content paks will be cleaned from targets. Use -EnableContentPackage to build/deploy pak files."
 } elseif (-not $SkipContentBuild) {
     Invoke-ContentPackageBuild -BuildScript $ContentBuildScript -StageRoot $ContentPackageStageRoot -PackageBaseName $ContentPackageBaseName
 } else {
     Write-Step "SkipContentBuild set; using existing content package outputs"
 }
 
-if ($DisableContentPackage) {
-    Write-Step "DisableContentPackage set; content package output verification skipped"
-} elseif (-not $contentPackageEnabled) {
+if (-not $contentPackageEnabled) {
     Write-Step "Content package output verification skipped because content package is not enabled"
 } elseif (-not $SkipContentDeploy) {
     foreach ($ext in @("utoc", "ucas", "pak")) {

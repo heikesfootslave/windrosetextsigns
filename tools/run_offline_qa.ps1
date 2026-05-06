@@ -264,12 +264,15 @@ function Assert-ReleaseDocsPresent {
     }
     $text = Get-Content -LiteralPath $readmePath -Raw
     $requiredTokens = @(
-        "Production Defaults",
+        "Downloads",
+        "Installation",
+        "Configuration",
         "WTS_BRIDGE_SERVER_HOST=auto",
         "WTS_BRIDGE_UDP_PORT=45801",
         "UPnP",
-        "Static IP fallback",
-        "World Text Font"
+        "static server address",
+        "Font Notes",
+        "Known Limitations"
     )
     foreach ($token in $requiredTokens) {
         if (-not $text.Contains($token)) {
@@ -288,12 +291,16 @@ function Assert-DeployDefaults {
     $requiredTokens = @(
         "[switch]`$EnableContentPackage",
         "Content package disabled by default after F8-convert pivot",
+        "Use -EnableContentPackage to build/deploy pak files",
         "Clean-ContentPackagesFromTarget"
     )
     foreach ($token in $requiredTokens) {
         if (-not $text.Contains($token)) {
             throw "deploy script missing default-clean content-package token: $token"
         }
+    }
+    if ($text.Contains("[switch]`$DisableContentPackage") -or $text.Contains("DisableContentPackage set")) {
+        throw "deploy script still exposes DisableContentPackage opt-out behavior"
     }
     return "content pak disabled/cleaned by default; opt-in uses -EnableContentPackage"
 }

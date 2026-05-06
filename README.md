@@ -1,35 +1,171 @@
-# WindroseTextSigns (UE4SS C++ Prototype)
+# WindroseTextSigns
 
-## Production Defaults
+WindroseTextSigns is a UE4SS C++ mod for Windrose that lets players turn native wooden labels into editable text signs.
 
-Current release direction is the F8-convert workflow:
+The mod does not add a new build-menu item. Build any normal wooden label in game, look at it, press the configured hotkey, and enter the text you want displayed on the sign.
 
-- No custom build-menu label is required.
-- Target any native wooden label, press the configured hotkey, and the mod converts it into a text label by hiding the native icon and rendering sidecar-backed text.
-- `deploy_TextSigns_clean.ps1` now cleans the old content pak by default so the duplicate `Label: Ship` build-menu entry is removed on the next clean deploy.
-- Only use `-EnableContentPackage` when deliberately testing packaged content assets such as future cooked font/UI assets.
+## Downloads
 
-Important production config defaults live near the top of `Config\WindroseTextSigns.ini`:
+Get the latest packaged mod zip from the [GitHub Releases page](https://github.com/Ageous27/WindroseTextSigns/releases/latest).
+
+## Features
+
+- Edit placed wooden labels in game with a configurable hotkey.
+- Hide the native white label icon when a label is converted into a text sign.
+- Render text directly on the sign in the world.
+- Persist sign text per world using sidecar JSON data.
+- Support Solo, Hosted, and Dedicated Server play modes.
+- Keep a client-side cache for reconnect display while the server remains authoritative in multiplayer.
+- Use a UDP bridge for client/server sign-text updates.
+- Auto route discovery for clients where possible, with static host fallback.
+- Optional UPnP port mapping for dedicated servers.
+
+## Requirements
+
+- Windrose
+- UE4SS installed for Windrose
+- The same WindroseTextSigns mod package installed on both the client and the dedicated server for multiplayer use
+
+## Installation
+
+1. Download the latest zip from [Releases](https://github.com/Ageous27/WindroseTextSigns/releases/latest).
+2. Extract the `WindroseTextSigns` folder into the UE4SS mods folder.
+
+Client example:
+
+```text
+...\Windrose\R5\Binaries\Win64\ue4ss\Mods\WindroseTextSigns
+```
+
+Dedicated server example:
+
+```text
+...\WindowsServer\R5\Binaries\Win64\ue4ss\Mods\WindroseTextSigns
+```
+
+The mod folder should contain:
+
+```text
+enabled.txt
+Config\WindroseTextSigns.ini
+dlls\main.dll
+```
+
+## Usage
+
+1. Build any native wooden label in game.
+2. Look at the label.
+3. Press `F8`.
+4. Enter sign text in the in-game editor.
+5. Press `Enter` to apply.
+6. Use `Shift+Enter` for a new line.
+7. Use `Esc` to cancel/close.
+
+To clear a sign, open the editor, remove all text, and apply.
+
+Destroying a sign should remove its saved text record after the mod confirms the sign is gone.
+
+## Configuration
+
+Configuration lives in:
+
+```text
+Config\WindroseTextSigns.ini
+```
+
+The most important production settings are:
+
+```ini
+[General]
+WTS_ENABLED=true
+WTS_HOTKEY=F8
+WTS_MAX_TARGET_DISTANCE=1000
+WTS_MIN_VIEW_DOT=0.92
+WTS_BRIDGE_SERVER_HOST=auto
+WTS_BRIDGE_UDP_PORT=45801
+WTS_BRIDGE_UPNP_ENABLED=true
+```
+
+### Hotkey
+
+Change the edit hotkey with:
+
+```ini
+WTS_HOTKEY=F8
+```
+
+### Targeting
+
+These settings control how close and centered a sign must be before the hotkey selects it:
+
+```ini
+WTS_MAX_TARGET_DISTANCE=1000
+WTS_MIN_VIEW_DOT=0.92
+```
+
+### Multiplayer Bridge
+
+Default bridge settings:
 
 ```ini
 WTS_BRIDGE_SERVER_HOST=auto
 WTS_BRIDGE_UDP_PORT=45801
 WTS_BRIDGE_UPNP_ENABLED=true
-WTS_MAX_TARGET_DISTANCE=1000
 ```
 
-Bridge behavior:
+`WTS_BRIDGE_SERVER_HOST=auto` is the recommended default. Remote clients try to infer the server route from Windrose connection/log data.
 
-- `WTS_BRIDGE_SERVER_HOST=auto` is the normal path. Remote clients infer the server route from Windrose connection/log data.
-- `WTS_BRIDGE_UPNP_ENABLED=true` lets a dedicated server try to open the UDP bridge port automatically.
-- UPnP is the intended production default for dedicated servers where the router allows it.
-- Static IP fallback remains available by setting `WTS_BRIDGE_SERVER_HOST=<ip-or-hostname>` on clients that cannot discover the server route automatically.
+If auto discovery does not work, set the client to a static server address:
 
-World Text Font:
+```ini
+WTS_BRIDGE_SERVER_HOST=your.server.ip.or.hostname
+```
 
-- Raw fonts are copied under `assets\fonts`, but `TextRenderComponent` needs a loaded Unreal `UFont` asset.
-- Custom font use is disabled by default because several native `UFont` assets can make `TextRenderComponent` render no text.
-- Experimental font keys remain available under `[Debug]`:
+Dedicated servers can try to open the UDP bridge port automatically with UPnP:
+
+```ini
+WTS_BRIDGE_UPNP_ENABLED=true
+```
+
+If UPnP is unavailable, manually forward the configured UDP port to the dedicated server.
+
+## Save Data
+
+WindroseTextSigns stores text data outside the mod folder so it can survive mod deletion or reinstall when the user keeps the `R5\Saved` folder.
+
+Dedicated server authoritative data:
+
+```text
+...\R5\Saved\SaveProfiles\Default\WindroseTextSigns\<worldIslandId>\SignTexts.json
+```
+
+Solo and Hosted authoritative data:
+
+```text
+%LOCALAPPDATA%\R5\Saved\SaveProfiles\<profileId>\WindroseTextSigns\<worldIslandId>\SignTexts.json
+```
+
+The mod also writes backups beside the main JSON file.
+
+Remote clients keep a cache for display/reconnect help, but the server is the source of truth during multiplayer.
+
+## Pak Files
+
+The current mod does not require content pak files.
+
+`deploy_TextSigns_clean.ps1` cleans old WindroseTextSigns content paks by default. Pak deployment is opt-in only:
+
+```powershell
+.\deploy_TextSigns_clean.ps1 -EnableContentPackage
+```
+
+Only use content paks when deliberately testing packaged assets.
+
+## Font Notes
+
+Custom world text fonts are disabled by default because Windrose native font assets showed inconsistent runtime behavior in this mod path.
+
+Default font settings:
 
 ```ini
 WTS_WORLD_TEXT_FONT_ENABLED=false
@@ -38,234 +174,32 @@ WTS_WORLD_TEXT_FONT_NAME_HINT=
 WTS_WORLD_TEXT_FONT_NATIVE_FALLBACK=false
 ```
 
-- `F_CWindSerif` is a native Windrose font asset in `pakchunk0_s4-Windows`, but it has shown inconsistent runtime behavior in this mod path.
-- A custom Pencilant font still requires a cooked Unreal `UFont` asset before `TextRenderComponent` can use it.
-
-## Goal
-Prototype a **mod-owned** custom text flow for placed Wooden Labels using:
-- F8 hotkey
-- mod-side targeting
-- native in-game UI path (Phase 7 in progress) with ImGui as development fallback
-- sidecar JSON persistence
-
-No native Windrose label interaction was added in this prototype.
-
-## Current Phase Status (Unverified Until Tested)
-
-1. Phase 1 (Discovery probe): **Implemented, pending runtime verification**
-- Added ProcessEvent probe logging for construction-related function traffic.
-- Added StaticConstructObject post-probe logging as a fallback when ProcessEvent is unavailable on this game/runtime.
-- Logs include function path, context class/name, and GUID-like extraction attempts from params.
-- Label actor detection telemetry is included when a label-like actor is seen in probe context.
-
-2. Phase 2 (Label targeting): **Implemented as heuristic, pending runtime verification**
-- F8 hotkey is implemented.
-- On F8, mod resolves player view via `GetPlayerViewPoint` and selects likely label actor by camera-forward dot + distance.
-- This is a camera-ray heuristic, not confirmed engine collision trace yet.
-- ImGui button `Run Test (6 Signs)` runs a diagnostic that reports PASS/FAIL based on finding at least 6 unique `worldId/stableId` keys.
-- Non-ImGui trigger: create `Config\run_test6.flag` under the mod folder; mod will run the same test and remove the flag file.
-
-3. Phase 3 (Text editor UI): **Implemented, high-risk, pending runtime verification**
-- ImGui tab `WindroseTextSigns` includes selected label ID, text input, Apply/Clear/Cancel.
-- Added diagnostics for UI render loop and button actions:
-  - `[ui] tab_render_tick`
-  - `[ui] apply_clicked`
-  - `[ui] clear_clicked`
-- Clear flow is through the editor: open with `F8`, delete all text, press Enter.
-
-4. Phase 4 (In-world rendering): **Implemented prototype, pending runtime verification**
-- Runtime-managed `TextRenderComponent` create/update/remove path is now wired.
-- Apply attempts to:
-  - find/create a managed text render component on the selected label actor,
-  - set text via `K2_SetText`/`SetText`,
-  - set baseline visual settings (`SetWorldSize`, horizontal alignment, relative offset).
-- Surface placement now records per-label side selection (`surfaceAxis`, `surfaceSign`) based on player camera at Apply time.
-- UI has `Flip Surface Side` to quickly invert front/back placement for the selected label and persist that setting.
-- UI debug tuning supports realtime surface alignment:
-  - `surfaceAxis (0.00=X, 1.00=Y)` via drag control with `%.2f` precision.
-  - `surfaceSign` quick toggle (`-1` / `+1`).
-  - `Live surface tuning` auto-applies and persists while adjusting.
-  - `Depth Off Surface` controls how far text sits out from the plaque face.
-  - `Surface Align X` controls horizontal on-face alignment.
-  - `Surface Align Y (Height)` controls vertical placement.
-  - `Font Size` controls world text size.
-  - `Text Color RGBA` controls color/alpha.
-- Apply now auto-wraps and auto-sizes text using prototype constraints:
-  - rows target: `1..4`
-  - font size range: `10..20`
-  - per-row character capacity scales down as font grows (12 at min font; max-font request of 0 is treated as 1 runtime minimum).
-  - explicit newline rows entered by the player are preserved, and font is reduced to keep total vertical stack in the sign area.
-- Clear attempts to destroy/unregister the managed component for that specific `worldId/stableId`.
-- Diagnostic logs include:
-  - `[phase4] component_created`
-  - `[phase4] apply_success`
-  - `[phase4] apply_failed ...`
-  - `[phase4] clear_component ...`
-
-5. Phase 5 (Persistence): **Implemented, pending runtime verification**
-- Sidecar JSON is now save-profile-adjacent and role-aware.
-- Dedicated server authoritative path:
-  - `...\R5\Saved\SaveProfiles\Default\WindroseTextSigns\<worldId>\SignTexts.json`
-- Solo/Hosted local-client authoritative path:
-  - `%LOCALAPPDATA%\R5\Saved\SaveProfiles\<profileId>\WindroseTextSigns\<worldId>\SignTexts.json`
-- Fallback path, used only if no save profile/world can be resolved:
-  - `...\ue4ss\ModData\WindroseTextSigns\SignTexts.json`
-- One-time migration attempted from legacy UE4SS paths:
-  - `...\ue4ss\ModData\WindroseTextSigns\SignTexts.json`
-  - `...\ue4ss\Mods\WindroseTextSigns\SignTexts.json`
-- JSON metadata records `runtimeRole`, `dataMode`, `authorityMode`, `sidecarKind`, `profileRoot`, and `worldFolderId`.
-- Keys are `worldId/stableId`.
-- Records store text, asset, and last-seen timestamp.
-- Sidecar writes are now atomic-style:
-  - write to `SignTexts.json.tmp`
-  - copy current file to `SignTexts.json.bak`
-  - replace primary file from tmp
-- Load recovery order:
-  - primary `SignTexts.json`
-  - backup `SignTexts.json.bak`
-  - temp `SignTexts.json.tmp`
-  - newest snapshot backups under the active sidecar `Backups\SignTexts.backup_*.json` folder (up to 5)
-- Auto-restore hardening:
-  - if primary file parses as empty while a backup/snapshot contains records, mod auto-restores from latest non-empty backup and rewrites primary.
-- Malformed rows are skipped defensively instead of crashing load.
-- Snapshot hardening:
-  - rotating backup snapshots (max 5) are written on important save operations (`apply`, `clear`, prune batch) and throttled to avoid excessive churn.
-- Destroy-prune hardening:
-  - prune only runs while at least one live label is visible in the current scan.
-  - missing-label threshold requires multiple consecutive misses before prune.
-  - prune saves are batched in a single sidecar write per scan pass.
-
-6. Phase 6 (Multiplayer): **Not implemented**
-- The same mod package is installed on client and server.
-- Dedicated server owns the authoritative sidecar.
-- Solo/Hosted local worlds use the local client profile as authoritative.
-- Remote clients still need the client/server bridge before their edits can become server-authoritative.
-
-7. Phase 7 (Native in-game text entry UI): **Investigation/Scaffolding started, pending runtime verification**
-- Added native capability probe for UMG/input-mode runtime entry points:
-  - `/Script/UMG.UserWidget`
-  - `/Script/UMG.WidgetTree`
-  - `/Script/UMG.EditableTextBox`
-  - `/Script/UMG.Button`
-  - `AddToViewport`, `RemoveFromParent`
-  - `SetInputModeGameAndUI`, `SetInputModeGameOnly`
-- On F8, mod now attempts native-first editor open path and logs success/fallback reason.
-- ImGui editor remains available as **development fallback** only and can be toggled from the mod tab.
-- Text entry behavior continues using Phase 4 multiline autosize rules (no forced single-line prototype limit).
-- Map-marker/native-text discovery probe:
-  - logs only root map-marker customization popup instances when detected:
-    - `[phase7-mapui] widget_open ...`
-    - `[phase7-mapui] child prop=... obj=... class=...`
-    - `[phase7-mapui] popup_session_open ...`
-    - `[phase7-mapui] popup_text_changed ...`
-    - `[phase7-mapui] popup_button_click ...` (`button=confirm|cancel`)
-    - `[phase7-mapui] popup_session_close ...`
-    - `[phase7-mapui] widget_closed ...`
-  - logs player cursor transitions around UI open/close:
-    - `[phase7-mapui] cursor_state bShowMouseCursor=true|false`
-  - close-outcome heuristic is logged (`outcome=...`) using button-edge capture plus marker-count delta fallback.
-  - close reason is logged (`closeReason=visibility_off|popup_not_found|popup_instance_swapped`).
-
-8. Phase 8 (Build-menu asset discovery for no-icon Wooden Label): **Implemented diagnostic probe, pending runtime verification**
-- Added BuildMenu discovery probe trigger paths:
-  - file trigger `Config\run_buildmenu_probe.flag`
-  - development ImGui button
-- Probe logs:
-  - loaded `DA_BI_Utilities_Lables_Wooden_*` item objects,
-  - high-signal property values for recipe/icon/class/build references,
-  - candidate build-menu widget classes,
-  - candidate construct/build functions for runtime injection hooks.
-- Logs are emitted with prefix `[buildmenu-probe]` in `WindroseTextSigns.log`.
-
-## Local-Only Probe Analysis
-
-- Use the local parser to summarize Phase 8 build-menu probe output without building or deploying:
-
-```powershell
-& "C:\Users\User\Documents\Windrose Addons\WindroseTextSigns\tools\analyze_buildmenu_probe.ps1"
-```
-
-- Optional JSON output for offline review:
-
-```powershell
-& "C:\Users\User\Documents\Windrose Addons\WindroseTextSigns\tools\analyze_buildmenu_probe.ps1" `
-  -OutJson "C:\Users\User\Documents\Windrose Addons\WindroseTextSigns\build_logs\buildmenu_probe_summary.json"
-```
-
-## Important Facts / Assumptions
-
-- The internal spelling `Lables` is treated as canonical in asset matching.
-- Stable ID extraction currently prioritizes:
-1. Full building-block instance token in object name (`BuildingBlock|<GUID>|<index>`), when present.
-2. GUID-like struct fields on actor/class property chains.
-3. 32-hex token in full object name.
-4. hashed fallback from full object name.
-- Collision-based trace for label targeting is not yet proven in this build.
-
-## Files
-
-- Main source:
-  - `C:\Users\User\Documents\Windrose Addons\WindroseTextSigns\Source\src\SignTextMod.cpp`
-  - `C:\Users\User\Documents\Windrose Addons\WindroseTextSigns\Source\include\WindroseTextSigns\SignTextMod.hpp`
-- CMake:
-  - `C:\Users\User\Documents\Windrose Addons\WindroseTextSigns\Source\CMakeLists.txt`
-- Runtime config:
-  - `C:\Users\User\Documents\Windrose Addons\WindroseTextSigns\Config\WindroseTextSigns.ini`
-- Manual build script:
-  - `C:\Users\User\Documents\Windrose Addons\WindroseTextSigns\build_windrosetextsigns.ps1`
-
-## Build (Manual, not auto-run by agent)
-
-Run from PowerShell:
-
-```powershell
-& "C:\Users\User\Documents\Windrose Addons\WindroseTextSigns\build_windrosetextsigns.ps1"
-```
-
-This script is hardened to avoid known environment pitfalls:
-- normalizes process `Path`/`PATH` handling,
-- uses absolute tool paths only,
-- generates `.cmd` configure/build wrappers that call `VsDevCmd.bat`,
-- resolves short (8.3) paths for configure/build roots to reduce cmd quoting issues,
-- uses watchdog-style timeout/no-progress checks with logs in:
-  - `C:\Users\User\Documents\Windrose Addons\WindroseTextSigns\build_logs`
-
-Optional:
-
-```powershell
-& "C:\Users\User\Documents\Windrose Addons\WindroseTextSigns\build_windrosetextsigns.ps1" `
-  -SkipConfigure
-```
-
-This build script does not deploy to game client/server folders. It only builds and creates a fresh zip in:
-
-`C:\Users\User\Documents\Windrose Addons\WindroseTextSigns\Deployments`
-
-## Runtime Install Layout
-
-Expected runtime folder:
-
-`C:\Games\WindowsServer\R5\Binaries\Win64\ue4ss\Mods\WindroseTextSigns`
-
-Expected DLL:
-
-`C:\Games\WindowsServer\R5\Binaries\Win64\ue4ss\Mods\WindroseTextSigns\dlls\main.dll`
-
-6-sign test trigger file (create this file to run test once):
-
-`C:\Games\WindowsServer\R5\Binaries\Win64\ue4ss\Mods\WindroseTextSigns\Config\run_test6.flag`
-
-Primary sidecar path used by this mod (client example):
-
-`C:\SteamLibrary\steamapps\common\Windrose\R5\Binaries\Win64\ue4ss\ModData\WindroseTextSigns\SignTexts.json`
-
-Legacy sidecar path that is auto-migrated if present:
-
-`C:\SteamLibrary\steamapps\common\Windrose\R5\Binaries\Win64\ue4ss\Mods\WindroseTextSigns\SignTexts.json`
+Raw font files alone are not enough for `TextRenderComponent`. A custom font needs a cooked Unreal `UFont` asset before it can be used reliably.
 
 ## Known Limitations
 
-- No guaranteed physics line trace yet.
-- In-world rendering is now implemented as a prototype path but not yet confirmed stable across all sign variants/angles.
-- Native destroy cleanup is scan-based (`prune_destroyed_label`) and requires multiple consecutive missing scans after being seen live in-session.
-- Multiplayer sync is not implemented or promised.
+- The in-game editor is functional but visually simple.
+- `Esc` can still also trigger the game escape menu in some cases.
+- Auto server route discovery may not work for every network setup.
+- UPnP depends on the router and local network configuration.
+- Static IP or manual port forwarding may be needed for some dedicated servers.
+
+## Development
+
+Build script:
+
+```powershell
+.\build_windrosetextsigns.ps1
+```
+
+Clean deploy script:
+
+```powershell
+.\deploy_TextSigns_clean.ps1
+```
+
+Offline QA:
+
+```powershell
+.\tools\run_offline_qa.ps1
+```
