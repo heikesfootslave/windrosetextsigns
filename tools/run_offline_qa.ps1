@@ -279,6 +279,17 @@ function Assert-ReleaseDocsPresent {
             throw "README missing release-hardening token: $token"
         }
     }
+    $forbiddenTokens = @(
+        "Pak Files",
+        "deploy_TextSigns_clean.ps1",
+        "build_windrosetextsigns.ps1",
+        "run_offline_qa.ps1"
+    )
+    foreach ($token in $forbiddenTokens) {
+        if ($text.Contains($token)) {
+            throw "README contains public-facing development/pak token: $token"
+        }
+    }
     return "release docs include bridge/font production notes"
 }
 

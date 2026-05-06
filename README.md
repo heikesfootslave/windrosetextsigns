@@ -2,7 +2,7 @@
 
 WindroseTextSigns is a UE4SS C++ mod for Windrose that lets players turn native wooden labels into editable text signs.
 
-The mod does not add a new build-menu item. Build any normal wooden label in game, look at it, press the configured hotkey, and enter the text you want displayed on the sign.
+The mod does not add a new build-menu item. Build any normal wooden label in game, look at it, press the configured hotkey (default F8), and enter the text you want displayed on the sign.
 
 ## Downloads
 
@@ -18,7 +18,7 @@ Get the latest packaged mod zip from the [GitHub Releases page](https://github.c
 - Keep a client-side cache for reconnect display while the server remains authoritative in multiplayer.
 - Use a UDP bridge for client/server sign-text updates.
 - Auto route discovery for clients where possible, with static host fallback.
-- Optional UPnP port mapping for dedicated servers.
+- UPnP port mapping is default with optional static IP configuration.
 
 ## Requirements
 
@@ -149,18 +149,6 @@ The mod also writes backups beside the main JSON file.
 
 Remote clients keep a cache for display/reconnect help, but the server is the source of truth during multiplayer.
 
-## Pak Files
-
-The current mod does not require content pak files.
-
-`deploy_TextSigns_clean.ps1` cleans old WindroseTextSigns content paks by default. Pak deployment is opt-in only:
-
-```powershell
-.\deploy_TextSigns_clean.ps1 -EnableContentPackage
-```
-
-Only use content paks when deliberately testing packaged assets.
-
 ## Font Notes
 
 Custom world text fonts are disabled by default because Windrose native font assets showed inconsistent runtime behavior in this mod path.
@@ -183,23 +171,3 @@ Raw font files alone are not enough for `TextRenderComponent`. A custom font nee
 - Auto server route discovery may not work for every network setup.
 - UPnP depends on the router and local network configuration.
 - Static IP or manual port forwarding may be needed for some dedicated servers.
-
-## Development
-
-Build script:
-
-```powershell
-.\build_windrosetextsigns.ps1
-```
-
-Clean deploy script:
-
-```powershell
-.\deploy_TextSigns_clean.ps1
-```
-
-Offline QA:
-
-```powershell
-.\tools\run_offline_qa.ps1
-```
