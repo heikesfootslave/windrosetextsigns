@@ -8889,8 +8889,14 @@ namespace WindroseTextSigns
             return false;
         }
 
-        const auto world_id = lower_ascii(build_world_id_for_actor(controller_actor));
-        return world_id.find("genlandia") != std::string::npos;
+        auto* world = controller_actor->GetWorld();
+        if (is_world_authoritative(world))
+        {
+            return true;
+        }
+
+        const auto routed_world_id = build_world_id_for_actor(controller_actor);
+        return is_hex_world_id(routed_world_id);
     }
 
     auto SignTextMod::on_update() -> void
