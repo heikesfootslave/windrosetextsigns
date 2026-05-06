@@ -4892,6 +4892,7 @@ namespace WindroseTextSigns
         m_native_transport_inventory_probe_ran = true;
 
         uint32_t max_logged = 120;
+        uint32_t max_specific_logged = 200;
         try
         {
             const auto configured = std::stoul(config_string_value("WTS_NATIVE_TRANSPORT_INVENTORY_MAX", "120"));
@@ -4900,6 +4901,15 @@ namespace WindroseTextSigns
         catch (...)
         {
             max_logged = 120;
+        }
+        try
+        {
+            const auto configured = std::stoul(config_string_value("WTS_NATIVE_TRANSPORT_MARKER_INVENTORY_MAX", "200"));
+            max_specific_logged = static_cast<uint32_t>(std::clamp<unsigned long>(configured, 10UL, 1000UL));
+        }
+        catch (...)
+        {
+            max_specific_logged = 200;
         }
 
         struct CandidateRow
@@ -4912,14 +4922,27 @@ namespace WindroseTextSigns
             int score{0};
             uint32_t param_count{0};
         };
+        struct ObjectCandidateRow
+        {
+            std::string full_name{};
+            std::string class_name{};
+            std::string outer_name{};
+        };
 
         std::vector<CandidateRow> rows{};
         rows.reserve(max_logged + 64);
+        std::vector<CandidateRow> specific_rows{};
+        specific_rows.reserve(max_specific_logged + 64);
+        std::vector<ObjectCandidateRow> specific_objects{};
+        specific_objects.reserve(max_specific_logged + 64);
         uint32_t scanned_functions = 0;
         uint32_t net_functions = 0;
+        uint32_t specific_functions_seen = 0;
+        uint32_t specific_objects_seen = 0;
 
         log_line("[native-transport-probe] start reason=" + reason +
                  " maxLogged=" + std::to_string(max_logged) +
+                 " maxSpecificLogged=" + std::to_string(max_specific_logged) +
                  " passive=true");
 
         UObjectGlobals::ForEachUObject([&](UObject* object, int32, int32) {
@@ -4966,6 +4989,25 @@ namespace WindroseTextSigns
                 "multicast",
                 "replicate",
                 "rpc"});
+            const bool marker_or_rule_specific = contains_any_token(lower_full_name, {
+                "r5blplayerinworld",
+                "playerinworld",
+                "usermarker",
+                "user_marker",
+                "mapmarker",
+                "map_marker",
+                "mapcontroller",
+                "markermodel",
+                "r5netbl",
+                "rulerequest",
+                "rule_request",
+                "businessrule"});
+
+            if (marker_or_rule_specific)
+            {
+                ++specific_functions_seen;
+            }
+
             if (score < 10 && !is_net_function && !name_interesting)
             {
                 return LoopAction::Continue;
@@ -4994,7 +5036,60 @@ namespace WindroseTextSigns
                 flags,
                 score,
                 param_count});
+            if (marker_or_rule_specific)
+            {
+                specific_rows.push_back(CandidateRow{
+                    function,
+                    full_name,
+                    class_name,
+                    outer_name,
+                    flags,
+                    score,
+                    param_count});
+            }
 
+            return LoopAction::Continue;
+        });
+
+        UObjectGlobals::ForEachUObject([&](UObject* object, int32, int32) {
+            if (!object || object->IsA(UFunction::StaticClass()))
+            {
+                return LoopAction::Continue;
+            }
+
+            const auto full_name = narrow_ascii(object->GetFullName());
+            const auto class_name = object->GetClassPrivate()
+                ? narrow_ascii(object->GetClassPrivate()->GetFullName())
+                : std::string{"unknown"};
+            const auto outer_name = object->GetOuterPrivate()
+                ? narrow_ascii(object->GetOuterPrivate()->GetFullName())
+                : std::string{"none"};
+            const auto haystack = lower_ascii(full_name + " " + class_name + " " + outer_name);
+            if (!contains_any_token(haystack, {
+                    "r5blplayerinworld",
+                    "playerinworld",
+                    "usermarker",
+                    "user_marker",
+                    "mapmarker",
+                    "map_marker",
+                    "mapcontroller",
+                    "markermodel",
+                    "r5netbl",
+                    "rulerequest",
+                    "rule_request",
+                    "businessrule"}))
+            {
+                return LoopAction::Continue;
+            }
+
+            ++specific_objects_seen;
+            if (specific_objects.size() < max_specific_logged)
+            {
+                specific_objects.push_back(ObjectCandidateRow{
+                    full_name,
+                    class_name,
+                    outer_name});
+            }
             return LoopAction::Continue;
         });
 
@@ -5005,11 +5100,28 @@ namespace WindroseTextSigns
             }
             return a.full_name < b.full_name;
         });
+        std::sort(specific_rows.begin(), specific_rows.end(), [](const CandidateRow& a, const CandidateRow& b) {
+            if (a.score != b.score)
+            {
+                return a.score > b.score;
+            }
+            return a.full_name < b.full_name;
+        });
+        std::sort(specific_objects.begin(), specific_objects.end(), [](const ObjectCandidateRow& a, const ObjectCandidateRow& b) {
+            return a.full_name < b.full_name;
+        });
 
         log_line("[native-transport-probe] summary scannedFunctions=" + std::to_string(scanned_functions) +
                  " netFunctions=" + std::to_string(net_functions) +
                  " matched=" + std::to_string(rows.size()) +
                  " logging=" + std::to_string(std::min<uint32_t>(max_logged, static_cast<uint32_t>(rows.size()))));
+        log_line("[native-transport-probe-specific] summary functionsSeen=" + std::to_string(specific_functions_seen) +
+                 " functionsMatched=" + std::to_string(specific_rows.size()) +
+                 " objectsSeen=" + std::to_string(specific_objects_seen) +
+                 " functionLogging=" +
+                 std::to_string(std::min<uint32_t>(max_specific_logged, static_cast<uint32_t>(specific_rows.size()))) +
+                 " objectLogging=" +
+                 std::to_string(std::min<uint32_t>(max_specific_logged, static_cast<uint32_t>(specific_objects.size()))));
 
         uint32_t logged = 0;
         for (const auto& row : rows)
@@ -5043,6 +5155,52 @@ namespace WindroseTextSigns
                          " size=" + std::to_string(prop->GetSize()) +
                          " flags=" + property_flag_summary(prop));
             });
+        }
+
+        uint32_t specific_logged = 0;
+        for (const auto& row : specific_rows)
+        {
+            if (!row.function || specific_logged >= max_specific_logged)
+            {
+                break;
+            }
+            ++specific_logged;
+            log_line("[native-transport-probe-specific] function index=" + std::to_string(specific_logged) +
+                     " score=" + std::to_string(row.score) +
+                     " params=" + std::to_string(row.param_count) +
+                     " flags=" + row.flags +
+                     " path=" + row.full_name +
+                     " class=" + row.class_name +
+                     " outer=" + row.outer_name);
+
+            uint32_t param_index = 0;
+            for_each_property_in_chain_compat(row.function, [&](FProperty* prop) {
+                if (!prop || !prop->HasAnyPropertyFlags(CPF_Parm))
+                {
+                    return;
+                }
+                ++param_index;
+                log_line("[native-transport-probe-specific] param functionIndex=" + std::to_string(specific_logged) +
+                         " paramIndex=" + std::to_string(param_index) +
+                         " name=" + RC::to_string(prop->GetName()) +
+                         " class=" + RC::to_string(prop->GetClass().GetName()) +
+                         " size=" + std::to_string(prop->GetSize()) +
+                         " flags=" + property_flag_summary(prop));
+            });
+        }
+
+        uint32_t specific_object_logged = 0;
+        for (const auto& row : specific_objects)
+        {
+            if (specific_object_logged >= max_specific_logged)
+            {
+                break;
+            }
+            ++specific_object_logged;
+            log_line("[native-transport-probe-specific] object index=" + std::to_string(specific_object_logged) +
+                     " path=" + row.full_name +
+                     " class=" + row.class_name +
+                     " outer=" + row.outer_name);
         }
 
         log_line("[native-transport-probe] complete logged=" + std::to_string(logged));
@@ -7648,14 +7806,14 @@ namespace WindroseTextSigns
 
             tick_pending_hotkey();
             tick_phase7_umg_editor();
-            tick_pending_fallback_hotkeys();
-            tick_file_triggers();
             tick_phase5_build_menu_selection_probe();
             if (m_six_sign_test_requested.exchange(false))
             {
                 run_six_sign_targeting_test();
             }
         }
+        tick_pending_fallback_hotkeys();
+        tick_file_triggers();
         tick_bridge();
         const auto now = std::chrono::steady_clock::now();
 
