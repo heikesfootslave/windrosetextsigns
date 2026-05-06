@@ -3679,7 +3679,10 @@ namespace WindroseTextSigns
             m_log << row << "\n";
             m_log.flush();
         }
-        Output::send<LogLevel::Warning>(STR("[WindroseTextSigns] {}"), RC::to_wstring(row));
+        if (m_verbose_log)
+        {
+            Output::send<LogLevel::Warning>(STR("[WindroseTextSigns] {}"), RC::to_wstring(row));
+        }
     }
 
     auto SignTextMod::on_unreal_init() -> void
@@ -3693,6 +3696,8 @@ namespace WindroseTextSigns
         m_native_transport_inventory_probe_enabled = is_native_transport_inventory_probe_enabled();
         m_player_marker_replication_probe_enabled = is_player_marker_replication_probe_enabled();
         m_player_marker_replication_probe_action_trigger_enabled = is_player_marker_replication_probe_action_trigger_enabled();
+        m_verbose_log = config_bool_value("WTS_VERBOSE_LOG", false);
+        m_world_text_font_enabled = config_bool_value("WTS_WORLD_TEXT_FONT_ENABLED", false);
         m_player_marker_replication_probe_action_tokens = config_string_value(
             "WTS_PLAYER_MARKER_REPLICATION_PROBE_ACTION_TOKENS",
             "melee,attack,weapon,swing,ability,combat,primaryfire,fire,dodge,jump");
@@ -3766,6 +3771,10 @@ namespace WindroseTextSigns
                  std::string{m_hide_native_label_icon_enabled ? "true" : "false"} +
                  " diagnostics=" +
                  std::string{m_label_text_visual_diagnostics_enabled ? "true" : "false"});
+        log_line("[phase4-font] config enabled=" + std::string{m_world_text_font_enabled ? "true" : "false"} +
+                 " asset=" + config_string_value("WTS_WORLD_TEXT_FONT_ASSET", "none") +
+                 " hint=" + config_string_value("WTS_WORLD_TEXT_FONT_NAME_HINT", "") +
+                 " nativeFallback=" + std::string{config_bool_value("WTS_WORLD_TEXT_FONT_NATIVE_FALLBACK", false) ? "true" : "false"});
         log_line("[native-transport-probe] config enabled=" +
                  std::string{m_native_transport_inventory_probe_enabled ? "true" : "false"});
         log_line("[player-marker-replication-probe] config enabled=" +
@@ -7921,7 +7930,9 @@ namespace WindroseTextSigns
         log_line("[bridge] snapshot_request reason=" + reason +
                  " sent=" + std::string{sent ? "true" : "false"} +
                  " role=" + bridge_role_name(m_bridge_role) +
-                 " worldId=" + m_world_folder_id);
+                 " worldId=" + m_world_folder_id +
+                 " serverHost=" + m_bridge_remote_server_host +
+                 " pending=" + std::to_string(m_bridge_pending_request_keys.size()));
     }
 
     auto SignTextMod::send_bridge_record_request(const std::string& request_type, const LabelRecord& rec) -> bool
@@ -7971,7 +7982,9 @@ namespace WindroseTextSigns
                  " sent=" + std::string{sent ? "true" : "false"} +
                  " relaySent=" + std::string{relay_sent ? "true" : "false"} +
                  " textChars=" + std::to_string(rec.text.size()) +
-                 " pendingKey=" + pending_key);
+                 " pendingKey=" + pending_key +
+                 " pending=" + std::to_string(m_bridge_pending_request_keys.size()) +
+                 " serverHost=" + m_bridge_remote_server_host);
         return sent || relay_sent;
     }
 
@@ -8233,7 +8246,7 @@ namespace WindroseTextSigns
             ? m_world_folder_id
             : unescape_json(fields.count("worldId") ? fields.at("worldId") : "unknown-world");
         const auto key = build_storage_key(local_world_id, stable_id);
-        m_bridge_pending_request_keys.erase(key);
+        const bool acked_pending = m_bridge_pending_request_keys.erase(key) > 0;
         const auto snapshot_id = unescape_json(fields.count("snapshotId") ? fields.at("snapshotId") : "");
         const auto snapshot_count = fields.count("snapshotCount") ? safe_stoi(fields.at("snapshotCount"), -1) : -1;
         if (!snapshot_id.empty())
@@ -8337,6 +8350,8 @@ namespace WindroseTextSigns
                  " stableId=" + stable_id +
                  " localWorldId=" + local_world_id +
                  " changed=" + std::string{changed ? "true" : "false"} +
+                 " ackedPending=" + std::string{acked_pending ? "true" : "false"} +
+                 " pending=" + std::to_string(m_bridge_pending_request_keys.size()) +
                  " textChars=" + std::to_string(rec.text.size()));
 
         if (!snapshot_id.empty() &&
@@ -8371,7 +8386,7 @@ namespace WindroseTextSigns
             ? m_world_folder_id
             : unescape_json(fields.count("worldId") ? fields.at("worldId") : "unknown-world");
         const auto key = build_storage_key(local_world_id, stable_id);
-        m_bridge_pending_request_keys.erase(key);
+        const bool acked_pending = m_bridge_pending_request_keys.erase(key) > 0;
         m_labels.erase(key);
         m_rendered_text_cache.erase(key);
         m_component_name_cache.erase(key);
@@ -8392,7 +8407,9 @@ namespace WindroseTextSigns
         m_bridge_snapshot_received = true;
         log_line("[bridge] client_clear_applied key=" + key +
                  " stableId=" + stable_id +
-                 " localWorldId=" + local_world_id);
+                 " localWorldId=" + local_world_id +
+                 " ackedPending=" + std::string{acked_pending ? "true" : "false"} +
+                 " pending=" + std::to_string(m_bridge_pending_request_keys.size()));
     }
 
     auto SignTextMod::write_recovery_candidate(
@@ -8764,7 +8781,18 @@ namespace WindroseTextSigns
         if (now - m_bridge_last_status > std::chrono::seconds(20))
         {
             m_bridge_last_status = now;
-            log_line("[bridge] status " + NativeBridge::instance().status_json());
+            log_line("[bridge] status role=" + bridge_role_name(m_bridge_role) +
+                     " worldId=" + m_world_folder_id +
+                     " authoritative=" + std::string{m_sidecar_authoritative ? "true" : "false"} +
+                     " routeHost=" + m_bridge_remote_server_host +
+                     " autoRoute=" + std::string{m_bridge_route_auto_enabled ? "true" : "false"} +
+                     " snapshotReceived=" + std::string{m_bridge_snapshot_received ? "true" : "false"} +
+                     " snapshotActive=" + std::string{m_bridge_snapshot_active ? "true" : "false"} +
+                     " snapshotSeen=" + std::to_string(m_bridge_snapshot_seen_keys.size()) +
+                     " snapshotExpected=" + std::to_string(m_bridge_snapshot_expected_count) +
+                     " pending=" + std::to_string(m_bridge_pending_request_keys.size()) +
+                     " labels=" + std::to_string(m_labels.size()) +
+                     " native=" + NativeBridge::instance().status_json());
         }
     }
 
@@ -8872,6 +8900,16 @@ namespace WindroseTextSigns
         }
 
         m_world_text_font_resolved = true;
+        if (!m_world_text_font_enabled)
+        {
+            if (!m_world_text_font_missing_logged)
+            {
+                m_world_text_font_missing_logged = true;
+                log_line("[phase4-font] disabled usingEngineDefault=true");
+            }
+            return nullptr;
+        }
+
         auto* font_class = find_uclass_by_path(STR("/Script/Engine.Font"));
         if (!font_class)
         {

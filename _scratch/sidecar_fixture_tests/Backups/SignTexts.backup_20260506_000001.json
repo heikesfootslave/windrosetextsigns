@@ -1,0 +1,19 @@
+﻿{
+    "version":  2,
+    "worldIslandId":  "TEST_WORLD",
+    "authority":  "authoritative",
+    "revision":  3,
+    "lastWriteUtc":  "2026-05-06T00:00:00Z",
+    "labels":  {
+                   "TEST_WORLD/BuildingBlock|ABC|1":  {
+                                                          "stableId":  "BuildingBlock|ABC|1",
+                                                          "text":  "Alpha",
+                                                          "kind":  "LabelText"
+                                                      },
+                   "TEST_WORLD/BuildingBlock|ABC|2":  {
+                                                          "stableId":  "BuildingBlock|ABC|2",
+                                                          "text":  "Beta",
+                                                          "kind":  "LabelText"
+                                                      }
+               }
+}

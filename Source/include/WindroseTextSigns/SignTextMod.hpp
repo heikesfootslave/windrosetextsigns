@@ -248,6 +248,7 @@ namespace WindroseTextSigns
         std::string m_save_profile_root{};
         std::string m_world_folder_id{};
         bool m_sidecar_authoritative{false};
+        bool m_verbose_log{false};
         uint64_t m_revision{0};
         std::string m_session_id{};
         BridgeRole m_bridge_role{BridgeRole::Unknown};
@@ -371,6 +372,7 @@ namespace WindroseTextSigns
         std::string m_last_backup_signature{};
         bool m_runtime_text_label_patch_applied{false};
         RC::Unreal::UObject* m_world_text_font_asset{};
+        bool m_world_text_font_enabled{false};
         bool m_world_text_font_resolved{false};
         bool m_world_text_font_missing_logged{false};
         bool m_in_process_event_probe{false};

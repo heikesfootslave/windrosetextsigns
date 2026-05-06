@@ -174,7 +174,9 @@ function Assert-IniSane {
         "WTS_BRIDGE_UPNP_ENABLED" = "true"
         "WTS_MAX_TARGET_DISTANCE" = "1000"
         "WTS_VERBOSE_LOG" = "false"
-        "WTS_WORLD_TEXT_FONT_ASSET" = "/Game/WindroseTextSigns/Fonts/PencilantScript.PencilantScript"
+        "WTS_WORLD_TEXT_FONT_ENABLED" = "false"
+        "WTS_WORLD_TEXT_FONT_ASSET" = "none"
+        "WTS_WORLD_TEXT_FONT_NAME_HINT" = ""
         "WTS_WORLD_TEXT_FONT_NATIVE_FALLBACK" = "false"
         "WTS_WORLD_TEXT_FONT_INVENTORY_PROBE" = "false"
         "WTS_RELAY_ENABLED" = "false"
@@ -192,6 +194,9 @@ function Assert-IniSane {
 
     $expectedTopKeys = @(
         "WTS_ENABLED",
+        "WTS_HOTKEY",
+        "WTS_MAX_TARGET_DISTANCE",
+        "WTS_MIN_VIEW_DOT",
         "WTS_BRIDGE_SERVER_HOST",
         "WTS_BRIDGE_UDP_PORT",
         "WTS_BRIDGE_UPNP_ENABLED"

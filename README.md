@@ -28,13 +28,18 @@ Bridge behavior:
 World Text Font:
 
 - Raw fonts are copied under `assets\fonts`, but `TextRenderComponent` needs a loaded Unreal `UFont` asset.
-- The desired asset path is configurable with:
+- Custom font use is disabled by default because several native `UFont` assets can make `TextRenderComponent` render no text.
+- Experimental font keys remain available under `[Debug]`:
 
 ```ini
-WTS_WORLD_TEXT_FONT_ASSET=/Game/WindroseTextSigns/Fonts/PencilantScript.PencilantScript
+WTS_WORLD_TEXT_FONT_ENABLED=false
+WTS_WORLD_TEXT_FONT_ASSET=none
+WTS_WORLD_TEXT_FONT_NAME_HINT=
+WTS_WORLD_TEXT_FONT_NATIVE_FALLBACK=false
 ```
 
-- Until a cooked `UFont` asset is created and packaged at that path, the mod falls back to the engine/game default font.
+- `F_CWindSerif` is a native Windrose font asset in `pakchunk0_s4-Windows`, but it has shown inconsistent runtime behavior in this mod path.
+- A custom Pencilant font still requires a cooked Unreal `UFont` asset before `TextRenderComponent` can use it.
 
 ## Goal
 Prototype a **mod-owned** custom text flow for placed Wooden Labels using:
