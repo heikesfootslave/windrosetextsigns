@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <future>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -24,6 +25,7 @@
 #include <Unreal/UObject.hpp>
 
 #include <WindroseTextSigns/NativeBridge.hpp>
+#include <WindroseTextSigns/RelayHttp.hpp>
 
 namespace WindroseTextSigns
 {
@@ -70,6 +72,25 @@ namespace WindroseTextSigns
         auto render_ui() -> void;
 
       private:
+        enum class RelayHttpKind : uint32_t
+        {
+            ClientPost = 1,
+            ClientSnapshot = 2,
+            ServerSnapshot = 3,
+            ServerRequests = 4
+        };
+
+        struct RelayHttpTask
+        {
+            RelayHttpKind kind{RelayHttpKind::ClientPost};
+            std::string reason{};
+            std::string url{};
+            std::string room_id{};
+            int after_seq{0};
+            std::chrono::steady_clock::time_point started{};
+            std::future<RelayHttpResponse> future{};
+        };
+
         auto resolve_mod_root() -> std::filesystem::path;
         auto configure_data_root() -> void;
         auto migrate_legacy_sidecar_if_needed() -> void;
@@ -174,6 +195,11 @@ namespace WindroseTextSigns
         auto relay_url(const std::string& path_and_query) const -> std::string;
         auto relay_extract_payloads(const std::string& json) const -> std::vector<std::string>;
         auto relay_extract_max_seq(const std::string& json) const -> int;
+        auto relay_kind_name(RelayHttpKind kind) const -> std::string;
+        auto relay_has_inflight(RelayHttpKind kind) const -> bool;
+        auto relay_enqueue_get(RelayHttpKind kind, const std::string& url, const std::string& reason, int after_seq = 0) -> bool;
+        auto relay_enqueue_post(RelayHttpKind kind, const std::string& url, const std::string& body, const std::string& reason) -> bool;
+        auto relay_process_completed_http() -> void;
         auto relay_post_client_payload(const std::string& payload, const std::string& reason) -> bool;
         auto relay_publish_server_snapshot(const std::string& reason) -> void;
         auto relay_poll_server_requests() -> void;
@@ -230,6 +256,7 @@ namespace WindroseTextSigns
         std::chrono::steady_clock::time_point m_relay_next_poll{};
         std::chrono::steady_clock::time_point m_relay_next_server_snapshot{};
         std::chrono::steady_clock::time_point m_relay_last_status{};
+        std::vector<RelayHttpTask> m_relay_http_tasks{};
         std::chrono::steady_clock::time_point m_bridge_next_snapshot_request{};
         std::chrono::steady_clock::time_point m_bridge_last_status{};
         bool m_bridge_snapshot_received{false};
