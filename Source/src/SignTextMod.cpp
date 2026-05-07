@@ -8758,7 +8758,12 @@ namespace WindroseTextSigns
         {
             save_sidecar_json("bridge_cache_upsert", key, stable_id, local_world_id);
         }
-        if (is_confirmed_label_text_kind(rec.kind))
+        bool render_suppressed_by_rebuild_guard = false;
+        if (const auto retry = m_phase4_next_retry.find(key); retry != m_phase4_next_retry.end())
+        {
+            render_suppressed_by_rebuild_guard = std::chrono::steady_clock::now() < retry->second;
+        }
+        if (is_confirmed_label_text_kind(rec.kind) && !render_suppressed_by_rebuild_guard)
         {
             UObjectGlobals::ForEachUObject([&](UObject* object, int32, int32) {
                 if (!object || !object->IsA(AActor::StaticClass()))
@@ -8780,6 +8785,7 @@ namespace WindroseTextSigns
                  " localWorldId=" + local_world_id +
                  " changed=" + std::string{changed ? "true" : "false"} +
                  " ackedPending=" + std::string{acked_pending ? "true" : "false"} +
+                 " renderSuppressed=" + std::string{render_suppressed_by_rebuild_guard ? "true" : "false"} +
                  " pending=" + std::to_string(m_bridge_pending_request_keys.size()) +
                  " textChars=" + std::to_string(rec.text.size()));
 
@@ -10608,6 +10614,14 @@ namespace WindroseTextSigns
             uint32_t scan_probable_label_count = 0;
             uint32_t scan_buildingish_count = 0;
             std::vector<std::string> scan_samples{};
+            const auto arm_rebuild_render_guard = [&](const std::string& key_to_guard) {
+                const auto guard_until = std::chrono::steady_clock::now() + std::chrono::seconds(12);
+                auto& next_retry = m_phase4_next_retry[key_to_guard];
+                if (next_retry.time_since_epoch().count() == 0 || next_retry < guard_until)
+                {
+                    next_retry = guard_until;
+                }
+            };
             UObjectGlobals::ForEachUObject([&](UObject* object, int32, int32) {
                 if (!object || !object->IsA(AActor::StaticClass()))
                 {
@@ -10678,22 +10692,30 @@ namespace WindroseTextSigns
                             }
                             else if (miss_count < k_rebuild_prune_missing_scan_threshold)
                             {
+                                const bool removed_component = destroy_managed_text_component(actor, key);
+                                m_rendered_text_cache.erase(key);
+                                arm_rebuild_render_guard(key);
                                 log_line("[save] prune_rebuilt_label deferred key=" + key +
                                          " stableId=" + found->second.stable_id +
                                          " worldId=" + found->second.world_id +
                                          " reason=insufficient_miss_count missCount=" + std::to_string(miss_count) +
-                                         " threshold=" + std::to_string(k_rebuild_prune_missing_scan_threshold));
+                                         " threshold=" + std::to_string(k_rebuild_prune_missing_scan_threshold) +
+                                         " removedComponent=" + std::string{removed_component ? "true" : "false"} +
+                                         " renderGuardSec=12");
                                 m_component_name_cache.erase(key);
-                                m_phase4_next_retry.erase(key);
                             }
                             else if (remote_bridge_unsynced)
                             {
+                                const bool removed_component = destroy_managed_text_component(actor, key);
+                                m_rendered_text_cache.erase(key);
+                                arm_rebuild_render_guard(key);
                                 log_line("[save] prune_rebuilt_label deferred key=" + key +
                                          " stableId=" + found->second.stable_id +
                                          " worldId=" + found->second.world_id +
-                                         " reason=bridge_unsynced");
+                                         " reason=bridge_unsynced" +
+                                         " removedComponent=" + std::string{removed_component ? "true" : "false"} +
+                                         " renderGuardSec=12");
                                 m_component_name_cache.erase(key);
-                                m_phase4_next_retry.erase(key);
                             }
                             else
                             {
@@ -10772,8 +10794,6 @@ namespace WindroseTextSigns
             const bool allow_prune = !present_label_keys.empty() && had_seen_live_labels_before_scan && !remote_bridge_unsynced;
             if (allow_prune)
             {
-                m_prune_deferred_logged = false;
-                m_last_prune_defer_reason.clear();
                 m_bootstrap_prune_phase_observed = true;
                 constexpr uint32_t k_prune_missing_scan_threshold = 4;
                 constexpr uint32_t k_min_live_labels_in_world_for_prune = 2;
@@ -10781,6 +10801,8 @@ namespace WindroseTextSigns
                 uint32_t considered_missing_labels = 0;
                 uint32_t blocked_by_world_count = 0;
                 uint32_t blocked_by_live_guard = 0;
+                const bool require_seen_live_for_authoritative_prune =
+                    m_sidecar_authoritative && !is_dedicated_runtime_process();
                 for (const auto& [key, rec] : m_labels)
                 {
                     if (present_label_keys.find(key) != present_label_keys.end())
@@ -10794,7 +10816,9 @@ namespace WindroseTextSigns
                         ++blocked_by_world_count;
                         continue;
                     }
-                    if (!m_sidecar_authoritative && m_seen_live_label_keys.find(key) == m_seen_live_label_keys.end())
+                    const bool seen_live_this_session = m_seen_live_label_keys.find(key) != m_seen_live_label_keys.end();
+                    if ((!m_sidecar_authoritative && !seen_live_this_session) ||
+                        (require_seen_live_for_authoritative_prune && !seen_live_this_session))
                     {
                         ++blocked_by_live_guard;
                         continue;
@@ -10847,11 +10871,45 @@ namespace WindroseTextSigns
 
                 if (pruned_count > 0)
                 {
+                    m_prune_deferred_logged = false;
+                    m_last_prune_defer_reason.clear();
                     save_sidecar_json(
                         "prune_destroyed_label_batch",
                         "batch:" + std::to_string(pruned_count),
                         "batch",
                         "batch");
+                }
+                else
+                {
+                    std::string defer_reason{};
+                    if (blocked_by_live_guard > 0)
+                    {
+                        defer_reason = require_seen_live_for_authoritative_prune
+                            ? "never_seen_live_this_session_authoritative"
+                            : "never_seen_live_this_session";
+                    }
+                    else if (blocked_by_world_count > 0)
+                    {
+                        defer_reason = "insufficient_live_labels_in_world";
+                    }
+
+                    if (!defer_reason.empty())
+                    {
+                        if (!m_prune_deferred_logged || m_last_prune_defer_reason != defer_reason)
+                        {
+                            log_line("[save] prune_destroyed_label deferred reason=" + defer_reason +
+                                     " blockedLiveGuard=" + std::to_string(blocked_by_live_guard) +
+                                     " blockedWorldCount=" + std::to_string(blocked_by_world_count) +
+                                     " candidates=" + std::to_string(considered_missing_labels));
+                            m_prune_deferred_logged = true;
+                            m_last_prune_defer_reason = defer_reason;
+                        }
+                    }
+                    else
+                    {
+                        m_prune_deferred_logged = false;
+                        m_last_prune_defer_reason.clear();
+                    }
                 }
             }
             else
