@@ -10654,7 +10654,29 @@ namespace WindroseTextSigns
                             const auto miss_it = m_missing_label_scan_counts.find(key);
                             const uint32_t miss_count = (miss_it != m_missing_label_scan_counts.end()) ? miss_it->second : 0;
                             constexpr uint32_t k_rebuild_prune_missing_scan_threshold = 4;
-                            if (miss_count < k_rebuild_prune_missing_scan_threshold)
+                            const bool dedicated_authoritative_fast_prune =
+                                m_sidecar_authoritative && is_dedicated_runtime_process();
+                            if (dedicated_authoritative_fast_prune)
+                            {
+                                log_line("[save] prune_rebuilt_label key=" + key +
+                                         " stableId=" + found->second.stable_id +
+                                         " worldId=" + found->second.world_id +
+                                         " reason=actor_instance_changed_authoritative");
+                                broadcast_bridge_clear(found->second.stable_id, found->second.world_id, "prune_rebuilt_label");
+                                m_labels.erase(found);
+                                m_rendered_text_cache.erase(key);
+                                m_component_name_cache.erase(key);
+                                m_phase4_next_retry.erase(key);
+                                m_missing_label_scan_counts.erase(key);
+                                if (m_text_buffer_bound_key == key)
+                                {
+                                    m_text_buffer.fill('\0');
+                                    m_text_buffer_bound_key.clear();
+                                }
+                                save_sidecar_json("prune_rebuilt_label", key, stable_id, world_id);
+                                pruned_rebuilt_label = true;
+                            }
+                            else if (miss_count < k_rebuild_prune_missing_scan_threshold)
                             {
                                 log_line("[save] prune_rebuilt_label deferred key=" + key +
                                          " stableId=" + found->second.stable_id +

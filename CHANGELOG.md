@@ -7,6 +7,7 @@
   - prune suppression while remote bridge is unsynced/degraded
   - route candidate set + rotation for same-machine bind ambiguity (`127.0.0.1` vs NIC IP) and multi-NIC/VPN LAN ambiguity
   - deferred `prune_rebuilt_label` while remote client has not received first authoritative snapshot
+  - dedicated authoritative fast-prune when a label key rebinds to a different actor instance (fixes stale text resurrecting on destroy/rebuild with quick rebuild timing)
   - explicit unsynced preview logging for optimistic remote apply/clear
 - Added offline bridge fixture coverage for degraded/no-snapshot behavior and retry backoff.
 - Added adaptive UPnP mode selection for bridge hosts:
