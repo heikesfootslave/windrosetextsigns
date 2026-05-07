@@ -298,6 +298,8 @@ namespace WindroseTextSigns
         size_t m_bridge_route_candidate_index{0};
         bool m_bridge_route_lock_acquired{false};
         std::string m_bridge_route_locked_host{};
+        bool m_bridge_route_force_non_loopback{false};
+        bool m_bridge_route_recovery_logged{false};
         std::unordered_set<std::string> m_bridge_route_rejected_candidates_logged{};
         bool m_bridge_route_bootstrap_pause_logged{false};
         int m_bridge_udp_port{45801};

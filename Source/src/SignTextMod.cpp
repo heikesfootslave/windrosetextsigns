@@ -5196,6 +5196,9 @@ namespace WindroseTextSigns
             m_live_label_actor_ptrs.clear();
             m_missing_label_scan_counts.clear();
             m_seen_live_label_keys.clear();
+            m_rendered_text_cache.clear();
+            m_component_name_cache.clear();
+            m_phase4_next_retry.clear();
             m_restore_scan_has_seen_live_labels = false;
             m_dedicated_restore_active_since = {};
             m_dedicated_restore_stable_since = {};
@@ -8190,6 +8193,7 @@ namespace WindroseTextSigns
         m_bridge_snapshot_id.clear();
         m_bridge_snapshot_seen_keys.clear();
         m_bridge_pending_request_keys.clear();
+        m_bridge_route_recovery_logged = false;
     }
 
     auto SignTextMod::configure_bridge_role(const std::string& reason) -> void
@@ -8234,6 +8238,8 @@ namespace WindroseTextSigns
         m_bridge_route_last_switch = {};
         m_bridge_route_lock_acquired = false;
         m_bridge_route_locked_host.clear();
+        m_bridge_route_force_non_loopback = false;
+        m_bridge_route_recovery_logged = false;
         m_bridge_route_rejected_candidates_logged.clear();
         m_bridge_route_bootstrap_pause_logged = false;
         m_bridge_upnp_timeout_logged = false;
@@ -9290,13 +9296,20 @@ namespace WindroseTextSigns
             return;
         }
 
-        if (m_bridge_route_lock_acquired)
+        if (m_bridge_route_lock_acquired && !m_bridge_route_force_non_loopback)
         {
             return;
         }
 
         const auto now = std::chrono::steady_clock::now();
-        if (!is_bootstrap_resolution_window_active(now))
+        const bool snapshot_current_world =
+            m_bridge_snapshot_received &&
+            (!is_hex_world_id(m_world_folder_id) || m_bridge_snapshot_world_id == m_world_folder_id);
+        const bool bootstrap_window_active = is_bootstrap_resolution_window_active(now);
+        const bool need_recovery_pass =
+            !snapshot_current_world || m_bridge_health_unhealthy || m_bridge_route_force_non_loopback;
+
+        if (!bootstrap_window_active && !need_recovery_pass)
         {
             if (!m_bridge_route_bootstrap_pause_logged)
             {
@@ -9305,11 +9318,32 @@ namespace WindroseTextSigns
             }
             return;
         }
-        if (now < m_bridge_route_next_check)
+
+        if (!bootstrap_window_active && need_recovery_pass)
         {
-            return;
+            if (!m_bridge_route_recovery_logged)
+            {
+                m_bridge_route_recovery_logged = true;
+                log_line("[bridge-route] recovery_pass_start reason=degraded_unsynced routeLocked=" +
+                         std::string{m_bridge_route_lock_acquired ? "true" : "false"} +
+                         " routeHost=" + m_bridge_remote_server_host);
+            }
+            if (now < m_bridge_route_next_check)
+            {
+                return;
+            }
+            m_bridge_route_next_check = now + (m_bridge_health_unhealthy ? std::chrono::seconds(10) : std::chrono::seconds(15));
         }
-        m_bridge_route_next_check = now + std::chrono::seconds(5);
+        else
+        {
+            m_bridge_route_recovery_logged = false;
+            m_bridge_route_bootstrap_pause_logged = false;
+            if (now < m_bridge_route_next_check)
+            {
+                return;
+            }
+            m_bridge_route_next_check = now + std::chrono::seconds(5);
+        }
 
         const auto discovered = discover_bridge_route_from_r5_log(m_bridge_route_log_path);
         if (!discovered.log_path.empty())
@@ -9339,6 +9373,14 @@ namespace WindroseTextSigns
         viable_candidates.reserve(ordered_candidates.size());
         for (const auto& candidate : ordered_candidates)
         {
+            if (candidate == "127.0.0.1" && m_bridge_route_force_non_loopback)
+            {
+                if (m_bridge_route_rejected_candidates_logged.insert("127.0.0.1:force_non_loopback").second)
+                {
+                    log_line("[bridge-route] candidate_rejected host=127.0.0.1 reason=loopback_disallowed_unsynced_recovery");
+                }
+                continue;
+            }
             if (candidate != "127.0.0.1" &&
                 is_private_ipv4(candidate) &&
                 !is_private_candidate_on_local_subnet(candidate, local_hosts))
@@ -9427,6 +9469,8 @@ namespace WindroseTextSigns
         const bool was_unhealthy = m_bridge_health_unhealthy;
         m_bridge_health_unhealthy = false;
         m_bridge_health_warning_logged = false;
+        m_bridge_route_force_non_loopback = false;
+        m_bridge_route_recovery_logged = false;
         m_bridge_snapshot_retry_attempts = 0;
         m_bridge_sync_wait_started = std::chrono::steady_clock::now();
         if (was_unhealthy)
@@ -9462,6 +9506,8 @@ namespace WindroseTextSigns
         m_bridge_route_locked_host.clear();
         m_bridge_route_rejected_candidates_logged.clear();
         m_bridge_route_bootstrap_pause_logged = false;
+        m_bridge_route_force_non_loopback = false;
+        m_bridge_route_recovery_logged = false;
         if (had_lock)
         {
             log_line("[role] lock_released reason=" + reason);
@@ -9553,6 +9599,19 @@ namespace WindroseTextSigns
         {
             m_bridge_health_warning_logged = true;
             const auto waited_sec = std::chrono::duration_cast<std::chrono::seconds>(wait_time).count();
+            if (m_bridge_remote_server_host == "127.0.0.1")
+            {
+                if (!m_bridge_route_force_non_loopback)
+                {
+                    log_line("[bridge-route] loopback_invalidated reason=no_snapshot_ack waitedSec=" + std::to_string(waited_sec));
+                }
+                m_bridge_route_force_non_loopback = true;
+                m_bridge_route_recovery_logged = false;
+                m_bridge_route_lock_acquired = false;
+                m_bridge_route_locked_host.clear();
+                m_bridge_route_bootstrap_pause_logged = false;
+                m_bridge_route_next_check = now;
+            }
             log_line("[bridge-health] degraded reason=no_snapshot_ack role=RemoteClient" +
                      std::string(" waitedSec=") + std::to_string(waited_sec) +
                      " pending=" + std::to_string(m_bridge_pending_request_keys.size()) +
@@ -10711,6 +10770,16 @@ namespace WindroseTextSigns
         // a rebuilt/reused instance key and drop stale persisted text before restore.
         // A single missed scan is often transient streaming/travel churn.
         constexpr uint32_t k_rebuild_prune_missing_scan_threshold = 4;
+        const auto runtime_role_lower = lower_ascii(m_runtime_role);
+        const auto authority_mode_lower = lower_ascii(m_authority_mode);
+        const bool authority_source_resolved =
+            runtime_role_lower != "localclientpending" &&
+            authority_mode_lower != "worldauthoritypending";
+        const bool seen_live_this_session = m_seen_live_label_keys.find(key) != m_seen_live_label_keys.end();
+        const bool authoritative_local_guard_blocked =
+            m_sidecar_authoritative &&
+            !is_dedicated_runtime_process() &&
+            (!authority_source_resolved || !seen_live_this_session);
         const bool remote_bridge_unsynced =
             !m_sidecar_authoritative &&
             m_bridge_role == BridgeRole::RemoteClient &&
@@ -10719,7 +10788,8 @@ namespace WindroseTextSigns
             miss_it != m_missing_label_scan_counts.end() &&
             miss_it->second >= k_rebuild_prune_missing_scan_threshold &&
             m_restore_scan_has_seen_live_labels &&
-            !remote_bridge_unsynced)
+            !remote_bridge_unsynced &&
+            !authoritative_local_guard_blocked)
         {
             if (const auto found = m_labels.find(key); found != m_labels.end())
             {
@@ -10745,7 +10815,10 @@ namespace WindroseTextSigns
                      " missCount=" + std::to_string(miss_it->second) +
                      " threshold=" + std::to_string(k_rebuild_prune_missing_scan_threshold) +
                      " seenLiveBeforeScan=" + std::string{m_restore_scan_has_seen_live_labels ? "true" : "false"} +
-                     " bridgeUnsynced=" + std::string{remote_bridge_unsynced ? "true" : "false"});
+                     " bridgeUnsynced=" + std::string{remote_bridge_unsynced ? "true" : "false"} +
+                     " authoritySourceResolved=" + std::string{authority_source_resolved ? "true" : "false"} +
+                     " seenLiveThisSession=" + std::string{seen_live_this_session ? "true" : "false"} +
+                     " authoritativeLocalGuardBlocked=" + std::string{authoritative_local_guard_blocked ? "true" : "false"});
         }
 
         ++m_construct_label_hit_count;
@@ -10928,8 +11001,12 @@ namespace WindroseTextSigns
                             const auto miss_it = m_missing_label_scan_counts.find(key);
                             const uint32_t miss_count = (miss_it != m_missing_label_scan_counts.end()) ? miss_it->second : 0;
                             constexpr uint32_t k_rebuild_prune_missing_scan_threshold = 4;
+                            const bool seen_live_this_session = m_seen_live_label_keys.find(key) != m_seen_live_label_keys.end();
                             const bool authoritative_fast_prune =
-                                m_sidecar_authoritative && authority_source_resolved;
+                                m_sidecar_authoritative &&
+                                !is_dedicated_runtime_process() &&
+                                authority_source_resolved &&
+                                seen_live_this_session;
                             if (authoritative_fast_prune)
                             {
                                 log_line("[save] prune_rebuilt_label key=" + key +
@@ -10949,6 +11026,17 @@ namespace WindroseTextSigns
                                 }
                                 save_sidecar_json("prune_rebuilt_label", key, stable_id, world_id);
                                 pruned_rebuilt_label = true;
+                            }
+                            else if (m_sidecar_authoritative &&
+                                     !is_dedicated_runtime_process() &&
+                                     (!authority_source_resolved || !seen_live_this_session))
+                            {
+                                log_line("[save] prune_rebuilt_label deferred key=" + key +
+                                         " stableId=" + found->second.stable_id +
+                                         " worldId=" + found->second.world_id +
+                                         " reason=authoritative_seen_live_guard" +
+                                         " authoritySourceResolved=" + std::string{authority_source_resolved ? "true" : "false"} +
+                                         " seenLiveThisSession=" + std::string{seen_live_this_session ? "true" : "false"});
                             }
                             else if (miss_count < k_rebuild_prune_missing_scan_threshold)
                             {
