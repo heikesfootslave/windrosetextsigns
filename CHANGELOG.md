@@ -10,6 +10,7 @@
   - dedicated authoritative fast-prune when a label key rebinds to a different actor instance (fixes stale text resurrecting on destroy/rebuild with quick rebuild timing)
   - remote-client rebuild render guard to suppress stale snapshot/upsert text flashes while awaiting authoritative prune/clear for rebuilt keys
   - solo authoritative prune gate now requires "seen live this session" before a record can be pruned as destroyed
+  - dedicated authoritative prune gate now defers pruning never-seen records until authority source is resolved, active-world warmup time has elapsed, and probable-label scans are stable
   - added explicit prune deferred telemetry for live-guard/world-count blocking reasons
   - explicit unsynced preview logging for optimistic remote apply/clear
 - Added offline bridge fixture coverage for degraded/no-snapshot behavior and retry backoff.

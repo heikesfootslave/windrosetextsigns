@@ -5123,6 +5123,9 @@ namespace WindroseTextSigns
             m_missing_label_scan_counts.clear();
             m_seen_live_label_keys.clear();
             m_restore_scan_has_seen_live_labels = false;
+            m_dedicated_restore_active_since = {};
+            m_dedicated_restore_stable_since = {};
+            m_dedicated_last_probable_label_count = 0;
             m_prune_deferred_logged = false;
             load_sidecar_json();
         }
@@ -10590,6 +10593,9 @@ namespace WindroseTextSigns
                 m_live_label_actor_ptrs.clear();
                 m_missing_label_scan_counts.clear();
                 m_seen_live_label_keys.clear();
+                m_dedicated_restore_active_since = {};
+                m_dedicated_restore_stable_since = {};
+                m_dedicated_last_probable_label_count = 0;
                 if (!m_restore_scan_wait_logged)
                 {
                     log_line("[save] restore_scan waiting reason=no_active_world");
@@ -10765,6 +10771,48 @@ namespace WindroseTextSigns
                 ++m_consecutive_empty_label_scans;
             }
 
+            const auto runtime_role_lower = lower_ascii(m_runtime_role);
+            const auto authority_mode_lower = lower_ascii(m_authority_mode);
+            const bool authority_source_resolved =
+                runtime_role_lower != "localclientpending" &&
+                authority_mode_lower != "worldauthoritypending";
+            const bool dedicated_authoritative_prune_mode =
+                m_sidecar_authoritative && is_dedicated_runtime_process();
+            if (dedicated_authoritative_prune_mode)
+            {
+                if (m_dedicated_restore_active_since.time_since_epoch().count() == 0)
+                {
+                    m_dedicated_restore_active_since = now;
+                }
+                constexpr uint32_t k_dedicated_stable_probable_label_delta = 1;
+                if (scan_probable_label_count == 0)
+                {
+                    m_dedicated_restore_stable_since = {};
+                }
+                else
+                {
+                    const auto diff = std::abs(
+                        static_cast<int32_t>(scan_probable_label_count) -
+                        static_cast<int32_t>(m_dedicated_last_probable_label_count));
+                    if (m_dedicated_last_probable_label_count == 0 ||
+                        diff > static_cast<int32_t>(k_dedicated_stable_probable_label_delta))
+                    {
+                        m_dedicated_restore_stable_since = now;
+                    }
+                    else if (m_dedicated_restore_stable_since.time_since_epoch().count() == 0)
+                    {
+                        m_dedicated_restore_stable_since = now;
+                    }
+                }
+                m_dedicated_last_probable_label_count = scan_probable_label_count;
+            }
+            else
+            {
+                m_dedicated_restore_active_since = {};
+                m_dedicated_restore_stable_since = {};
+                m_dedicated_last_probable_label_count = 0;
+            }
+
             if (is_dedicated_runtime_process() &&
                 (now - m_last_restore_scan_diag > std::chrono::seconds(20) ||
                  (present_label_keys.empty() && m_consecutive_empty_label_scans == 3)))
@@ -10797,12 +10845,28 @@ namespace WindroseTextSigns
                 m_bootstrap_prune_phase_observed = true;
                 constexpr uint32_t k_prune_missing_scan_threshold = 4;
                 constexpr uint32_t k_min_live_labels_in_world_for_prune = 2;
+                constexpr auto k_dedicated_prune_active_world_grace = std::chrono::seconds(120);
+                constexpr auto k_dedicated_prune_stable_window = std::chrono::seconds(30);
                 std::unordered_set<std::string> keys_to_prune{};
                 uint32_t considered_missing_labels = 0;
                 uint32_t blocked_by_world_count = 0;
                 uint32_t blocked_by_live_guard = 0;
+                uint32_t blocked_by_dedicated_warmup_guard = 0;
                 const bool require_seen_live_for_authoritative_prune =
                     m_sidecar_authoritative && !is_dedicated_runtime_process();
+                const bool dedicated_active_world_grace_satisfied =
+                    dedicated_authoritative_prune_mode &&
+                    m_dedicated_restore_active_since.time_since_epoch().count() != 0 &&
+                    (now - m_dedicated_restore_active_since) >= k_dedicated_prune_active_world_grace;
+                const bool dedicated_stable_window_satisfied =
+                    dedicated_authoritative_prune_mode &&
+                    m_dedicated_restore_stable_since.time_since_epoch().count() != 0 &&
+                    (now - m_dedicated_restore_stable_since) >= k_dedicated_prune_stable_window;
+                const bool dedicated_never_seen_prune_ready =
+                    !dedicated_authoritative_prune_mode ||
+                    (authority_source_resolved &&
+                     dedicated_active_world_grace_satisfied &&
+                     dedicated_stable_window_satisfied);
                 for (const auto& [key, rec] : m_labels)
                 {
                     if (present_label_keys.find(key) != present_label_keys.end())
@@ -10823,6 +10887,13 @@ namespace WindroseTextSigns
                         ++blocked_by_live_guard;
                         continue;
                     }
+                    if (dedicated_authoritative_prune_mode &&
+                        !dedicated_never_seen_prune_ready &&
+                        !seen_live_this_session)
+                    {
+                        ++blocked_by_dedicated_warmup_guard;
+                        continue;
+                    }
                     uint32_t& miss_count = m_missing_label_scan_counts[key];
                     ++miss_count;
                     if (miss_count >= k_prune_missing_scan_threshold)
@@ -10836,6 +10907,7 @@ namespace WindroseTextSigns
                              " ready=" + std::to_string(keys_to_prune.size()) +
                              " blockedWorldCount=" + std::to_string(blocked_by_world_count) +
                              " blockedLiveGuard=" + std::to_string(blocked_by_live_guard) +
+                             " blockedDedicatedWarmup=" + std::to_string(blocked_by_dedicated_warmup_guard) +
                              " threshold=" + std::to_string(k_prune_missing_scan_threshold));
                 }
 
@@ -10882,7 +10954,11 @@ namespace WindroseTextSigns
                 else
                 {
                     std::string defer_reason{};
-                    if (blocked_by_live_guard > 0)
+                    if (blocked_by_dedicated_warmup_guard > 0)
+                    {
+                        defer_reason = "dedicated_never_seen_warmup_guard";
+                    }
+                    else if (blocked_by_live_guard > 0)
                     {
                         defer_reason = require_seen_live_for_authoritative_prune
                             ? "never_seen_live_this_session_authoritative"
@@ -10898,7 +10974,11 @@ namespace WindroseTextSigns
                         if (!m_prune_deferred_logged || m_last_prune_defer_reason != defer_reason)
                         {
                             log_line("[save] prune_destroyed_label deferred reason=" + defer_reason +
+                                     " authoritySourceResolved=" + std::string{authority_source_resolved ? "true" : "false"} +
+                                     " dedicatedActiveGraceOk=" + std::string{dedicated_active_world_grace_satisfied ? "true" : "false"} +
+                                     " dedicatedStableWindowOk=" + std::string{dedicated_stable_window_satisfied ? "true" : "false"} +
                                      " blockedLiveGuard=" + std::to_string(blocked_by_live_guard) +
+                                     " blockedDedicatedWarmup=" + std::to_string(blocked_by_dedicated_warmup_guard) +
                                      " blockedWorldCount=" + std::to_string(blocked_by_world_count) +
                                      " candidates=" + std::to_string(considered_missing_labels));
                             m_prune_deferred_logged = true;
@@ -10939,12 +11019,6 @@ namespace WindroseTextSigns
                     m_last_prune_defer_reason = defer_reason;
                 }
             }
-
-            const auto runtime_role_lower = lower_ascii(m_runtime_role);
-            const auto authority_mode_lower = lower_ascii(m_authority_mode);
-            const bool authority_source_resolved =
-                runtime_role_lower != "localclientpending" &&
-                authority_mode_lower != "worldauthoritypending";
             if (m_bootstrap_begin_logged &&
                 !m_bootstrap_end_logged &&
                 m_bootstrap_prune_phase_observed &&

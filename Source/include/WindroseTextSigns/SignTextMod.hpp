@@ -403,6 +403,9 @@ namespace WindroseTextSigns
         uint32_t m_consecutive_empty_label_scans{0};
         bool m_restore_scan_has_seen_live_labels{false};
         bool m_restore_scan_wait_logged{false};
+        std::chrono::steady_clock::time_point m_dedicated_restore_active_since{};
+        std::chrono::steady_clock::time_point m_dedicated_restore_stable_since{};
+        uint32_t m_dedicated_last_probable_label_count{0};
         bool m_prune_deferred_logged{false};
         std::string m_last_prune_defer_reason{};
         std::unordered_map<std::string, std::chrono::steady_clock::time_point> m_construct_probe_last_seen{};
