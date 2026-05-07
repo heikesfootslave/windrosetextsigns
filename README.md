@@ -20,7 +20,8 @@ Get the latest packaged mod zip from the [GitHub Releases page](https://github.c
 - Keep a client-side cache for reconnect display while the server remains authoritative in multiplayer.
 - Use a UDP bridge for client/server sign-text updates.
 - Auto route discovery for clients where possible, with static host fallback.
-- UPnP port mapping is default with optional static IP configuration.
+- UPnP port mapping supports `auto`, `on`, and `off` modes for dedicated/listen hosts.
+- In multiplayer, players without the mod will still see normal signs.
 
 ## Requirements
 
@@ -85,6 +86,7 @@ WTS_MAX_TARGET_DISTANCE=1000
 WTS_MIN_VIEW_DOT=0.92
 WTS_BRIDGE_SERVER_HOST=auto
 WTS_BRIDGE_UDP_PORT=45801
+WTS_BRIDGE_UPNP_MODE=auto
 WTS_BRIDGE_UPNP_ENABLED=true
 ```
 
@@ -112,7 +114,7 @@ Default bridge settings:
 ```ini
 WTS_BRIDGE_SERVER_HOST=auto
 WTS_BRIDGE_UDP_PORT=45801
-WTS_BRIDGE_UPNP_ENABLED=true
+WTS_BRIDGE_UPNP_MODE=auto
 ```
 
 `WTS_BRIDGE_SERVER_HOST=auto` is the recommended default. Remote clients try to infer the server route from Windrose connection/log data.
@@ -123,13 +125,28 @@ If auto discovery does not work, set the client to a static server address:
 WTS_BRIDGE_SERVER_HOST=your.server.ip.or.hostname
 ```
 
-Dedicated servers can try to open the UDP bridge port automatically with UPnP:
+### UPnP Mode
+
+Set host UPnP behavior with:
 
 ```ini
-WTS_BRIDGE_UPNP_ENABLED=true
+WTS_BRIDGE_UPNP_MODE=auto
 ```
 
-If UPnP is unavailable, manually forward the configured UDP port to the dedicated server.
+Modes:
+
+- `auto` (recommended): waits for observed bridge client network type and only attempts UPnP when public (internet) clients are detected.
+- `on`: always attempts UPnP on dedicated/listen hosts.
+- `off`: never attempts UPnP.
+
+`auto` is best for mixed sessions and avoids unnecessary UPnP attempts for same-machine and LAN-only clients. If a host must be reachable from the internet immediately, use `on` or manual port forwarding.
+
+`WTS_BRIDGE_UPNP_ENABLED` remains supported for backward compatibility:
+
+- `true` maps to `WTS_BRIDGE_UPNP_MODE=auto`
+- `false` maps to `WTS_BRIDGE_UPNP_MODE=off`
+
+If UPnP is unavailable, manually forward the configured UDP bridge port to the dedicated server.
 
 ## Save Data
 

@@ -8252,7 +8252,8 @@ namespace WindroseTextSigns
         log_line("[bridge-upnp] attempt_start mode=" + bridge_upnp_mode_name() +
                  " trigger=" + reason +
                  " attempt=" + std::to_string(m_bridge_upnp_attempt_count) +
-                 " role=" + bridge_role_name(m_bridge_role));
+                 " role=" + bridge_role_name(m_bridge_role) +
+                 " timeoutMs=90000");
     }
 
     auto SignTextMod::tick_bridge_upnp() -> void
@@ -8273,6 +8274,13 @@ namespace WindroseTextSigns
                 }
                 m_bridge_upnp_job.reset();
                 m_bridge_upnp_mapped = upnp.ok;
+                const auto waited_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                           std::chrono::steady_clock::now() - m_bridge_upnp_attempt_started)
+                                           .count();
+                log_line("[bridge-upnp] attempt_complete status=finished mode=" + bridge_upnp_mode_name() +
+                         " attempt=" + std::to_string(m_bridge_upnp_attempt_count) +
+                         " waitedMs=" + std::to_string(waited_ms) +
+                         " mapped=" + std::string{m_bridge_upnp_mapped ? "true" : "false"});
                 log_line("[bridge-upnp] attempted=" + std::string{upnp.attempted ? "true" : "false"} +
                          " ok=" + std::string{upnp.ok ? "true" : "false"} +
                          " comAvailable=" + std::string{upnp.com_available ? "true" : "false"} +
@@ -8296,6 +8304,20 @@ namespace WindroseTextSigns
                                  std::chrono::steady_clock::now() - m_bridge_upnp_attempt_started)
                                  .count()) +
                          " note=non_blocking_wait_continues");
+            }
+            constexpr auto k_upnp_hard_timeout = std::chrono::seconds(90);
+            if (m_bridge_upnp_attempt_started.time_since_epoch().count() != 0 &&
+                (std::chrono::steady_clock::now() - m_bridge_upnp_attempt_started) >= k_upnp_hard_timeout)
+            {
+                const auto waited_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                           std::chrono::steady_clock::now() - m_bridge_upnp_attempt_started)
+                                           .count();
+                log_line("[bridge-upnp] attempt_complete status=timeout mode=" + bridge_upnp_mode_name() +
+                         " attempt=" + std::to_string(m_bridge_upnp_attempt_count) +
+                         " waitedMs=" + std::to_string(waited_ms) +
+                         " action=abandon_inflight_result mapped=false");
+                m_bridge_upnp_job.reset();
+                m_bridge_upnp_mapped = false;
             }
             return;
         }
@@ -10427,10 +10449,19 @@ namespace WindroseTextSigns
         }
         m_construct_probe_last_seen[key] = now;
 
-        // If this key was missing in recent scans and now re-appears, treat it as
+        // If this key was missing across multiple scans and now re-appears, treat it as
         // a rebuilt/reused instance key and drop stale persisted text before restore.
+        // A single missed scan is often transient streaming/travel churn.
+        constexpr uint32_t k_rebuild_prune_missing_scan_threshold = 4;
+        const bool remote_bridge_unsynced =
+            !m_sidecar_authoritative &&
+            m_bridge_role == BridgeRole::RemoteClient &&
+            !m_bridge_snapshot_received;
         if (const auto miss_it = m_missing_label_scan_counts.find(key);
-            miss_it != m_missing_label_scan_counts.end() && miss_it->second > 0)
+            miss_it != m_missing_label_scan_counts.end() &&
+            miss_it->second >= k_rebuild_prune_missing_scan_threshold &&
+            m_restore_scan_has_seen_live_labels &&
+            !remote_bridge_unsynced)
         {
             if (const auto found = m_labels.find(key); found != m_labels.end())
             {
@@ -10446,6 +10477,17 @@ namespace WindroseTextSigns
                 m_missing_label_scan_counts.erase(key);
                 save_sidecar_json("prune_on_reuse", key, stable_id, world_id);
             }
+        }
+        else if (const auto miss_it = m_missing_label_scan_counts.find(key);
+                 miss_it != m_missing_label_scan_counts.end() && miss_it->second > 0)
+        {
+            log_line("[save] prune_on_reuse deferred key=" + key +
+                     " stableId=" + stable_id +
+                     " worldId=" + world_id +
+                     " missCount=" + std::to_string(miss_it->second) +
+                     " threshold=" + std::to_string(k_rebuild_prune_missing_scan_threshold) +
+                     " seenLiveBeforeScan=" + std::string{m_restore_scan_has_seen_live_labels ? "true" : "false"} +
+                     " bridgeUnsynced=" + std::string{remote_bridge_unsynced ? "true" : "false"});
         }
 
         ++m_construct_label_hit_count;
@@ -10609,7 +10651,20 @@ namespace WindroseTextSigns
                     {
                         if (const auto found = m_labels.find(key); found != m_labels.end())
                         {
-                            if (remote_bridge_unsynced)
+                            const auto miss_it = m_missing_label_scan_counts.find(key);
+                            const uint32_t miss_count = (miss_it != m_missing_label_scan_counts.end()) ? miss_it->second : 0;
+                            constexpr uint32_t k_rebuild_prune_missing_scan_threshold = 4;
+                            if (miss_count < k_rebuild_prune_missing_scan_threshold)
+                            {
+                                log_line("[save] prune_rebuilt_label deferred key=" + key +
+                                         " stableId=" + found->second.stable_id +
+                                         " worldId=" + found->second.world_id +
+                                         " reason=insufficient_miss_count missCount=" + std::to_string(miss_count) +
+                                         " threshold=" + std::to_string(k_rebuild_prune_missing_scan_threshold));
+                                m_component_name_cache.erase(key);
+                                m_phase4_next_retry.erase(key);
+                            }
+                            else if (remote_bridge_unsynced)
                             {
                                 log_line("[save] prune_rebuilt_label deferred key=" + key +
                                          " stableId=" + found->second.stable_id +
@@ -10701,19 +10756,25 @@ namespace WindroseTextSigns
                 constexpr uint32_t k_prune_missing_scan_threshold = 4;
                 constexpr uint32_t k_min_live_labels_in_world_for_prune = 2;
                 std::unordered_set<std::string> keys_to_prune{};
+                uint32_t considered_missing_labels = 0;
+                uint32_t blocked_by_world_count = 0;
+                uint32_t blocked_by_live_guard = 0;
                 for (const auto& [key, rec] : m_labels)
                 {
                     if (present_label_keys.find(key) != present_label_keys.end())
                     {
                         continue;
                     }
+                    ++considered_missing_labels;
                     const auto world_it = present_world_counts.find(rec.world_id);
                     if (world_it == present_world_counts.end() || world_it->second < k_min_live_labels_in_world_for_prune)
                     {
+                        ++blocked_by_world_count;
                         continue;
                     }
                     if (!m_sidecar_authoritative && m_seen_live_label_keys.find(key) == m_seen_live_label_keys.end())
                     {
+                        ++blocked_by_live_guard;
                         continue;
                     }
                     uint32_t& miss_count = m_missing_label_scan_counts[key];
@@ -10722,6 +10783,14 @@ namespace WindroseTextSigns
                     {
                         keys_to_prune.insert(key);
                     }
+                }
+                if (!keys_to_prune.empty())
+                {
+                    log_line("[save] prune_destroyed_label eval candidates=" + std::to_string(considered_missing_labels) +
+                             " ready=" + std::to_string(keys_to_prune.size()) +
+                             " blockedWorldCount=" + std::to_string(blocked_by_world_count) +
+                             " blockedLiveGuard=" + std::to_string(blocked_by_live_guard) +
+                             " threshold=" + std::to_string(k_prune_missing_scan_threshold));
                 }
 
                 uint32_t pruned_count = 0;
