@@ -190,6 +190,9 @@ namespace WindroseTextSigns
 
         auto configure_bridge_role(const std::string& reason) -> void;
         auto tick_bridge_route_discovery() -> void;
+        auto mark_bridge_healthy(const std::string& reason) -> void;
+        auto update_bridge_health(std::chrono::steady_clock::time_point now) -> void;
+        auto next_snapshot_retry_delay() const -> std::chrono::seconds;
         auto tick_bridge() -> void;
         auto refresh_relay_room_id(const std::string& reason) -> void;
         auto relay_is_configured() const -> bool;
@@ -273,8 +276,13 @@ namespace WindroseTextSigns
         std::chrono::steady_clock::time_point m_relay_last_status{};
         std::vector<RelayHttpTask> m_relay_http_tasks{};
         std::chrono::steady_clock::time_point m_bridge_next_snapshot_request{};
+        std::chrono::steady_clock::time_point m_bridge_sync_wait_started{};
+        std::chrono::steady_clock::time_point m_bridge_last_snapshot_request{};
         std::chrono::steady_clock::time_point m_bridge_last_status{};
         bool m_bridge_snapshot_received{false};
+        bool m_bridge_health_unhealthy{false};
+        bool m_bridge_health_warning_logged{false};
+        uint32_t m_bridge_snapshot_retry_attempts{0};
         bool m_bridge_snapshot_active{false};
         bool m_bridge_snapshot_end_seen{false};
         int m_bridge_snapshot_expected_count{-1};
@@ -356,6 +364,7 @@ namespace WindroseTextSigns
         bool m_restore_scan_has_seen_live_labels{false};
         bool m_restore_scan_wait_logged{false};
         bool m_prune_deferred_logged{false};
+        std::string m_last_prune_defer_reason{};
         std::unordered_map<std::string, std::chrono::steady_clock::time_point> m_construct_probe_last_seen{};
         std::chrono::steady_clock::time_point m_phase5_build_menu_selection_probe_next{};
         std::chrono::steady_clock::time_point m_phase5_build_menu_selection_probe_last_summary{};

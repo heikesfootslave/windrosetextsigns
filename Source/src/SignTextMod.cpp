@@ -7892,6 +7892,11 @@ namespace WindroseTextSigns
                      " message=" + upnp.message);
         }
         m_bridge_snapshot_received = false;
+        m_bridge_health_unhealthy = false;
+        m_bridge_health_warning_logged = false;
+        m_bridge_snapshot_retry_attempts = 0;
+        m_bridge_sync_wait_started = std::chrono::steady_clock::now();
+        m_bridge_last_snapshot_request = {};
         m_bridge_snapshot_active = false;
         m_bridge_snapshot_end_seen = false;
         m_bridge_snapshot_expected_count = -1;
@@ -7916,6 +7921,16 @@ namespace WindroseTextSigns
         {
             return;
         }
+        const auto now = std::chrono::steady_clock::now();
+        if (!m_bridge_snapshot_received)
+        {
+            if (m_bridge_sync_wait_started.time_since_epoch().count() == 0)
+            {
+                m_bridge_sync_wait_started = now;
+            }
+            ++m_bridge_snapshot_retry_attempts;
+        }
+        m_bridge_last_snapshot_request = now;
         std::ostringstream payload{};
         payload << "{\"mod\":\"WindroseTextSigns\",\"schema\":\"bridge.v1\",\"type\":\"snapshot_request\""
                 << ",\"session\":\"" << escape_json(m_session_id) << "\""
@@ -7934,7 +7949,8 @@ namespace WindroseTextSigns
                  " role=" + bridge_role_name(m_bridge_role) +
                  " worldId=" + m_world_folder_id +
                  " serverHost=" + m_bridge_remote_server_host +
-                 " pending=" + std::to_string(m_bridge_pending_request_keys.size()));
+                 " pending=" + std::to_string(m_bridge_pending_request_keys.size()) +
+                 " retryAttempt=" + std::to_string(m_bridge_snapshot_retry_attempts));
     }
 
     auto SignTextMod::send_bridge_record_request(const std::string& request_type, const LabelRecord& rec) -> bool
@@ -8348,6 +8364,7 @@ namespace WindroseTextSigns
             });
         }
         m_bridge_snapshot_received = true;
+        mark_bridge_healthy("client_upsert_applied");
         log_line("[bridge] client_upsert_applied key=" + key +
                  " stableId=" + stable_id +
                  " localWorldId=" + local_world_id +
@@ -8407,6 +8424,7 @@ namespace WindroseTextSigns
             return LoopAction::Continue;
         });
         m_bridge_snapshot_received = true;
+        mark_bridge_healthy("client_clear_applied");
         log_line("[bridge] client_clear_applied key=" + key +
                  " stableId=" + stable_id +
                  " localWorldId=" + local_world_id +
@@ -8604,6 +8622,7 @@ namespace WindroseTextSigns
                  " remaining=" + std::to_string(m_labels.size()) +
                  " worldId=" + m_world_folder_id);
         m_bridge_snapshot_received = true;
+        mark_bridge_healthy(reason);
         m_bridge_snapshot_active = false;
         m_bridge_snapshot_end_seen = false;
         m_bridge_snapshot_expected_count = -1;
@@ -8688,6 +8707,7 @@ namespace WindroseTextSigns
                 if (complete)
                 {
                     m_bridge_snapshot_received = true;
+                    mark_bridge_healthy("snapshot_complete");
                     reconcile_bridge_snapshot("snapshot_complete");
                 }
                 else
@@ -8698,6 +8718,7 @@ namespace WindroseTextSigns
             }
 
             m_bridge_snapshot_received = true;
+            mark_bridge_healthy("snapshot_end_legacy");
             reconcile_bridge_snapshot("snapshot_end_legacy");
             log_line("[bridge] snapshot_end revision=" + std::to_string(m_revision) +
                      " role=" + bridge_role_name(m_bridge_role) +
@@ -8750,6 +8771,10 @@ namespace WindroseTextSigns
                 static_cast<uint16_t>(m_bridge_udp_port));
             m_bridge_next_snapshot_request = now;
             m_bridge_snapshot_received = false;
+            m_bridge_snapshot_retry_attempts = 0;
+            m_bridge_sync_wait_started = now;
+            m_bridge_health_unhealthy = false;
+            m_bridge_health_warning_logged = false;
         }
 
         log_line("[bridge-route] discovered host=" + m_bridge_remote_server_host +
@@ -8759,6 +8784,88 @@ namespace WindroseTextSigns
                  " remoteHostCandidate=" + (discovered.remote_host_candidate.empty() ? "none" : discovered.remote_host_candidate) +
                  " remotePublicCandidate=" + (discovered.remote_public_candidate.empty() ? "none" : discovered.remote_public_candidate) +
                  " localHosts=" + discovered.local_host_summary);
+    }
+
+    auto SignTextMod::mark_bridge_healthy(const std::string& reason) -> void
+    {
+        const bool was_unhealthy = m_bridge_health_unhealthy;
+        m_bridge_health_unhealthy = false;
+        m_bridge_health_warning_logged = false;
+        m_bridge_snapshot_retry_attempts = 0;
+        m_bridge_sync_wait_started = std::chrono::steady_clock::now();
+        if (was_unhealthy)
+        {
+            log_line("[bridge-health] recovered reason=" + reason +
+                     " worldId=" + m_world_folder_id +
+                     " pending=" + std::to_string(m_bridge_pending_request_keys.size()));
+        }
+    }
+
+    auto SignTextMod::update_bridge_health(const std::chrono::steady_clock::time_point now) -> void
+    {
+        if (m_bridge_role != BridgeRole::RemoteClient)
+        {
+            m_bridge_health_unhealthy = false;
+            m_bridge_health_warning_logged = false;
+            m_bridge_snapshot_retry_attempts = 0;
+            m_bridge_sync_wait_started = now;
+            return;
+        }
+
+        if (m_bridge_snapshot_received)
+        {
+            m_bridge_health_unhealthy = false;
+            m_bridge_health_warning_logged = false;
+            m_bridge_snapshot_retry_attempts = 0;
+            m_bridge_sync_wait_started = now;
+            return;
+        }
+
+        if (m_bridge_sync_wait_started.time_since_epoch().count() == 0)
+        {
+            m_bridge_sync_wait_started = now;
+        }
+
+        constexpr auto k_unhealthy_after = std::chrono::seconds(45);
+        const auto wait_time = now - m_bridge_sync_wait_started;
+        if (wait_time < k_unhealthy_after)
+        {
+            return;
+        }
+
+        m_bridge_health_unhealthy = true;
+        if (!m_bridge_health_warning_logged)
+        {
+            m_bridge_health_warning_logged = true;
+            const auto waited_sec = std::chrono::duration_cast<std::chrono::seconds>(wait_time).count();
+            log_line("[bridge-health] degraded reason=no_snapshot_ack role=RemoteClient" +
+                     std::string(" waitedSec=") + std::to_string(waited_sec) +
+                     " pending=" + std::to_string(m_bridge_pending_request_keys.size()) +
+                     " routeHost=" + m_bridge_remote_server_host +
+                     " upnpEnabled=" + std::string{m_bridge_upnp_enabled ? "true" : "false"} +
+                     " mitigation=check_host_udp_45801_or_set_WTS_BRIDGE_SERVER_HOST_static");
+        }
+    }
+
+    auto SignTextMod::next_snapshot_retry_delay() const -> std::chrono::seconds
+    {
+        if (m_bridge_snapshot_received)
+        {
+            return std::chrono::seconds(30);
+        }
+        if (m_bridge_snapshot_retry_attempts >= 16)
+        {
+            return std::chrono::seconds(30);
+        }
+        if (m_bridge_snapshot_retry_attempts >= 8)
+        {
+            return std::chrono::seconds(20);
+        }
+        if (m_bridge_snapshot_retry_attempts >= 4)
+        {
+            return std::chrono::seconds(10);
+        }
+        return std::chrono::seconds(5);
     }
 
     auto SignTextMod::tick_bridge() -> void
@@ -8772,10 +8879,11 @@ namespace WindroseTextSigns
         }
 
         const auto now = std::chrono::steady_clock::now();
+        update_bridge_health(now);
         if (m_bridge_role == BridgeRole::RemoteClient && now >= m_bridge_next_snapshot_request)
         {
             send_bridge_snapshot_request(m_bridge_snapshot_received ? "periodic_sync" : "initial_sync");
-            m_bridge_next_snapshot_request = now + (m_bridge_snapshot_received ? std::chrono::seconds(30) : std::chrono::seconds(5));
+            m_bridge_next_snapshot_request = now + next_snapshot_retry_delay();
         }
 
         tick_relay();
@@ -8789,9 +8897,11 @@ namespace WindroseTextSigns
                      " routeHost=" + m_bridge_remote_server_host +
                      " autoRoute=" + std::string{m_bridge_route_auto_enabled ? "true" : "false"} +
                      " snapshotReceived=" + std::string{m_bridge_snapshot_received ? "true" : "false"} +
+                     " health=" + std::string{m_bridge_health_unhealthy ? "degraded" : "ok"} +
                      " snapshotActive=" + std::string{m_bridge_snapshot_active ? "true" : "false"} +
                      " snapshotSeen=" + std::to_string(m_bridge_snapshot_seen_keys.size()) +
                      " snapshotExpected=" + std::to_string(m_bridge_snapshot_expected_count) +
+                     " snapshotRetries=" + std::to_string(m_bridge_snapshot_retry_attempts) +
                      " pending=" + std::to_string(m_bridge_pending_request_keys.size()) +
                      " labels=" + std::to_string(m_labels.size()) +
                      " native=" + NativeBridge::instance().status_json());
@@ -9594,10 +9704,19 @@ namespace WindroseTextSigns
             configure_bridge_role("remote_apply");
             const bool sent = send_bridge_record_request("set", rec);
             const bool rendered = apply_text_to_actor_component(actor, rec.text);
+            const bool unsynced_preview = m_bridge_health_unhealthy || !m_bridge_snapshot_received;
+            if (unsynced_preview)
+            {
+                log_line("[bridge-health] unsynced_preview key=" + key +
+                         " stableId=" + rec.stable_id +
+                         " worldId=" + rec.world_id +
+                         " reason=no_authoritative_ack_path");
+            }
             log_line("[bridge] remote_apply_pending key=" + key +
                      " stableId=" + rec.stable_id +
                      " sent=" + std::string{sent ? "true" : "false"} +
                      " renderedOptimistic=" + std::string{rendered ? "true" : "false"} +
+                     " unsyncedPreview=" + std::string{unsynced_preview ? "true" : "false"} +
                      " cacheWrite=deferred_until_server_ack");
             return;
         }
@@ -9640,10 +9759,12 @@ namespace WindroseTextSigns
             rec.world_id = world_id;
             const bool sent = send_bridge_record_request("clear_request", rec);
             const bool removed = destroy_managed_text_component(m_selected->actor, key);
+            const bool unsynced_preview = m_bridge_health_unhealthy || !m_bridge_snapshot_received;
             log_line("[bridge] remote_clear_pending key=" + key +
                      " stableId=" + m_selected->stable_id +
                      " sent=" + std::string{sent ? "true" : "false"} +
                      " removedOptimistic=" + std::string{removed ? "true" : "false"} +
+                     " unsyncedPreview=" + std::string{unsynced_preview ? "true" : "false"} +
                      " cacheWrite=deferred_until_server_ack");
             return;
         }
@@ -10069,7 +10190,6 @@ namespace WindroseTextSigns
             {
                 m_consecutive_empty_label_scans = 0;
                 m_restore_scan_has_seen_live_labels = true;
-                m_prune_deferred_logged = false;
             }
             else
             {
@@ -10102,9 +10222,16 @@ namespace WindroseTextSigns
             //   before pruning; Solo can expose labels before every persisted label resolves.
             // - if all remaining text-sign records are missing while other labels are live,
             //   prune them all; that is the normal "player destroyed every text sign" case.
-            const bool allow_prune = !present_label_keys.empty() && had_seen_live_labels_before_scan;
+            const bool remote_bridge_unhealthy =
+                !m_sidecar_authoritative &&
+                m_bridge_role == BridgeRole::RemoteClient &&
+                m_bridge_health_unhealthy &&
+                !m_bridge_snapshot_received;
+            const bool allow_prune = !present_label_keys.empty() && had_seen_live_labels_before_scan && !remote_bridge_unhealthy;
             if (allow_prune)
             {
+                m_prune_deferred_logged = false;
+                m_last_prune_defer_reason.clear();
                 constexpr uint32_t k_prune_missing_scan_threshold = 4;
                 constexpr uint32_t k_min_live_labels_in_world_for_prune = 2;
                 std::unordered_set<std::string> keys_to_prune{};
@@ -10172,11 +10299,28 @@ namespace WindroseTextSigns
             }
             else
             {
+                std::string defer_reason = "no_live_labels_visible";
+                if (remote_bridge_unhealthy)
+                {
+                    defer_reason = "bridge_unhealthy_unsynced";
+                }
+                else if (!had_seen_live_labels_before_scan)
+                {
+                    defer_reason = "warmup_scan_guard";
+                }
                 if (!m_prune_deferred_logged)
                 {
-                    log_line("[save] prune_destroyed_label deferred reason=no_live_labels_visible count=" +
+                    log_line("[save] prune_destroyed_label deferred reason=" + defer_reason +
+                             " count=" +
                              std::to_string(m_consecutive_empty_label_scans));
                     m_prune_deferred_logged = true;
+                    m_last_prune_defer_reason = defer_reason;
+                }
+                else if (m_last_prune_defer_reason != defer_reason)
+                {
+                    log_line("[save] prune_destroyed_label deferred reason=" + defer_reason +
+                             " count=" + std::to_string(m_consecutive_empty_label_scans));
+                    m_last_prune_defer_reason = defer_reason;
                 }
             }
         }
