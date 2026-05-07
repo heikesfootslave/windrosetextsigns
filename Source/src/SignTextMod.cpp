@@ -3443,6 +3443,7 @@ namespace WindroseTextSigns
         uninstall_phase7_keyboard_capture_hook();
         if (m_log.is_open())
         {
+            flush_log_repeat_summary();
             m_log.flush();
             m_log.close();
         }
@@ -3666,23 +3667,191 @@ namespace WindroseTextSigns
 
     auto SignTextMod::open_log() -> void
     {
+        // One-session log: start fresh each play session.
+        const auto previous_log_path = m_mod_root / "WindroseTextSigns.previous.log";
         m_log_path = m_mod_root / "WindroseTextSigns.log";
-        m_log.open(m_log_path, std::ios::out | std::ios::app);
+        std::error_code ec{};
+        std::filesystem::remove(previous_log_path, ec);
+        m_log.open(m_log_path, std::ios::out | std::ios::trunc);
+        m_log_bytes_written = 0;
+        m_log_size_cap_hit = false;
+        m_last_log_payload.clear();
+        m_last_log_repeat_count = 0;
+        m_bootstrap_begin_logged = true;
+        m_bootstrap_end_logged = false;
+        m_bootstrap_prune_phase_observed = false;
+        log_line("[session] bootstrap_begin stage=startup");
         log_line("[startup] WindroseTextSigns initialized");
     }
 
-    auto SignTextMod::log_line(const std::string& line) -> void
+    auto SignTextMod::compact_log_line(std::string line) const -> std::string
     {
-        const auto row = now_utc() + " " + line;
-        if (m_log.is_open())
+        if (line.rfind("[phase4] apply_success key=", 0) == 0)
+        {
+            const auto cut = line.find(" component=");
+            if (cut != std::string::npos)
+            {
+                line.resize(cut);
+            }
+        }
+        return line;
+    }
+
+    auto SignTextMod::write_log_row(const std::string& row) -> void
+    {
+        constexpr size_t k_max_log_bytes = 1024 * 1024;
+        const size_t row_bytes = row.size() + 1;
+        if (m_log.is_open() && m_log_bytes_written + row_bytes <= k_max_log_bytes)
         {
             m_log << row << "\n";
             m_log.flush();
+            m_log_bytes_written += row_bytes;
+            if (m_verbose_log)
+            {
+                Output::send<LogLevel::Warning>(STR("[WindroseTextSigns] {}"), RC::to_wstring(row));
+            }
+            return;
         }
+
+        // Rolling tail cap: keep newest content and trim oldest head lines as needed.
+        if (m_log.is_open())
+        {
+            m_log.flush();
+            m_log.close();
+        }
+
+        std::string content{};
+        if (!read_text_file(m_log_path, content))
+        {
+            content.clear();
+        }
+        content += row;
+        content.push_back('\n');
+
+        if (content.size() > k_max_log_bytes)
+        {
+            constexpr size_t k_bootstrap_head_soft_cap = 256 * 1024;
+            constexpr size_t k_min_tail_bytes = 256 * 1024;
+
+            size_t head_keep_bytes = 0;
+            if (const auto end_pos = content.find("[session] bootstrap_end"); end_pos != std::string::npos)
+            {
+                const auto line_end = content.find('\n', end_pos);
+                head_keep_bytes = (line_end == std::string::npos) ? content.size() : (line_end + 1);
+            }
+            else if (const auto begin_pos = content.find("[session] bootstrap_begin"); begin_pos != std::string::npos)
+            {
+                const auto line_end = content.find('\n', begin_pos);
+                head_keep_bytes = (line_end == std::string::npos) ? content.size() : (line_end + 1);
+            }
+
+            const size_t max_head_by_tail = (k_max_log_bytes > k_min_tail_bytes)
+                ? (k_max_log_bytes - k_min_tail_bytes)
+                : 0;
+            if (head_keep_bytes > k_bootstrap_head_soft_cap)
+            {
+                head_keep_bytes = k_bootstrap_head_soft_cap;
+            }
+            if (head_keep_bytes > max_head_by_tail)
+            {
+                head_keep_bytes = max_head_by_tail;
+            }
+
+            std::string head{};
+            if (head_keep_bytes > 0)
+            {
+                head = content.substr(0, head_keep_bytes);
+            }
+
+            size_t tail_budget = k_max_log_bytes - head.size();
+            if (tail_budget > content.size())
+            {
+                tail_budget = content.size();
+            }
+            size_t tail_start = content.size() - tail_budget;
+            if (tail_start < head.size())
+            {
+                tail_start = head.size();
+            }
+
+            std::string tail = content.substr(tail_start);
+            if (!head.empty())
+            {
+                if (const auto nl = tail.find('\n'); nl != std::string::npos)
+                {
+                    tail.erase(0, nl + 1);
+                }
+            }
+            else if (const auto nl = tail.find('\n'); nl != std::string::npos)
+            {
+                tail.erase(0, nl + 1);
+            }
+
+            content = head + tail;
+            if (content.size() > k_max_log_bytes)
+            {
+                const auto overflow = content.size() - k_max_log_bytes;
+                content.erase(0, overflow);
+                if (const auto nl = content.find('\n'); nl != std::string::npos)
+                {
+                    content.erase(0, nl + 1);
+                }
+            }
+        }
+
+        m_log.open(m_log_path, std::ios::out | std::ios::trunc | std::ios::binary);
+        if (m_log.is_open())
+        {
+            m_log.write(content.data(), static_cast<std::streamsize>(content.size()));
+            m_log.flush();
+            m_log.close();
+        }
+        m_log.open(m_log_path, std::ios::out | std::ios::app);
+        m_log_bytes_written = content.size();
+        m_log_size_cap_hit = false;
+
         if (m_verbose_log)
         {
             Output::send<LogLevel::Warning>(STR("[WindroseTextSigns] {}"), RC::to_wstring(row));
         }
+    }
+
+    auto SignTextMod::flush_log_repeat_summary() -> void
+    {
+        if (m_last_log_repeat_count == 0)
+        {
+            return;
+        }
+
+        std::string preview = m_last_log_payload;
+        constexpr size_t k_preview_limit = 160;
+        if (preview.size() > k_preview_limit)
+        {
+            preview.resize(k_preview_limit);
+            preview += "...";
+        }
+        const auto row = now_utc() +
+            " [log] repeat_suppressed count=" + std::to_string(m_last_log_repeat_count) +
+            " line=" + preview;
+        write_log_row(row);
+        m_last_log_repeat_count = 0;
+    }
+
+    auto SignTextMod::log_line(const std::string& line) -> void
+    {
+        const auto payload = compact_log_line(line);
+        if (payload == m_last_log_payload)
+        {
+            ++m_last_log_repeat_count;
+            return;
+        }
+
+        flush_log_repeat_summary();
+        m_last_log_payload = payload;
+        m_last_log_repeat_count = 0;
+
+        const auto row = now_utc() + " " + payload;
+        write_log_row(row);
     }
 
     auto SignTextMod::on_unreal_init() -> void
@@ -10232,6 +10401,7 @@ namespace WindroseTextSigns
             {
                 m_prune_deferred_logged = false;
                 m_last_prune_defer_reason.clear();
+                m_bootstrap_prune_phase_observed = true;
                 constexpr uint32_t k_prune_missing_scan_threshold = 4;
                 constexpr uint32_t k_min_live_labels_in_world_for_prune = 2;
                 std::unordered_set<std::string> keys_to_prune{};
@@ -10299,6 +10469,7 @@ namespace WindroseTextSigns
             }
             else
             {
+                m_bootstrap_prune_phase_observed = true;
                 std::string defer_reason = "no_live_labels_visible";
                 if (remote_bridge_unhealthy)
                 {
@@ -10322,6 +10493,25 @@ namespace WindroseTextSigns
                              " count=" + std::to_string(m_consecutive_empty_label_scans));
                     m_last_prune_defer_reason = defer_reason;
                 }
+            }
+
+            const auto runtime_role_lower = lower_ascii(m_runtime_role);
+            const auto authority_mode_lower = lower_ascii(m_authority_mode);
+            const bool authority_source_resolved =
+                runtime_role_lower != "localclientpending" &&
+                authority_mode_lower != "worldauthoritypending";
+            if (m_bootstrap_begin_logged &&
+                !m_bootstrap_end_logged &&
+                m_bootstrap_prune_phase_observed &&
+                authority_source_resolved)
+            {
+                log_line("[session] bootstrap_end stage=ready_for_player_input runtimeRole=" + m_runtime_role +
+                         " authorityMode=" + m_authority_mode +
+                         " sidecarKind=" + m_sidecar_kind +
+                         " sidecarPath=" + m_sidecar_path.string() +
+                         " bridgeRole=" + bridge_role_name(m_bridge_role) +
+                         " labels=" + std::to_string(m_labels.size()));
+                m_bootstrap_end_logged = true;
             }
         }
 

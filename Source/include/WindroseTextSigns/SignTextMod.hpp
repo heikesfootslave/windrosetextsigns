@@ -95,6 +95,9 @@ namespace WindroseTextSigns
         auto configure_data_root() -> void;
         auto migrate_legacy_sidecar_if_needed() -> void;
         auto open_log() -> void;
+        auto compact_log_line(std::string line) const -> std::string;
+        auto write_log_row(const std::string& row) -> void;
+        auto flush_log_repeat_summary() -> void;
         auto log_line(const std::string& line) -> void;
         auto now_utc() const -> std::string;
 
@@ -244,6 +247,13 @@ namespace WindroseTextSigns
         std::vector<std::filesystem::path> m_legacy_sidecar_paths{};
         std::filesystem::path m_backup_root{};
         std::ofstream m_log{};
+        size_t m_log_bytes_written{0};
+        bool m_log_size_cap_hit{false};
+        std::string m_last_log_payload{};
+        uint32_t m_last_log_repeat_count{0};
+        bool m_bootstrap_begin_logged{false};
+        bool m_bootstrap_end_logged{false};
+        bool m_bootstrap_prune_phase_observed{false};
         std::string m_runtime_role{"Unknown"};
         std::string m_data_mode{"Unknown"};
         std::string m_authority_mode{"Unknown"};
