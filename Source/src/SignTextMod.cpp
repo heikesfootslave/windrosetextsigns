@@ -344,6 +344,7 @@ namespace
         std::string remote_host_candidate{};
         std::string remote_public_candidate{};
         std::string local_host_summary{};
+        std::vector<std::string> ordered_candidates{};
     };
 
     auto parse_ipv4_octets(const std::string& ip) -> std::optional<std::array<int, 4>>
@@ -434,6 +435,23 @@ namespace
         return out;
     }
 
+    auto append_unique_ip(std::vector<std::string>& ips, const std::string& ip) -> void
+    {
+        if (ip.empty())
+        {
+            return;
+        }
+        if (!parse_ipv4_octets(ip).has_value())
+        {
+            return;
+        }
+        if (std::find(ips.begin(), ips.end(), ip) != ips.end())
+        {
+            return;
+        }
+        ips.push_back(ip);
+    }
+
     auto make_bridge_snapshot_id(const std::string& session, const uint64_t revision, const uint32_t count) -> std::string
     {
         static std::atomic<uint64_t> sequence{0};
@@ -478,8 +496,8 @@ namespace
             }
 
             std::vector<std::string> local_hosts{};
-            std::string remote_host{};
-            std::string remote_public{};
+            std::vector<std::string> remote_hosts{};
+            std::vector<std::string> remote_publics{};
             std::istringstream lines{content};
             std::string line{};
             while (std::getline(lines, line))
@@ -509,64 +527,106 @@ namespace
 
                     if (local_line && type == "host")
                     {
-                        if (std::find(local_hosts.begin(), local_hosts.end(), ip) == local_hosts.end())
-                        {
-                            local_hosts.push_back(ip);
-                        }
+                        append_unique_ip(local_hosts, ip);
                     }
                     else if (remote_line && type == "host")
                     {
-                        remote_host = ip;
+                        append_unique_ip(remote_hosts, ip);
                     }
                     else if (remote_line && type == "srflx" && is_public_ipv4(ip))
                     {
-                        remote_public = ip;
+                        append_unique_ip(remote_publics, ip);
                     }
                 }
             }
 
             BridgeRouteDiscovery result{};
             result.log_path = candidate_path;
-            result.remote_host_candidate = remote_host;
-            result.remote_public_candidate = remote_public;
+            result.remote_host_candidate = remote_hosts.empty() ? std::string{} : remote_hosts.front();
+            result.remote_public_candidate = remote_publics.empty() ? std::string{} : remote_publics.front();
             result.local_host_summary = summarize_ips(local_hosts);
 
-            if (!remote_host.empty() &&
-                std::find(local_hosts.begin(), local_hosts.end(), remote_host) != local_hosts.end())
+            bool same_machine = false;
+            for (const auto& remote_host : remote_hosts)
             {
-                result.found = true;
-                result.host = "127.0.0.1";
-                result.reason = "same_machine_host_candidate";
-                return result;
+                if (std::find(local_hosts.begin(), local_hosts.end(), remote_host) != local_hosts.end())
+                {
+                    same_machine = true;
+                    break;
+                }
             }
 
-            if (!remote_host.empty())
+            if (same_machine)
+            {
+                append_unique_ip(result.ordered_candidates, "127.0.0.1");
+                for (const auto& remote_host : remote_hosts)
+                {
+                    if (std::find(local_hosts.begin(), local_hosts.end(), remote_host) != local_hosts.end())
+                    {
+                        append_unique_ip(result.ordered_candidates, remote_host);
+                    }
+                }
+                for (const auto& local_host : local_hosts)
+                {
+                    append_unique_ip(result.ordered_candidates, local_host);
+                }
+                for (const auto& remote_public : remote_publics)
+                {
+                    append_unique_ip(result.ordered_candidates, remote_public);
+                }
+                if (!result.ordered_candidates.empty())
+                {
+                    result.found = true;
+                    result.host = result.ordered_candidates.front();
+                    result.reason = "same_machine_host_candidate";
+                    return result;
+                }
+            }
+
+            std::vector<std::string> same_lan_hosts{};
+            for (const auto& remote_host : remote_hosts)
             {
                 for (const auto& local_host : local_hosts)
                 {
                     if (is_same_lan_hint(local_host, remote_host))
                     {
-                        result.found = true;
-                        result.host = remote_host;
-                        result.reason = "same_lan_host_candidate";
-                        return result;
+                        append_unique_ip(same_lan_hosts, remote_host);
                     }
                 }
             }
-
-            if (!remote_public.empty())
+            if (!same_lan_hosts.empty())
             {
+                for (const auto& same_lan : same_lan_hosts)
+                {
+                    append_unique_ip(result.ordered_candidates, same_lan);
+                }
+                for (const auto& remote_public : remote_publics)
+                {
+                    append_unique_ip(result.ordered_candidates, remote_public);
+                }
+                for (const auto& remote_host : remote_hosts)
+                {
+                    append_unique_ip(result.ordered_candidates, remote_host);
+                }
                 result.found = true;
-                result.host = remote_public;
-                result.reason = "public_srflx_candidate";
+                result.host = result.ordered_candidates.front();
+                result.reason = "same_lan_host_candidate";
                 return result;
             }
 
-            if (!remote_host.empty())
+            for (const auto& remote_public : remote_publics)
+            {
+                append_unique_ip(result.ordered_candidates, remote_public);
+            }
+            for (const auto& remote_host : remote_hosts)
+            {
+                append_unique_ip(result.ordered_candidates, remote_host);
+            }
+            if (!result.ordered_candidates.empty())
             {
                 result.found = true;
-                result.host = remote_host;
-                result.reason = "remote_host_fallback";
+                result.host = result.ordered_candidates.front();
+                result.reason = is_public_ipv4(result.host) ? "public_srflx_candidate" : "remote_host_fallback";
                 return result;
             }
         }
@@ -8072,6 +8132,9 @@ namespace WindroseTextSigns
         m_bridge_snapshot_id.clear();
         m_bridge_snapshot_seen_keys.clear();
         m_bridge_pending_request_keys.clear();
+        m_bridge_route_last_candidates.clear();
+        m_bridge_route_candidate_index = 0;
+        m_bridge_route_last_switch = {};
         m_relay_snapshot_received = false;
         m_relay_next_poll = std::chrono::steady_clock::now();
         m_relay_next_server_snapshot = std::chrono::steady_clock::now();
@@ -8925,16 +8988,79 @@ namespace WindroseTextSigns
             return;
         }
 
-        if (discovered.host == m_bridge_route_last_discovered_host &&
-            discovered.host == m_bridge_remote_server_host)
+        auto ordered_candidates = discovered.ordered_candidates;
+        if (ordered_candidates.empty() && !discovered.host.empty())
+        {
+            ordered_candidates.push_back(discovered.host);
+        }
+        if (ordered_candidates.empty())
         {
             return;
         }
 
-        m_bridge_route_last_discovered_host = discovered.host;
-        if (discovered.host != m_bridge_remote_server_host)
+        auto candidate_list_changed = false;
+        if (ordered_candidates.size() != m_bridge_route_last_candidates.size())
         {
-            m_bridge_remote_server_host = discovered.host;
+            candidate_list_changed = true;
+        }
+        else
+        {
+            for (size_t i = 0; i < ordered_candidates.size(); ++i)
+            {
+                if (ordered_candidates[i] != m_bridge_route_last_candidates[i])
+                {
+                    candidate_list_changed = true;
+                    break;
+                }
+            }
+        }
+
+        if (candidate_list_changed)
+        {
+            m_bridge_route_last_candidates = ordered_candidates;
+            m_bridge_route_candidate_index = 0;
+            for (size_t i = 0; i < ordered_candidates.size(); ++i)
+            {
+                if (ordered_candidates[i] == m_bridge_remote_server_host)
+                {
+                    m_bridge_route_candidate_index = i;
+                    break;
+                }
+            }
+        }
+
+        std::string selected_host = ordered_candidates[m_bridge_route_candidate_index];
+        const bool stuck_unsynced =
+            !m_bridge_snapshot_received &&
+            m_bridge_snapshot_retry_attempts >= 3 &&
+            (now - m_bridge_sync_wait_started) >= std::chrono::seconds(15);
+        if (stuck_unsynced && ordered_candidates.size() > 1 &&
+            (m_bridge_route_last_switch.time_since_epoch().count() == 0 ||
+             (now - m_bridge_route_last_switch) >= std::chrono::seconds(10)))
+        {
+            const auto previous_index = m_bridge_route_candidate_index;
+            m_bridge_route_candidate_index = (m_bridge_route_candidate_index + 1) % ordered_candidates.size();
+            selected_host = ordered_candidates[m_bridge_route_candidate_index];
+            if (previous_index != m_bridge_route_candidate_index)
+            {
+                log_line("[bridge-route] rotate reason=unsynced_no_snapshot_ack" +
+                         std::string(" previousHost=") + m_bridge_remote_server_host +
+                         " nextHost=" + selected_host +
+                         " retryAttempt=" + std::to_string(m_bridge_snapshot_retry_attempts));
+            }
+        }
+
+        if (!candidate_list_changed &&
+            selected_host == m_bridge_route_last_discovered_host &&
+            selected_host == m_bridge_remote_server_host)
+        {
+            return;
+        }
+
+        m_bridge_route_last_discovered_host = selected_host;
+        if (selected_host != m_bridge_remote_server_host)
+        {
+            m_bridge_remote_server_host = selected_host;
             NativeBridge::instance().set_remote_server(
                 m_bridge_remote_server_host,
                 static_cast<uint16_t>(m_bridge_udp_port));
@@ -8944,6 +9070,7 @@ namespace WindroseTextSigns
             m_bridge_sync_wait_started = now;
             m_bridge_health_unhealthy = false;
             m_bridge_health_warning_logged = false;
+            m_bridge_route_last_switch = now;
         }
 
         log_line("[bridge-route] discovered host=" + m_bridge_remote_server_host +
@@ -8952,7 +9079,8 @@ namespace WindroseTextSigns
                  " logPath=" + (discovered.log_path.empty() ? "unknown" : discovered.log_path.string()) +
                  " remoteHostCandidate=" + (discovered.remote_host_candidate.empty() ? "none" : discovered.remote_host_candidate) +
                  " remotePublicCandidate=" + (discovered.remote_public_candidate.empty() ? "none" : discovered.remote_public_candidate) +
-                 " localHosts=" + discovered.local_host_summary);
+                 " localHosts=" + discovered.local_host_summary +
+                 " candidates=" + summarize_ips(ordered_candidates));
     }
 
     auto SignTextMod::mark_bridge_healthy(const std::string& reason) -> void
@@ -10273,6 +10401,10 @@ namespace WindroseTextSigns
             std::unordered_set<std::string> present_label_keys{};
             std::unordered_map<std::string, uint32_t> present_world_counts{};
             const bool had_seen_live_labels_before_scan = m_restore_scan_has_seen_live_labels;
+            const bool remote_bridge_unsynced =
+                !m_sidecar_authoritative &&
+                m_bridge_role == BridgeRole::RemoteClient &&
+                !m_bridge_snapshot_received;
             uint32_t scan_actor_count = 0;
             uint32_t scan_probable_label_count = 0;
             uint32_t scan_buildingish_count = 0;
@@ -10320,26 +10452,38 @@ namespace WindroseTextSigns
                     {
                         if (const auto found = m_labels.find(key); found != m_labels.end())
                         {
-                            log_line("[save] prune_rebuilt_label key=" + key +
-                                     " stableId=" + found->second.stable_id +
-                                     " worldId=" + found->second.world_id +
-                                     " reason=actor_instance_changed");
-                            if (m_sidecar_authoritative)
+                            if (remote_bridge_unsynced)
                             {
-                                broadcast_bridge_clear(found->second.stable_id, found->second.world_id, "prune_rebuilt_label");
+                                log_line("[save] prune_rebuilt_label deferred key=" + key +
+                                         " stableId=" + found->second.stable_id +
+                                         " worldId=" + found->second.world_id +
+                                         " reason=bridge_unsynced");
+                                m_component_name_cache.erase(key);
+                                m_phase4_next_retry.erase(key);
                             }
-                            m_labels.erase(found);
-                            m_rendered_text_cache.erase(key);
-                            m_component_name_cache.erase(key);
-                            m_phase4_next_retry.erase(key);
-                            m_missing_label_scan_counts.erase(key);
-                            if (m_text_buffer_bound_key == key)
+                            else
                             {
-                                m_text_buffer.fill('\0');
-                                m_text_buffer_bound_key.clear();
+                                log_line("[save] prune_rebuilt_label key=" + key +
+                                         " stableId=" + found->second.stable_id +
+                                         " worldId=" + found->second.world_id +
+                                         " reason=actor_instance_changed");
+                                if (m_sidecar_authoritative)
+                                {
+                                    broadcast_bridge_clear(found->second.stable_id, found->second.world_id, "prune_rebuilt_label");
+                                }
+                                m_labels.erase(found);
+                                m_rendered_text_cache.erase(key);
+                                m_component_name_cache.erase(key);
+                                m_phase4_next_retry.erase(key);
+                                m_missing_label_scan_counts.erase(key);
+                                if (m_text_buffer_bound_key == key)
+                                {
+                                    m_text_buffer.fill('\0');
+                                    m_text_buffer_bound_key.clear();
+                                }
+                                save_sidecar_json("prune_rebuilt_label", key, stable_id, world_id);
+                                pruned_rebuilt_label = true;
                             }
-                            save_sidecar_json("prune_rebuilt_label", key, stable_id, world_id);
-                            pruned_rebuilt_label = true;
                         }
                     }
                 }
@@ -10391,12 +10535,7 @@ namespace WindroseTextSigns
             //   before pruning; Solo can expose labels before every persisted label resolves.
             // - if all remaining text-sign records are missing while other labels are live,
             //   prune them all; that is the normal "player destroyed every text sign" case.
-            const bool remote_bridge_unhealthy =
-                !m_sidecar_authoritative &&
-                m_bridge_role == BridgeRole::RemoteClient &&
-                m_bridge_health_unhealthy &&
-                !m_bridge_snapshot_received;
-            const bool allow_prune = !present_label_keys.empty() && had_seen_live_labels_before_scan && !remote_bridge_unhealthy;
+            const bool allow_prune = !present_label_keys.empty() && had_seen_live_labels_before_scan && !remote_bridge_unsynced;
             if (allow_prune)
             {
                 m_prune_deferred_logged = false;
@@ -10471,9 +10610,9 @@ namespace WindroseTextSigns
             {
                 m_bootstrap_prune_phase_observed = true;
                 std::string defer_reason = "no_live_labels_visible";
-                if (remote_bridge_unhealthy)
+                if (remote_bridge_unsynced)
                 {
-                    defer_reason = "bridge_unhealthy_unsynced";
+                    defer_reason = "bridge_unsynced";
                 }
                 else if (!had_seen_live_labels_before_scan)
                 {

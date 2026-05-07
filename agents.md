@@ -58,4 +58,5 @@ Derived from session: `019ddfe0-2e60-77f1-9c58-63ee854fbf0e`
 ## Rules
 - Do not build/complile code unless explicitly asked to.  Keep "C:\Users\User\Documents\Windrose Addons\WindroseTextSigns\build_windrosetextsigns.ps1" up to date for manual code build/compile.
 - Do not deploy to game folders unless explicitly asked to.  Keep "C:\Users\User\Documents\Windrose Addons\WindroseTextSigns\deploy_TextSigns_clean.ps1" up to date for manual packaging and deployment.
+- Keep C:\Users\User\Documents\Windrose Addons\WindroseTextSigns\tools\run_offline_qa.ps1" up to date with latest findings and always run it against changes made.
 

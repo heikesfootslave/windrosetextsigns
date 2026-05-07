@@ -270,7 +270,10 @@ namespace WindroseTextSigns
         bool m_bridge_route_auto_enabled{false};
         std::filesystem::path m_bridge_route_log_path{};
         std::chrono::steady_clock::time_point m_bridge_route_next_check{};
+        std::chrono::steady_clock::time_point m_bridge_route_last_switch{};
         std::string m_bridge_route_last_discovered_host{};
+        std::vector<std::string> m_bridge_route_last_candidates{};
+        size_t m_bridge_route_candidate_index{0};
         int m_bridge_udp_port{45801};
         bool m_bridge_upnp_enabled{false};
         bool m_bridge_upnp_attempted{false};

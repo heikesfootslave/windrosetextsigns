@@ -5,6 +5,8 @@
   - bridge health gate with degraded/recovered state logging
   - snapshot retry backoff (5s -> 10s -> 20s -> 30s)
   - prune suppression while remote bridge is unsynced/degraded
+  - route candidate set + rotation for same-machine bind ambiguity (`127.0.0.1` vs NIC IP) and multi-NIC/VPN LAN ambiguity
+  - deferred `prune_rebuilt_label` while remote client has not received first authoritative snapshot
   - explicit unsynced preview logging for optimistic remote apply/clear
 - Added offline bridge fixture coverage for degraded/no-snapshot behavior and retry backoff.
 - Added log noise reduction and retention controls:
