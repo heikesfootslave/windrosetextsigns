@@ -9982,6 +9982,7 @@ namespace WindroseTextSigns
 
             std::unordered_set<std::string> present_label_keys{};
             std::unordered_map<std::string, uint32_t> present_world_counts{};
+            const bool had_seen_live_labels_before_scan = m_restore_scan_has_seen_live_labels;
             uint32_t scan_actor_count = 0;
             uint32_t scan_probable_label_count = 0;
             uint32_t scan_buildingish_count = 0;
@@ -10097,9 +10098,11 @@ namespace WindroseTextSigns
             // - only prune while at least one live label is visible in the current world scan.
             // - this avoids deleting all persisted records during disconnect/map travel when
             //   no labels are visible temporarily.
+            // - after loading or changing sidecar route, wait one complete live-label scan
+            //   before pruning; Solo can expose labels before every persisted label resolves.
             // - if all remaining text-sign records are missing while other labels are live,
             //   prune them all; that is the normal "player destroyed every text sign" case.
-            const bool allow_prune = !present_label_keys.empty();
+            const bool allow_prune = !present_label_keys.empty() && had_seen_live_labels_before_scan;
             if (allow_prune)
             {
                 constexpr uint32_t k_prune_missing_scan_threshold = 4;
