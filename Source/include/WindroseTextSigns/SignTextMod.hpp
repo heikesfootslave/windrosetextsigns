@@ -146,6 +146,7 @@ namespace WindroseTextSigns
         auto tick_player_marker_replication_probe() -> void;
         auto tick_phase5_build_menu_selection_probe() -> void;
         auto is_restore_scan_world_active() -> bool;
+        auto is_localclient_prune_ready(bool authority_source_resolved, std::string* out_reason = nullptr) -> bool;
         auto ensure_selected_label_for_action(const std::string& action_name) -> bool;
         auto is_actor_pointer_live(RC::Unreal::AActor* actor) const -> bool;
         auto ensure_selected_actor_valid(const std::string& reason) -> bool;

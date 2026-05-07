@@ -2326,6 +2326,35 @@ namespace
         return found_return;
     }
 
+    auto invoke_object_return_no_param(UObject* context, const TCHAR* in_chain_name, const TCHAR* path_name, UObject*& out_value) -> bool
+    {
+        auto* fn = find_function_by_chain_or_path(context, in_chain_name, path_name);
+        if (!context || !fn)
+        {
+            return false;
+        }
+
+        std::vector<uint8_t> params(static_cast<size_t>(std::max<int32_t>(fn->GetStructureSize(), 32)), 0);
+        context->ProcessEvent(fn, params.data());
+
+        bool found_return = false;
+        for_each_property_in_chain_compat(fn, [&](FProperty* prop) {
+            if (!prop || !prop->HasAnyPropertyFlags(CPF_ReturnParm))
+            {
+                return;
+            }
+            if (prop->GetClass().HashObject() == FObjectProperty::StaticClass().HashObject())
+            {
+                if (auto* value_ptr = prop->ContainerPtrToValuePtr<UObject*>(params.data()); value_ptr && *value_ptr)
+                {
+                    out_value = *value_ptr;
+                    found_return = true;
+                }
+            }
+        });
+        return found_return;
+    }
+
     auto invoke_vector_return_no_param(UObject* context, const TCHAR* in_chain_name, const TCHAR* path_name, FVector& out_value) -> bool
     {
         auto* fn = find_function_by_chain_or_path(context, in_chain_name, path_name);
@@ -10776,10 +10805,13 @@ namespace WindroseTextSigns
             runtime_role_lower != "localclientpending" &&
             authority_mode_lower != "worldauthoritypending";
         const bool seen_live_this_session = m_seen_live_label_keys.find(key) != m_seen_live_label_keys.end();
+        std::string localclient_prune_ready_reason{};
+        const bool localclient_prune_ready =
+            is_localclient_prune_ready(authority_source_resolved, &localclient_prune_ready_reason);
         const bool authoritative_local_guard_blocked =
             m_sidecar_authoritative &&
             !is_dedicated_runtime_process() &&
-            (!authority_source_resolved || !seen_live_this_session);
+            !localclient_prune_ready;
         const bool remote_bridge_unsynced =
             !m_sidecar_authoritative &&
             m_bridge_role == BridgeRole::RemoteClient &&
@@ -10816,7 +10848,8 @@ namespace WindroseTextSigns
                      " threshold=" + std::to_string(k_rebuild_prune_missing_scan_threshold) +
                      " seenLiveBeforeScan=" + std::string{m_restore_scan_has_seen_live_labels ? "true" : "false"} +
                      " bridgeUnsynced=" + std::string{remote_bridge_unsynced ? "true" : "false"} +
-                     " authoritySourceResolved=" + std::string{authority_source_resolved ? "true" : "false"} +
+                     " localClientPruneReady=" + std::string{localclient_prune_ready ? "true" : "false"} +
+                     " localClientReadyReason=" + localclient_prune_ready_reason +
                      " seenLiveThisSession=" + std::string{seen_live_this_session ? "true" : "false"} +
                      " authoritativeLocalGuardBlocked=" + std::string{authoritative_local_guard_blocked ? "true" : "false"});
         }
@@ -10869,6 +10902,72 @@ namespace WindroseTextSigns
 
         const auto routed_world_id = build_world_id_for_actor(controller_actor);
         return is_hex_world_id(routed_world_id);
+    }
+
+    auto SignTextMod::is_localclient_prune_ready(bool authority_source_resolved, std::string* out_reason) -> bool
+    {
+        const auto set_reason = [&](const std::string& reason) {
+            if (out_reason)
+            {
+                *out_reason = reason;
+            }
+        };
+
+        if (!m_sidecar_authoritative || is_dedicated_runtime_process())
+        {
+            set_reason("not_localclient_authoritative_path");
+            return true;
+        }
+
+        const auto runtime_role_lower = lower_ascii(m_runtime_role);
+        if (runtime_role_lower != "localclient")
+        {
+            set_reason("runtime_role_not_localclient");
+            return false;
+        }
+
+        if (!authority_source_resolved)
+        {
+            set_reason("authority_source_pending");
+            return false;
+        }
+
+        auto* controller = try_get_primary_player_controller();
+        if (!controller)
+        {
+            set_reason("no_player_controller");
+            return false;
+        }
+
+        auto* controller_actor = controller->IsA(AActor::StaticClass()) ? Cast<AActor>(controller) : nullptr;
+        if (!controller_actor || !controller_actor->GetWorld())
+        {
+            set_reason("controller_world_unavailable");
+            return false;
+        }
+
+        UObject* controlled_pawn = nullptr;
+        const bool got_pawn_from_fn = invoke_object_return_no_param(
+            controller,
+            STR("GetPawn"),
+            STR("/Script/Engine.Controller:GetPawn"),
+            controlled_pawn);
+        if (!got_pawn_from_fn || !controlled_pawn)
+        {
+            controlled_pawn = get_object_property_if_present(controller, "Pawn");
+        }
+        if (!controlled_pawn)
+        {
+            controlled_pawn = get_object_property_if_present(controller, "AcknowledgedPawn");
+        }
+        if (!controlled_pawn)
+        {
+            set_reason("controlled_pawn_missing");
+            return false;
+        }
+
+        set_reason("ready");
+        return true;
     }
 
     auto SignTextMod::on_update() -> void
@@ -11002,41 +11101,32 @@ namespace WindroseTextSigns
                             const uint32_t miss_count = (miss_it != m_missing_label_scan_counts.end()) ? miss_it->second : 0;
                             constexpr uint32_t k_rebuild_prune_missing_scan_threshold = 4;
                             const bool seen_live_this_session = m_seen_live_label_keys.find(key) != m_seen_live_label_keys.end();
-                            const bool authoritative_fast_prune =
+                            const bool localclient_authoritative =
                                 m_sidecar_authoritative &&
-                                !is_dedicated_runtime_process() &&
-                                authority_source_resolved &&
-                                seen_live_this_session;
-                            if (authoritative_fast_prune)
+                                !is_dedicated_runtime_process();
+                            std::string localclient_prune_ready_reason{};
+                            const bool localclient_prune_ready =
+                                is_localclient_prune_ready(authority_source_resolved, &localclient_prune_ready_reason);
+                            if (localclient_authoritative && !localclient_prune_ready)
                             {
-                                log_line("[save] prune_rebuilt_label key=" + key +
+                                log_line("[save] prune_rebuilt_label deferred key=" + key +
                                          " stableId=" + found->second.stable_id +
                                          " worldId=" + found->second.world_id +
-                                         " reason=actor_instance_changed_authoritative");
-                                broadcast_bridge_clear(found->second.stable_id, found->second.world_id, "prune_rebuilt_label");
-                                m_labels.erase(found);
-                                m_rendered_text_cache.erase(key);
-                                m_component_name_cache.erase(key);
-                                m_phase4_next_retry.erase(key);
-                                m_missing_label_scan_counts.erase(key);
-                                if (m_text_buffer_bound_key == key)
-                                {
-                                    m_text_buffer.fill('\0');
-                                    m_text_buffer_bound_key.clear();
-                                }
-                                save_sidecar_json("prune_rebuilt_label", key, stable_id, world_id);
-                                pruned_rebuilt_label = true;
+                                         " reason=localclient_readiness_guard" +
+                                         " localClientPruneReady=false" +
+                                         " localClientReadyReason=" + localclient_prune_ready_reason +
+                                         " seenLiveThisSession=" + std::string{seen_live_this_session ? "true" : "false"} +
+                                         " missCount=" + std::to_string(miss_count));
                             }
-                            else if (m_sidecar_authoritative &&
-                                     !is_dedicated_runtime_process() &&
-                                     (!authority_source_resolved || !seen_live_this_session))
+                            else if (localclient_authoritative && !seen_live_this_session)
                             {
                                 log_line("[save] prune_rebuilt_label deferred key=" + key +
                                          " stableId=" + found->second.stable_id +
                                          " worldId=" + found->second.world_id +
                                          " reason=authoritative_seen_live_guard" +
-                                         " authoritySourceResolved=" + std::string{authority_source_resolved ? "true" : "false"} +
-                                         " seenLiveThisSession=" + std::string{seen_live_this_session ? "true" : "false"});
+                                         " localClientReadyReason=" + localclient_prune_ready_reason +
+                                         " seenLiveThisSession=false" +
+                                         " missCount=" + std::to_string(miss_count));
                             }
                             else if (miss_count < k_rebuild_prune_missing_scan_threshold)
                             {
@@ -11189,8 +11279,12 @@ namespace WindroseTextSigns
                 uint32_t blocked_by_world_count = 0;
                 uint32_t blocked_by_live_guard = 0;
                 uint32_t blocked_by_dedicated_warmup_guard = 0;
+                uint32_t blocked_by_localclient_readiness = 0;
                 const bool require_seen_live_for_authoritative_prune =
                     m_sidecar_authoritative && !is_dedicated_runtime_process();
+                std::string localclient_prune_ready_reason{};
+                const bool localclient_prune_ready =
+                    is_localclient_prune_ready(authority_source_resolved, &localclient_prune_ready_reason);
                 const bool dedicated_active_world_grace_satisfied =
                     dedicated_authoritative_prune_mode &&
                     m_dedicated_restore_active_since.time_since_epoch().count() != 0 &&
@@ -11215,6 +11309,11 @@ namespace WindroseTextSigns
                     if (world_it == present_world_counts.end() || world_it->second < k_min_live_labels_in_world_for_prune)
                     {
                         ++blocked_by_world_count;
+                        continue;
+                    }
+                    if (require_seen_live_for_authoritative_prune && !localclient_prune_ready)
+                    {
+                        ++blocked_by_localclient_readiness;
                         continue;
                     }
                     const bool seen_live_this_session = m_seen_live_label_keys.find(key) != m_seen_live_label_keys.end();
@@ -11244,6 +11343,7 @@ namespace WindroseTextSigns
                              " ready=" + std::to_string(keys_to_prune.size()) +
                              " blockedWorldCount=" + std::to_string(blocked_by_world_count) +
                              " blockedLiveGuard=" + std::to_string(blocked_by_live_guard) +
+                             " blockedLocalClientReady=" + std::to_string(blocked_by_localclient_readiness) +
                              " blockedDedicatedWarmup=" + std::to_string(blocked_by_dedicated_warmup_guard) +
                              " threshold=" + std::to_string(k_prune_missing_scan_threshold));
                 }
@@ -11291,7 +11391,11 @@ namespace WindroseTextSigns
                 else
                 {
                     std::string defer_reason{};
-                    if (blocked_by_dedicated_warmup_guard > 0)
+                    if (blocked_by_localclient_readiness > 0)
+                    {
+                        defer_reason = "localclient_prune_readiness_guard";
+                    }
+                    else if (blocked_by_dedicated_warmup_guard > 0)
                     {
                         defer_reason = "dedicated_never_seen_warmup_guard";
                     }
@@ -11312,8 +11416,11 @@ namespace WindroseTextSigns
                         {
                             log_line("[save] prune_destroyed_label deferred reason=" + defer_reason +
                                      " authoritySourceResolved=" + std::string{authority_source_resolved ? "true" : "false"} +
+                                     " localClientPruneReady=" + std::string{localclient_prune_ready ? "true" : "false"} +
+                                     " localClientReadyReason=" + localclient_prune_ready_reason +
                                      " dedicatedActiveGraceOk=" + std::string{dedicated_active_world_grace_satisfied ? "true" : "false"} +
                                      " dedicatedStableWindowOk=" + std::string{dedicated_stable_window_satisfied ? "true" : "false"} +
+                                     " blockedLocalClientReady=" + std::to_string(blocked_by_localclient_readiness) +
                                      " blockedLiveGuard=" + std::to_string(blocked_by_live_guard) +
                                      " blockedDedicatedWarmup=" + std::to_string(blocked_by_dedicated_warmup_guard) +
                                      " blockedWorldCount=" + std::to_string(blocked_by_world_count) +
