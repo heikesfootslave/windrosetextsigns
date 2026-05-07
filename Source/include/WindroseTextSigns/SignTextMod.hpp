@@ -206,6 +206,7 @@ namespace WindroseTextSigns
         auto maybe_start_bridge_upnp_attempt(const std::string& reason) -> void;
         auto tick_bridge_upnp() -> void;
         auto tick_bridge_route_discovery() -> void;
+        auto reset_bridge_snapshot_state(const std::string& reason) -> void;
         auto mark_bridge_healthy(const std::string& reason) -> void;
         auto update_bridge_health(std::chrono::steady_clock::time_point now) -> void;
         auto is_bootstrap_resolution_window_active(std::chrono::steady_clock::time_point now) const -> bool;
@@ -298,6 +299,7 @@ namespace WindroseTextSigns
         bool m_bridge_route_lock_acquired{false};
         std::string m_bridge_route_locked_host{};
         std::unordered_set<std::string> m_bridge_route_rejected_candidates_logged{};
+        bool m_bridge_route_bootstrap_pause_logged{false};
         int m_bridge_udp_port{45801};
         bool m_bridge_upnp_enabled{false};
         BridgeUpnpMode m_bridge_upnp_mode{BridgeUpnpMode::Off};
@@ -331,6 +333,7 @@ namespace WindroseTextSigns
         std::chrono::steady_clock::time_point m_bridge_last_snapshot_request{};
         std::chrono::steady_clock::time_point m_bridge_last_status{};
         bool m_bridge_snapshot_received{false};
+        std::string m_bridge_snapshot_world_id{};
         bool m_bridge_health_unhealthy{false};
         bool m_bridge_health_warning_logged{false};
         uint32_t m_bridge_snapshot_retry_attempts{0};

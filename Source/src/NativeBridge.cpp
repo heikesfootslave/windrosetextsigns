@@ -37,6 +37,16 @@ namespace
         return static_cast<SOCKET>(raw_socket);
     }
 
+    auto close_socket_if_valid(uintptr_t& raw_socket) -> void
+    {
+        if (!is_valid_socket(raw_socket))
+        {
+            return;
+        }
+        closesocket(to_socket(raw_socket));
+        raw_socket = k_invalid_socket_value;
+    }
+
     auto ip_octets_from_be(const uint32_t ip_be) -> std::array<uint8_t, 4>
     {
         const auto ip_host = ntohl(ip_be);
@@ -74,8 +84,33 @@ namespace WindroseTextSigns
     auto NativeBridge::set_role(const BridgeRole role) -> void
     {
         std::scoped_lock lock(m_mutex);
+        const auto previous_role = m_role;
         m_role = role;
         (void)ensure_runtime_ready_locked();
+
+        if (previous_role != role)
+        {
+            if (role == BridgeRole::DedicatedServer)
+            {
+                close_socket_if_valid(m_client_socket);
+                m_rx_client.clear();
+            }
+            else if (role == BridgeRole::RemoteClient)
+            {
+                close_socket_if_valid(m_server_socket);
+                m_known_clients.clear();
+                m_rx_server.clear();
+            }
+            else if (role == BridgeRole::Unknown)
+            {
+                close_socket_if_valid(m_server_socket);
+                close_socket_if_valid(m_client_socket);
+                m_known_clients.clear();
+                m_rx_server.clear();
+                m_rx_client.clear();
+            }
+        }
+
         if (role == BridgeRole::DedicatedServer || role == BridgeRole::ListenHost)
         {
             (void)ensure_server_socket_locked();
@@ -211,18 +246,39 @@ namespace WindroseTextSigns
         return true;
     }
 
-    auto NativeBridge::send_udp_locked(const std::string& payload, const uint32_t ip_be, const uint16_t port_be) -> bool
+    auto NativeBridge::send_udp_locked(
+        const std::string& payload,
+        const uint32_t ip_be,
+        const uint16_t port_be,
+        const bool prefer_server_socket) -> bool
     {
-        SOCKET send_socket = INVALID_SOCKET;
-        if (is_valid_socket(m_server_socket))
+        SOCKET preferred_socket = INVALID_SOCKET;
+        SOCKET fallback_socket = INVALID_SOCKET;
+        if (prefer_server_socket)
         {
-            send_socket = to_socket(m_server_socket);
-        }
-        else if (is_valid_socket(m_client_socket))
-        {
-            send_socket = to_socket(m_client_socket);
+            if (is_valid_socket(m_server_socket))
+            {
+                preferred_socket = to_socket(m_server_socket);
+            }
+            if (is_valid_socket(m_client_socket))
+            {
+                fallback_socket = to_socket(m_client_socket);
+            }
         }
         else
+        {
+            if (is_valid_socket(m_client_socket))
+            {
+                preferred_socket = to_socket(m_client_socket);
+            }
+            if (is_valid_socket(m_server_socket))
+            {
+                fallback_socket = to_socket(m_server_socket);
+            }
+        }
+
+        const SOCKET send_socket = (preferred_socket != INVALID_SOCKET) ? preferred_socket : fallback_socket;
+        if (send_socket == INVALID_SOCKET)
         {
             return false;
         }
@@ -393,7 +449,7 @@ namespace WindroseTextSigns
         {
             return false;
         }
-        return send_udp_locked(payload, m_remote_server_endpoint.ip_be, m_remote_server_endpoint.port_be);
+        return send_udp_locked(payload, m_remote_server_endpoint.ip_be, m_remote_server_endpoint.port_be, false);
     }
 
     auto NativeBridge::broadcast_to_clients(const std::string& payload) -> bool
@@ -418,7 +474,7 @@ namespace WindroseTextSigns
         prune_stale_clients_locked();
         for (const auto& [endpoint, _] : m_known_clients)
         {
-            sent_any = send_udp_locked(payload, endpoint.ip_be, endpoint.port_be) || sent_any;
+            sent_any = send_udp_locked(payload, endpoint.ip_be, endpoint.port_be, true) || sent_any;
         }
         return sent_any;
     }

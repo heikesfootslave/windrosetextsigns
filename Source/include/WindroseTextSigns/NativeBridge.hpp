@@ -82,7 +82,7 @@ namespace WindroseTextSigns
         auto ensure_client_socket_locked() -> bool;
         auto receive_server_packets_locked() -> void;
         auto receive_client_packets_locked() -> void;
-        auto send_udp_locked(const std::string& payload, uint32_t ip_be, uint16_t port_be) -> bool;
+        auto send_udp_locked(const std::string& payload, uint32_t ip_be, uint16_t port_be, bool prefer_server_socket) -> bool;
         auto resolve_remote_server_locked() -> bool;
         auto prune_stale_clients_locked() -> void;
 
