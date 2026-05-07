@@ -36,6 +36,31 @@ namespace
     {
         return static_cast<SOCKET>(raw_socket);
     }
+
+    auto ip_octets_from_be(const uint32_t ip_be) -> std::array<uint8_t, 4>
+    {
+        const auto ip_host = ntohl(ip_be);
+        return {
+            static_cast<uint8_t>((ip_host >> 24) & 0xFF),
+            static_cast<uint8_t>((ip_host >> 16) & 0xFF),
+            static_cast<uint8_t>((ip_host >> 8) & 0xFF),
+            static_cast<uint8_t>(ip_host & 0xFF)};
+    }
+
+    auto is_loopback_ip_be(const uint32_t ip_be) -> bool
+    {
+        const auto o = ip_octets_from_be(ip_be);
+        return o[0] == 127;
+    }
+
+    auto is_private_ip_be(const uint32_t ip_be) -> bool
+    {
+        const auto o = ip_octets_from_be(ip_be);
+        return o[0] == 10 ||
+               (o[0] == 172 && o[1] >= 16 && o[1] <= 31) ||
+               (o[0] == 192 && o[1] == 168) ||
+               (o[0] == 169 && o[1] == 254);
+    }
 }
 
 namespace WindroseTextSigns
@@ -455,6 +480,29 @@ namespace WindroseTextSigns
     {
         std::scoped_lock lock(m_mutex);
         return m_known_clients.size();
+    }
+
+    auto NativeBridge::known_client_stats() const -> KnownClientStats
+    {
+        KnownClientStats out{};
+        std::scoped_lock lock(m_mutex);
+        out.total = m_known_clients.size();
+        for (const auto& [endpoint, _] : m_known_clients)
+        {
+            if (is_loopback_ip_be(endpoint.ip_be))
+            {
+                ++out.loopback;
+            }
+            else if (is_private_ip_be(endpoint.ip_be))
+            {
+                ++out.private_net;
+            }
+            else
+            {
+                ++out.public_net;
+            }
+        }
+        return out;
     }
 
     auto NativeBridge::status_json() const -> std::string

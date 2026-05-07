@@ -7,6 +7,8 @@
 #include <filesystem>
 #include <fstream>
 #include <future>
+#include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -25,6 +27,7 @@
 #include <Unreal/UObject.hpp>
 
 #include <WindroseTextSigns/NativeBridge.hpp>
+#include <WindroseTextSigns/UpnpNat.hpp>
 #include <WindroseTextSigns/RelayHttp.hpp>
 
 namespace WindroseTextSigns
@@ -78,6 +81,13 @@ namespace WindroseTextSigns
             ClientSnapshot = 2,
             ServerSnapshot = 3,
             ServerRequests = 4
+        };
+
+        enum class BridgeUpnpMode : uint32_t
+        {
+            Off = 0,
+            On = 1,
+            Auto = 2
         };
 
         struct RelayHttpTask
@@ -192,6 +202,9 @@ namespace WindroseTextSigns
         auto sanitize_backup_reason(std::string reason) const -> std::string;
 
         auto configure_bridge_role(const std::string& reason) -> void;
+        auto bridge_upnp_mode_name() const -> std::string;
+        auto maybe_start_bridge_upnp_attempt(const std::string& reason) -> void;
+        auto tick_bridge_upnp() -> void;
         auto tick_bridge_route_discovery() -> void;
         auto mark_bridge_healthy(const std::string& reason) -> void;
         auto update_bridge_health(std::chrono::steady_clock::time_point now) -> void;
@@ -276,7 +289,21 @@ namespace WindroseTextSigns
         size_t m_bridge_route_candidate_index{0};
         int m_bridge_udp_port{45801};
         bool m_bridge_upnp_enabled{false};
+        BridgeUpnpMode m_bridge_upnp_mode{BridgeUpnpMode::Off};
         bool m_bridge_upnp_attempted{false};
+        bool m_bridge_upnp_mapped{false};
+        bool m_bridge_upnp_timeout_logged{false};
+        uint32_t m_bridge_upnp_attempt_count{0};
+        std::chrono::steady_clock::time_point m_bridge_upnp_last_attempt{};
+        std::chrono::steady_clock::time_point m_bridge_upnp_attempt_started{};
+        std::string m_bridge_upnp_last_policy{};
+        struct BridgeUpnpJobState
+        {
+            std::atomic<bool> done{false};
+            std::mutex mutex{};
+            UpnpNatResult result{};
+        };
+        std::shared_ptr<BridgeUpnpJobState> m_bridge_upnp_job{};
         bool m_relay_enabled{false};
         std::string m_relay_base_url{};
         std::string m_relay_shared_secret{};

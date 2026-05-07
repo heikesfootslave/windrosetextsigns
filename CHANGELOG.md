@@ -9,6 +9,11 @@
   - deferred `prune_rebuilt_label` while remote client has not received first authoritative snapshot
   - explicit unsynced preview logging for optimistic remote apply/clear
 - Added offline bridge fixture coverage for degraded/no-snapshot behavior and retry backoff.
+- Added adaptive UPnP mode selection for bridge hosts:
+  - new `WTS_BRIDGE_UPNP_MODE` (`off|on|auto`) with backward-compatible fallback from `WTS_BRIDGE_UPNP_ENABLED`
+  - non-blocking asynchronous UPnP mapping attempts (startup/tick no longer block on router COM calls)
+  - `auto` policy based on observed bridge client endpoint classes (`loopback/private/public`) so same-machine and LAN-only sessions avoid unnecessary mapping
+  - policy can escalate later in the same host session when public clients appear
 - Added log noise reduction and retention controls:
   - compacted `[phase4] apply_success` logging to keep only the key-identifying prefix
   - suppression of consecutive duplicate log payloads with repeat summary lines

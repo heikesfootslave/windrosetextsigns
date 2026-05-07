@@ -28,6 +28,14 @@ namespace WindroseTextSigns
         uint64_t dropped_payload_too_large{0};
     };
 
+    struct KnownClientStats
+    {
+        size_t total{0};
+        size_t loopback{0};
+        size_t private_net{0};
+        size_t public_net{0};
+    };
+
     class NativeBridge
     {
       public:
@@ -43,6 +51,7 @@ namespace WindroseTextSigns
 
         [[nodiscard]] auto counters() const -> BridgeCounters;
         [[nodiscard]] auto known_client_count() const -> size_t;
+        [[nodiscard]] auto known_client_stats() const -> KnownClientStats;
         [[nodiscard]] auto status_json() const -> std::string;
 
       private:

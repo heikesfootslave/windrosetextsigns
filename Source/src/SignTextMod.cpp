@@ -3944,7 +3944,25 @@ namespace WindroseTextSigns
             safe_stoi(config_string_value("WTS_BRIDGE_UDP_PORT", "45801"), 45801),
             1,
             65535);
-        m_bridge_upnp_enabled = config_bool_value("WTS_BRIDGE_UPNP_ENABLED", false);
+        const auto upnp_mode_raw = lower_copy_ascii(trim_copy_ascii(config_string_value("WTS_BRIDGE_UPNP_MODE", "")));
+        if (upnp_mode_raw == "off" || upnp_mode_raw == "false" || upnp_mode_raw == "0" || upnp_mode_raw == "disabled")
+        {
+            m_bridge_upnp_mode = BridgeUpnpMode::Off;
+        }
+        else if (upnp_mode_raw == "on" || upnp_mode_raw == "true" || upnp_mode_raw == "1" || upnp_mode_raw == "enabled")
+        {
+            m_bridge_upnp_mode = BridgeUpnpMode::On;
+        }
+        else if (upnp_mode_raw == "auto")
+        {
+            m_bridge_upnp_mode = BridgeUpnpMode::Auto;
+        }
+        else
+        {
+            const bool upnp_enabled_legacy = config_bool_value("WTS_BRIDGE_UPNP_ENABLED", false);
+            m_bridge_upnp_mode = upnp_enabled_legacy ? BridgeUpnpMode::Auto : BridgeUpnpMode::Off;
+        }
+        m_bridge_upnp_enabled = (m_bridge_upnp_mode != BridgeUpnpMode::Off);
         NativeBridge::instance().set_remote_server(m_bridge_remote_server_host, static_cast<uint16_t>(m_bridge_udp_port));
         m_relay_enabled = config_bool_value("WTS_RELAY_ENABLED", false);
         m_relay_base_url = config_string_value("WTS_RELAY_BASE_URL", "");
@@ -3985,7 +4003,8 @@ namespace WindroseTextSigns
                  " remoteServerHost=" + (m_bridge_remote_server_host.empty() ? "none" : m_bridge_remote_server_host) +
                  " configuredHost=" + (m_bridge_remote_server_host_config.empty() ? "none" : m_bridge_remote_server_host_config) +
                  " autoRoute=" + std::string{m_bridge_route_auto_enabled ? "true" : "false"} +
-                 " upnpEnabled=" + std::string{m_bridge_upnp_enabled ? "true" : "false"});
+                 " upnpEnabled=" + std::string{m_bridge_upnp_enabled ? "true" : "false"} +
+                 " upnpMode=" + bridge_upnp_mode_name());
         log_line("[save] data_root=" + m_data_root.string() +
                  " sidecar=" + m_sidecar_path.string() +
                  " backups=" + m_backup_root.string());
@@ -8101,25 +8120,6 @@ namespace WindroseTextSigns
 
         m_bridge_role = desired;
         NativeBridge::instance().set_role(desired);
-        if (!m_bridge_upnp_attempted &&
-            m_bridge_upnp_enabled &&
-            (desired == BridgeRole::DedicatedServer || desired == BridgeRole::ListenHost))
-        {
-            m_bridge_upnp_attempted = true;
-            const auto upnp = UpnpNat::map_udp_port(
-                static_cast<uint16_t>(m_bridge_udp_port),
-                static_cast<uint16_t>(m_bridge_udp_port),
-                "WindroseTextSigns bridge");
-            log_line("[bridge-upnp] attempted=" + std::string{upnp.attempted ? "true" : "false"} +
-                     " ok=" + std::string{upnp.ok ? "true" : "false"} +
-                     " comAvailable=" + std::string{upnp.com_available ? "true" : "false"} +
-                     " collectionAvailable=" + std::string{upnp.collection_available ? "true" : "false"} +
-                     " localIp=" + (upnp.local_ip.empty() ? "none" : upnp.local_ip) +
-                     " internalPort=" + std::to_string(upnp.internal_port) +
-                     " externalPort=" + std::to_string(upnp.external_port) +
-                     " protocol=" + upnp.protocol +
-                     " message=" + upnp.message);
-        }
         m_bridge_snapshot_received = false;
         m_bridge_health_unhealthy = false;
         m_bridge_health_warning_logged = false;
@@ -8135,6 +8135,11 @@ namespace WindroseTextSigns
         m_bridge_route_last_candidates.clear();
         m_bridge_route_candidate_index = 0;
         m_bridge_route_last_switch = {};
+        m_bridge_upnp_timeout_logged = false;
+        if (desired != BridgeRole::DedicatedServer && desired != BridgeRole::ListenHost)
+        {
+            m_bridge_upnp_last_policy.clear();
+        }
         m_relay_snapshot_received = false;
         m_relay_next_poll = std::chrono::steady_clock::now();
         m_relay_next_server_snapshot = std::chrono::steady_clock::now();
@@ -8145,6 +8150,157 @@ namespace WindroseTextSigns
                  " authorityMode=" + m_authority_mode +
                  " sidecarKind=" + m_sidecar_kind +
                  " authoritative=" + std::string{m_sidecar_authoritative ? "true" : "false"});
+    }
+
+    auto SignTextMod::bridge_upnp_mode_name() const -> std::string
+    {
+        switch (m_bridge_upnp_mode)
+        {
+        case BridgeUpnpMode::Off:
+            return "off";
+        case BridgeUpnpMode::On:
+            return "on";
+        case BridgeUpnpMode::Auto:
+            return "auto";
+        default:
+            return "unknown";
+        }
+    }
+
+    auto SignTextMod::maybe_start_bridge_upnp_attempt(const std::string& reason) -> void
+    {
+        if (!m_bridge_upnp_enabled)
+        {
+            return;
+        }
+        if (m_bridge_role != BridgeRole::DedicatedServer && m_bridge_role != BridgeRole::ListenHost)
+        {
+            return;
+        }
+        if (m_bridge_upnp_mapped || m_bridge_upnp_job)
+        {
+            return;
+        }
+
+        const auto now = std::chrono::steady_clock::now();
+        if (m_bridge_upnp_last_attempt.time_since_epoch().count() != 0 &&
+            (now - m_bridge_upnp_last_attempt) < std::chrono::seconds(30))
+        {
+            return;
+        }
+
+        std::string policy = "disabled";
+        bool should_attempt = false;
+        const auto stats = NativeBridge::instance().known_client_stats();
+        if (m_bridge_upnp_mode == BridgeUpnpMode::On)
+        {
+            policy = "forced_on";
+            should_attempt = true;
+        }
+        else if (m_bridge_upnp_mode == BridgeUpnpMode::Auto)
+        {
+            if (stats.public_net > 0)
+            {
+                policy = "auto_public_client_detected";
+                should_attempt = true;
+            }
+            else if (stats.total == 0)
+            {
+                policy = "auto_wait_no_bridge_clients";
+            }
+            else
+            {
+                policy = "auto_local_or_lan_clients_only";
+            }
+        }
+
+        if (m_bridge_upnp_last_policy != policy)
+        {
+            log_line("[bridge-upnp] policy mode=" + bridge_upnp_mode_name() +
+                     " decision=" + policy +
+                     " role=" + bridge_role_name(m_bridge_role) +
+                     " knownClients=" + std::to_string(stats.total) +
+                     " loopbackClients=" + std::to_string(stats.loopback) +
+                     " privateClients=" + std::to_string(stats.private_net) +
+                     " publicClients=" + std::to_string(stats.public_net) +
+                     " reason=" + reason);
+            m_bridge_upnp_last_policy = policy;
+        }
+
+        if (!should_attempt)
+        {
+            return;
+        }
+
+        auto job = std::make_shared<BridgeUpnpJobState>();
+        const auto udp_port = static_cast<uint16_t>(m_bridge_udp_port);
+        m_bridge_upnp_job = job;
+        m_bridge_upnp_attempted = true;
+        m_bridge_upnp_attempt_count += 1;
+        m_bridge_upnp_last_attempt = now;
+        m_bridge_upnp_attempt_started = now;
+        m_bridge_upnp_timeout_logged = false;
+        std::thread([job, udp_port]() {
+            const auto result = UpnpNat::map_udp_port(udp_port, udp_port, "WindroseTextSigns bridge");
+            {
+                std::scoped_lock lock(job->mutex);
+                job->result = result;
+            }
+            job->done.store(true);
+        }).detach();
+
+        log_line("[bridge-upnp] attempt_start mode=" + bridge_upnp_mode_name() +
+                 " trigger=" + reason +
+                 " attempt=" + std::to_string(m_bridge_upnp_attempt_count) +
+                 " role=" + bridge_role_name(m_bridge_role));
+    }
+
+    auto SignTextMod::tick_bridge_upnp() -> void
+    {
+        if (m_bridge_role != BridgeRole::DedicatedServer && m_bridge_role != BridgeRole::ListenHost)
+        {
+            return;
+        }
+
+        if (m_bridge_upnp_job)
+        {
+            if (m_bridge_upnp_job->done.load())
+            {
+                UpnpNatResult upnp{};
+                {
+                    std::scoped_lock lock(m_bridge_upnp_job->mutex);
+                    upnp = m_bridge_upnp_job->result;
+                }
+                m_bridge_upnp_job.reset();
+                m_bridge_upnp_mapped = upnp.ok;
+                log_line("[bridge-upnp] attempted=" + std::string{upnp.attempted ? "true" : "false"} +
+                         " ok=" + std::string{upnp.ok ? "true" : "false"} +
+                         " comAvailable=" + std::string{upnp.com_available ? "true" : "false"} +
+                         " collectionAvailable=" + std::string{upnp.collection_available ? "true" : "false"} +
+                         " localIp=" + (upnp.local_ip.empty() ? "none" : upnp.local_ip) +
+                         " internalPort=" + std::to_string(upnp.internal_port) +
+                         " externalPort=" + std::to_string(upnp.external_port) +
+                         " protocol=" + upnp.protocol +
+                         " message=" + upnp.message +
+                         " mode=" + bridge_upnp_mode_name() +
+                         " mapped=" + std::string{m_bridge_upnp_mapped ? "true" : "false"});
+            }
+            else if (!m_bridge_upnp_timeout_logged &&
+                     m_bridge_upnp_attempt_started.time_since_epoch().count() != 0 &&
+                     (std::chrono::steady_clock::now() - m_bridge_upnp_attempt_started) >= std::chrono::seconds(3))
+            {
+                m_bridge_upnp_timeout_logged = true;
+                log_line("[bridge-upnp] attempt_inflight mode=" + bridge_upnp_mode_name() +
+                         " waitedMs=" + std::to_string(
+                             std::chrono::duration_cast<std::chrono::milliseconds>(
+                                 std::chrono::steady_clock::now() - m_bridge_upnp_attempt_started)
+                                 .count()) +
+                         " note=non_blocking_wait_continues");
+            }
+            return;
+        }
+
+        maybe_start_bridge_upnp_attempt("tick");
     }
 
     auto SignTextMod::send_bridge_snapshot_request(const std::string& reason) -> void
@@ -9168,6 +9324,7 @@ namespace WindroseTextSigns
     auto SignTextMod::tick_bridge() -> void
     {
         configure_bridge_role("tick");
+        tick_bridge_upnp();
         tick_bridge_route_discovery();
         const auto payloads = NativeBridge::instance().poll_incoming();
         for (const auto& payload : payloads)
