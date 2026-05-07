@@ -7854,7 +7854,9 @@ namespace WindroseTextSigns
         {
             desired = BridgeRole::DedicatedServer;
         }
-        else if (m_sidecar_authoritative)
+        // Solo worlds are locally authoritative but do not need a UDP bridge or UPnP.
+        // Hosted/listen worlds still advertise as bridge servers for remote clients.
+        else if (m_sidecar_authoritative && is_local_hosted_runtime())
         {
             desired = BridgeRole::ListenHost;
         }
