@@ -4,6 +4,8 @@ WindroseTextSigns is a UE4SS C++ mod for Windrose that lets players turn native 
 
 The mod does not add a new build-menu item. Build any normal wooden label in game, look at it, press the configured hotkey (default F8), and enter the text you want displayed on the sign.
 
+![WindroseTextSigns in-game editable wooden labels](docs/windrose-text-signs-screenshot.png)
+
 ## Downloads
 
 Get the latest packaged mod zip from the [GitHub Releases page](https://github.com/Ageous27/WindroseTextSigns/releases/latest).
