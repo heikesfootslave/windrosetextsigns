@@ -435,6 +435,43 @@ namespace
         return out;
     }
 
+    auto parse_comma_separated_ips(const std::string& csv) -> std::vector<std::string>
+    {
+        std::vector<std::string> out{};
+        std::istringstream input{csv};
+        std::string token{};
+        while (std::getline(input, token, ','))
+        {
+            token.erase(std::remove_if(token.begin(), token.end(), [](unsigned char c) {
+                return std::isspace(c) != 0;
+            }), token.end());
+            if (!token.empty() && parse_ipv4_octets(token).has_value() &&
+                std::find(out.begin(), out.end(), token) == out.end())
+            {
+                out.push_back(token);
+            }
+        }
+        return out;
+    }
+
+    auto is_private_candidate_on_local_subnet(
+        const std::string& candidate_ip,
+        const std::vector<std::string>& local_hosts) -> bool
+    {
+        if (!is_private_ipv4(candidate_ip))
+        {
+            return true;
+        }
+        for (const auto& local_host : local_hosts)
+        {
+            if (is_same_lan_hint(local_host, candidate_ip))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
     auto append_unique_ip(std::vector<std::string>& ips, const std::string& ip) -> void
     {
         if (ip.empty())
@@ -3735,11 +3772,19 @@ namespace WindroseTextSigns
         m_log.open(m_log_path, std::ios::out | std::ios::trunc);
         m_log_bytes_written = 0;
         m_log_size_cap_hit = false;
+        m_bootstrap_started = std::chrono::steady_clock::now();
         m_last_log_payload.clear();
         m_last_log_repeat_count = 0;
         m_bootstrap_begin_logged = true;
         m_bootstrap_end_logged = false;
         m_bootstrap_prune_phase_observed = false;
+        m_role_lock_acquired = false;
+        m_role_lock_runtime_role.clear();
+        m_role_lock_bridge_role.clear();
+        m_role_lock_world_id.clear();
+        m_bridge_route_lock_acquired = false;
+        m_bridge_route_locked_host.clear();
+        m_bridge_route_rejected_candidates_logged.clear();
         log_line("[session] bootstrap_begin stage=startup");
         log_line("[startup] WindroseTextSigns initialized");
     }
@@ -5062,6 +5107,15 @@ namespace WindroseTextSigns
             return;
         }
 
+        const bool world_changed =
+            !m_world_folder_id.empty() &&
+            !world_folder_id.empty() &&
+            m_world_folder_id != world_folder_id;
+        if (world_changed)
+        {
+            reset_role_route_locks("world_change");
+        }
+
         const auto next_sidecar_path = data_root / "SignTexts.json";
         const bool route_changed =
             m_sidecar_path.empty() ||
@@ -5074,6 +5128,25 @@ namespace WindroseTextSigns
             m_sidecar_authoritative != authoritative ||
             m_save_profile_root != profile_root.string() ||
             m_world_folder_id != world_folder_id;
+
+        if (m_role_lock_acquired && !world_changed)
+        {
+            const bool role_or_authority_change =
+                m_runtime_role != runtime_role ||
+                m_data_mode != data_mode ||
+                m_authority_mode != authority_mode ||
+                m_sidecar_kind != sidecar_kind ||
+                m_sidecar_authoritative != authoritative;
+            if (role_or_authority_change)
+            {
+                log_line("[role] lock_held skip_sidecar_route reason=" + reason +
+                         " lockedRuntimeRole=" + m_runtime_role +
+                         " incomingRuntimeRole=" + runtime_role +
+                         " lockedAuthorityMode=" + m_authority_mode +
+                         " incomingAuthorityMode=" + authority_mode);
+                return;
+            }
+        }
 
         if (!route_changed && !mode_changed)
         {
@@ -8100,6 +8173,7 @@ namespace WindroseTextSigns
 
     auto SignTextMod::configure_bridge_role(const std::string& reason) -> void
     {
+        const auto now = std::chrono::steady_clock::now();
         BridgeRole desired = BridgeRole::Unknown;
         if (is_dedicated_server_process(std::filesystem::current_path(), m_mod_root))
         {
@@ -8116,8 +8190,17 @@ namespace WindroseTextSigns
             desired = BridgeRole::RemoteClient;
         }
 
+        if (m_role_lock_acquired && desired != m_bridge_role)
+        {
+            log_line("[role] lock_held skip_bridge_role_change reason=" + reason +
+                     " lockedBridgeRole=" + bridge_role_name(m_bridge_role) +
+                     " requestedBridgeRole=" + bridge_role_name(desired));
+            return;
+        }
+
         if (desired == m_bridge_role)
         {
+            maybe_acquire_role_lock(now, "role_stable_" + reason);
             return;
         }
 
@@ -8138,6 +8221,9 @@ namespace WindroseTextSigns
         m_bridge_route_last_candidates.clear();
         m_bridge_route_candidate_index = 0;
         m_bridge_route_last_switch = {};
+        m_bridge_route_lock_acquired = false;
+        m_bridge_route_locked_host.clear();
+        m_bridge_route_rejected_candidates_logged.clear();
         m_bridge_upnp_timeout_logged = false;
         if (desired != BridgeRole::DedicatedServer && desired != BridgeRole::ListenHost)
         {
@@ -8153,6 +8239,7 @@ namespace WindroseTextSigns
                  " authorityMode=" + m_authority_mode +
                  " sidecarKind=" + m_sidecar_kind +
                  " authoritative=" + std::string{m_sidecar_authoritative ? "true" : "false"});
+        maybe_acquire_role_lock(now, "role_set_" + reason);
     }
 
     auto SignTextMod::bridge_upnp_mode_name() const -> std::string
@@ -9155,6 +9242,11 @@ namespace WindroseTextSigns
             return;
         }
 
+        if (m_bridge_route_lock_acquired)
+        {
+            return;
+        }
+
         const auto now = std::chrono::steady_clock::now();
         if (now < m_bridge_route_next_check)
         {
@@ -9185,16 +9277,43 @@ namespace WindroseTextSigns
             return;
         }
 
+        const auto local_hosts = parse_comma_separated_ips(discovered.local_host_summary);
+        std::vector<std::string> viable_candidates{};
+        viable_candidates.reserve(ordered_candidates.size());
+        for (const auto& candidate : ordered_candidates)
+        {
+            if (candidate != "127.0.0.1" &&
+                is_private_ipv4(candidate) &&
+                !is_private_candidate_on_local_subnet(candidate, local_hosts))
+            {
+                if (m_bridge_route_rejected_candidates_logged.insert(candidate).second)
+                {
+                    log_line("[bridge-route] candidate_rejected host=" + candidate +
+                             " reason=not_same_subnet_private localHosts=" +
+                             (discovered.local_host_summary.empty() ? "none" : discovered.local_host_summary));
+                }
+                continue;
+            }
+            append_unique_ip(viable_candidates, candidate);
+        }
+
+        if (viable_candidates.empty())
+        {
+            log_line("[bridge-route] waiting reason=no_viable_candidate candidates=" + summarize_ips(ordered_candidates) +
+                     " localHosts=" + (discovered.local_host_summary.empty() ? "none" : discovered.local_host_summary));
+            return;
+        }
+
         auto candidate_list_changed = false;
-        if (ordered_candidates.size() != m_bridge_route_last_candidates.size())
+        if (viable_candidates.size() != m_bridge_route_last_candidates.size())
         {
             candidate_list_changed = true;
         }
         else
         {
-            for (size_t i = 0; i < ordered_candidates.size(); ++i)
+            for (size_t i = 0; i < viable_candidates.size(); ++i)
             {
-                if (ordered_candidates[i] != m_bridge_route_last_candidates[i])
+                if (viable_candidates[i] != m_bridge_route_last_candidates[i])
                 {
                     candidate_list_changed = true;
                     break;
@@ -9202,45 +9321,17 @@ namespace WindroseTextSigns
             }
         }
 
-        if (candidate_list_changed)
-        {
-            m_bridge_route_last_candidates = ordered_candidates;
-            m_bridge_route_candidate_index = 0;
-            for (size_t i = 0; i < ordered_candidates.size(); ++i)
-            {
-                if (ordered_candidates[i] == m_bridge_remote_server_host)
-                {
-                    m_bridge_route_candidate_index = i;
-                    break;
-                }
-            }
-        }
-
-        std::string selected_host = ordered_candidates[m_bridge_route_candidate_index];
-        const bool stuck_unsynced =
-            !m_bridge_snapshot_received &&
-            m_bridge_snapshot_retry_attempts >= 3 &&
-            (now - m_bridge_sync_wait_started) >= std::chrono::seconds(15);
-        if (stuck_unsynced && ordered_candidates.size() > 1 &&
-            (m_bridge_route_last_switch.time_since_epoch().count() == 0 ||
-             (now - m_bridge_route_last_switch) >= std::chrono::seconds(10)))
-        {
-            const auto previous_index = m_bridge_route_candidate_index;
-            m_bridge_route_candidate_index = (m_bridge_route_candidate_index + 1) % ordered_candidates.size();
-            selected_host = ordered_candidates[m_bridge_route_candidate_index];
-            if (previous_index != m_bridge_route_candidate_index)
-            {
-                log_line("[bridge-route] rotate reason=unsynced_no_snapshot_ack" +
-                         std::string(" previousHost=") + m_bridge_remote_server_host +
-                         " nextHost=" + selected_host +
-                         " retryAttempt=" + std::to_string(m_bridge_snapshot_retry_attempts));
-            }
-        }
-
+        m_bridge_route_last_candidates = viable_candidates;
+        const std::string selected_host = viable_candidates.front();
         if (!candidate_list_changed &&
             selected_host == m_bridge_route_last_discovered_host &&
             selected_host == m_bridge_remote_server_host)
         {
+            // Keep low-noise route handling deterministic: lock to the first viable route.
+            m_bridge_route_lock_acquired = true;
+            m_bridge_route_locked_host = selected_host;
+            log_line("[bridge-route] lock_acquired host=" + m_bridge_route_locked_host +
+                     " reason=first_viable_candidate");
             return;
         }
 
@@ -9260,6 +9351,8 @@ namespace WindroseTextSigns
             m_bridge_route_last_switch = now;
         }
 
+        m_bridge_route_lock_acquired = true;
+        m_bridge_route_locked_host = selected_host;
         log_line("[bridge-route] discovered host=" + m_bridge_remote_server_host +
                  " reason=" + discovered.reason +
                  " port=" + std::to_string(m_bridge_udp_port) +
@@ -9267,7 +9360,9 @@ namespace WindroseTextSigns
                  " remoteHostCandidate=" + (discovered.remote_host_candidate.empty() ? "none" : discovered.remote_host_candidate) +
                  " remotePublicCandidate=" + (discovered.remote_public_candidate.empty() ? "none" : discovered.remote_public_candidate) +
                  " localHosts=" + discovered.local_host_summary +
-                 " candidates=" + summarize_ips(ordered_candidates));
+                 " candidates=" + summarize_ips(viable_candidates));
+        log_line("[bridge-route] lock_acquired host=" + m_bridge_route_locked_host +
+                 " reason=first_viable_candidate");
     }
 
     auto SignTextMod::mark_bridge_healthy(const std::string& reason) -> void
@@ -9283,6 +9378,75 @@ namespace WindroseTextSigns
                      " worldId=" + m_world_folder_id +
                      " pending=" + std::to_string(m_bridge_pending_request_keys.size()));
         }
+    }
+
+    auto SignTextMod::is_bootstrap_resolution_window_active(const std::chrono::steady_clock::time_point now) const -> bool
+    {
+        constexpr auto k_bootstrap_resolution_window = std::chrono::seconds(45);
+        if (m_bootstrap_started.time_since_epoch().count() == 0)
+        {
+            return true;
+        }
+        if (!m_bootstrap_end_logged && (now - m_bootstrap_started) < k_bootstrap_resolution_window)
+        {
+            return true;
+        }
+        return false;
+    }
+
+    auto SignTextMod::reset_role_route_locks(const std::string& reason) -> void
+    {
+        const bool had_lock = m_role_lock_acquired || m_bridge_route_lock_acquired;
+        m_role_lock_acquired = false;
+        m_role_lock_runtime_role.clear();
+        m_role_lock_bridge_role.clear();
+        m_role_lock_world_id.clear();
+        m_bridge_route_lock_acquired = false;
+        m_bridge_route_locked_host.clear();
+        m_bridge_route_rejected_candidates_logged.clear();
+        if (had_lock)
+        {
+            log_line("[role] lock_released reason=" + reason);
+        }
+    }
+
+    auto SignTextMod::maybe_acquire_role_lock(
+        const std::chrono::steady_clock::time_point now,
+        const std::string& reason) -> void
+    {
+        if (m_role_lock_acquired)
+        {
+            return;
+        }
+
+        const auto runtime_role_lower = lower_ascii(m_runtime_role);
+        const bool runtime_stable =
+            runtime_role_lower == "localclient" ||
+            runtime_role_lower == "remoteclient" ||
+            runtime_role_lower == "dedicatedserver";
+        const bool bridge_stable =
+            m_bridge_role == BridgeRole::DedicatedServer ||
+            m_bridge_role == BridgeRole::ListenHost ||
+            m_bridge_role == BridgeRole::RemoteClient;
+        if (!runtime_stable || !bridge_stable)
+        {
+            return;
+        }
+
+        const bool bootstrap_window_active = is_bootstrap_resolution_window_active(now);
+        if (bootstrap_window_active && !m_bootstrap_end_logged)
+        {
+            return;
+        }
+
+        m_role_lock_acquired = true;
+        m_role_lock_runtime_role = m_runtime_role;
+        m_role_lock_bridge_role = bridge_role_name(m_bridge_role);
+        m_role_lock_world_id = m_world_folder_id;
+        log_line("[role] lock_acquired runtimeRole=" + m_role_lock_runtime_role +
+                 " bridgeRole=" + m_role_lock_bridge_role +
+                 " worldId=" + (m_role_lock_world_id.empty() ? "unknown" : m_role_lock_world_id) +
+                 " reason=" + reason);
     }
 
     auto SignTextMod::update_bridge_health(const std::chrono::steady_clock::time_point now) -> void
@@ -9326,6 +9490,7 @@ namespace WindroseTextSigns
                      std::string(" waitedSec=") + std::to_string(waited_sec) +
                      " pending=" + std::to_string(m_bridge_pending_request_keys.size()) +
                      " routeHost=" + m_bridge_remote_server_host +
+                     " routeLocked=" + std::string{m_bridge_route_lock_acquired ? "true" : "false"} +
                      " upnpEnabled=" + std::string{m_bridge_upnp_enabled ? "true" : "false"} +
                      " mitigation=check_host_udp_45801_or_set_WTS_BRIDGE_SERVER_HOST_static");
         }
@@ -9336,6 +9501,11 @@ namespace WindroseTextSigns
         if (m_bridge_snapshot_received)
         {
             return std::chrono::seconds(30);
+        }
+        const auto now = std::chrono::steady_clock::now();
+        if (!is_bootstrap_resolution_window_active(now))
+        {
+            return std::chrono::seconds(60);
         }
         if (m_bridge_snapshot_retry_attempts >= 16)
         {
@@ -9367,9 +9537,14 @@ namespace WindroseTextSigns
         update_bridge_health(now);
         if (m_bridge_role == BridgeRole::RemoteClient && now >= m_bridge_next_snapshot_request)
         {
-            send_bridge_snapshot_request(m_bridge_snapshot_received ? "periodic_sync" : "initial_sync");
+            const bool bootstrap_window_active = is_bootstrap_resolution_window_active(now);
+            const std::string request_reason = m_bridge_snapshot_received
+                ? "periodic_sync"
+                : (bootstrap_window_active ? "initial_sync" : "post_bootstrap_sync");
+            send_bridge_snapshot_request(request_reason);
             m_bridge_next_snapshot_request = now + next_snapshot_retry_delay();
         }
+        maybe_acquire_role_lock(now, "tick");
 
         tick_relay();
 

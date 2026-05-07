@@ -208,6 +208,9 @@ namespace WindroseTextSigns
         auto tick_bridge_route_discovery() -> void;
         auto mark_bridge_healthy(const std::string& reason) -> void;
         auto update_bridge_health(std::chrono::steady_clock::time_point now) -> void;
+        auto is_bootstrap_resolution_window_active(std::chrono::steady_clock::time_point now) const -> bool;
+        auto maybe_acquire_role_lock(std::chrono::steady_clock::time_point now, const std::string& reason) -> void;
+        auto reset_role_route_locks(const std::string& reason) -> void;
         auto next_snapshot_retry_delay() const -> std::chrono::seconds;
         auto tick_bridge() -> void;
         auto refresh_relay_room_id(const std::string& reason) -> void;
@@ -262,11 +265,16 @@ namespace WindroseTextSigns
         std::ofstream m_log{};
         size_t m_log_bytes_written{0};
         bool m_log_size_cap_hit{false};
+        std::chrono::steady_clock::time_point m_bootstrap_started{};
         std::string m_last_log_payload{};
         uint32_t m_last_log_repeat_count{0};
         bool m_bootstrap_begin_logged{false};
         bool m_bootstrap_end_logged{false};
         bool m_bootstrap_prune_phase_observed{false};
+        bool m_role_lock_acquired{false};
+        std::string m_role_lock_runtime_role{};
+        std::string m_role_lock_bridge_role{};
+        std::string m_role_lock_world_id{};
         std::string m_runtime_role{"Unknown"};
         std::string m_data_mode{"Unknown"};
         std::string m_authority_mode{"Unknown"};
@@ -287,6 +295,9 @@ namespace WindroseTextSigns
         std::string m_bridge_route_last_discovered_host{};
         std::vector<std::string> m_bridge_route_last_candidates{};
         size_t m_bridge_route_candidate_index{0};
+        bool m_bridge_route_lock_acquired{false};
+        std::string m_bridge_route_locked_host{};
+        std::unordered_set<std::string> m_bridge_route_rejected_candidates_logged{};
         int m_bridge_udp_port{45801};
         bool m_bridge_upnp_enabled{false};
         BridgeUpnpMode m_bridge_upnp_mode{BridgeUpnpMode::Off};
