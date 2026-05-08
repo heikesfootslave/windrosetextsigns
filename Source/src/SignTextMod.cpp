@@ -11221,7 +11221,7 @@ namespace WindroseTextSigns
             !is_dedicated_runtime_process();
         const bool trusted_destroy_confirmed_local =
             localclient_authoritative &&
-            has_recent_destroy_confirmation(stable_id);
+            has_recent_destroy_confirmation(stable_id, world_id);
         const bool seen_live_this_session = m_seen_live_label_keys.find(key) != m_seen_live_label_keys.end();
         std::string localclient_prune_ready_reason{};
         const bool localclient_prune_ready =
@@ -11245,7 +11245,7 @@ namespace WindroseTextSigns
             {
                 const bool destroy_confirmed_r5log =
                     localclient_authoritative &&
-                    has_recent_destroy_confirmation(found->second.stable_id);
+                    has_recent_destroy_confirmation(found->second.stable_id, found->second.world_id);
                 if (destroy_confirmed_r5log)
                 {
                     log_line("[save] prune_on_reuse key=" + key +
@@ -11688,7 +11688,7 @@ namespace WindroseTextSigns
         tick_r5_readiness_markers();
     }
 
-    auto SignTextMod::has_recent_destroy_confirmation(const std::string& stable_id) -> bool
+    auto SignTextMod::has_recent_destroy_confirmation(const std::string& stable_id, const std::string& expected_world_id) -> bool
     {
         if (!m_sidecar_authoritative ||
             is_dedicated_runtime_process() ||
@@ -11696,7 +11696,25 @@ namespace WindroseTextSigns
         {
             return false;
         }
-        if (stable_id.empty())
+        if (stable_id.empty() || expected_world_id.empty())
+        {
+            return false;
+        }
+        if (m_role_lock_acquired && !m_role_lock_world_id.empty())
+        {
+            if (lower_ascii(m_role_lock_world_id) != lower_ascii(expected_world_id))
+            {
+                return false;
+            }
+        }
+        auto* controller = try_get_primary_player_controller();
+        auto* controller_actor = controller && controller->IsA(AActor::StaticClass()) ? Cast<AActor>(controller) : nullptr;
+        if (!controller_actor)
+        {
+            return false;
+        }
+        const auto active_world_id = active_storage_world_id(build_world_id_for_actor(controller_actor));
+        if (active_world_id.empty() || lower_ascii(active_world_id) != lower_ascii(expected_world_id))
         {
             return false;
         }
@@ -11798,6 +11816,22 @@ namespace WindroseTextSigns
         if (state.first_detected.time_since_epoch().count() == 0)
         {
             return false;
+        }
+
+        if (has_recent_destroy_confirmation(stable_id, world_id))
+        {
+            log_line("[save] suspect_rebuild confirmed key=" + key +
+                     " stableId=" + stable_id +
+                     " worldId=" + world_id +
+                     " reason=destroy_confirmed_r5log" +
+                     " stableHits=" + std::to_string(state.stable_scan_hits));
+            trace_behavior_sm("suspect_rebuild_confirmed",
+                              "key=" + key +
+                              " stableId=" + stable_id +
+                              " worldId=" + world_id +
+                              " reason=destroy_confirmed_r5log");
+            m_suspect_rebuild_states.erase(found);
+            return true;
         }
 
         const bool old_actor_gone = !is_actor_pointer_live(reinterpret_cast<AActor*>(state.old_actor_ptr));
@@ -12678,7 +12712,7 @@ namespace WindroseTextSigns
                             const bool seen_live_this_session = m_seen_live_label_keys.find(key) != m_seen_live_label_keys.end();
                             const bool destroy_confirmed_r5log =
                                 localclient_authoritative &&
-                                has_recent_destroy_confirmation(found->second.stable_id);
+                                has_recent_destroy_confirmation(found->second.stable_id, found->second.world_id);
                             std::string localclient_prune_ready_reason{};
                             const bool localclient_prune_ready =
                                 is_localclient_prune_ready(authority_source_resolved, &localclient_prune_ready_reason);
@@ -13045,7 +13079,7 @@ namespace WindroseTextSigns
                     ++considered_missing_labels;
                     const bool trusted_destroy_confirmed =
                         localclient_authoritative &&
-                        has_recent_destroy_confirmation(rec.stable_id);
+                        has_recent_destroy_confirmation(rec.stable_id, rec.world_id);
                     const auto world_it = present_world_counts.find(rec.world_id);
                     if (world_it == present_world_counts.end() || world_it->second < k_min_live_labels_in_world_for_prune)
                     {
@@ -13101,7 +13135,7 @@ namespace WindroseTextSigns
                     {
                         continue;
                     }
-                    if (localclient_authoritative && !has_recent_destroy_confirmation(found->second.stable_id))
+                    if (localclient_authoritative && !has_recent_destroy_confirmation(found->second.stable_id, found->second.world_id))
                     {
                         log_line("[save] prune_destroyed_label deferred key=" + key +
                                  " stableId=" + found->second.stable_id +

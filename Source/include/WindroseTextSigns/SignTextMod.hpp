@@ -151,7 +151,7 @@ namespace WindroseTextSigns
         auto tick_localclient_role_resolution() -> void;
         auto tick_r5_readiness_markers() -> void;
         auto refresh_recent_destroy_signals_from_r5_log() -> void;
-        auto has_recent_destroy_confirmation(const std::string& stable_id) -> bool;
+        auto has_recent_destroy_confirmation(const std::string& stable_id, const std::string& expected_world_id) -> bool;
         auto mark_suspect_rebuild(
             const std::string& key,
             const std::string& stable_id,
