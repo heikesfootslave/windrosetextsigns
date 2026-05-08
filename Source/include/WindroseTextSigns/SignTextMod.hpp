@@ -166,6 +166,7 @@ namespace WindroseTextSigns
             const std::string& world_id,
             std::chrono::steady_clock::time_point now) -> bool;
         auto maybe_run_hosted_post_ready_reconcile() -> void;
+        auto is_localclient_runtime_stable_for_post_ready(std::string* out_reason = nullptr) -> bool;
         auto reset_visual_verify_debug_state() -> void;
         auto tick_localclient_visual_verify_debug(std::chrono::steady_clock::time_point now) -> void;
         auto run_localclient_visual_verify_pass(
@@ -505,6 +506,12 @@ namespace WindroseTextSigns
         bool m_world_text_font_enabled{false};
         bool m_world_text_font_resolved{false};
         bool m_world_text_font_missing_logged{false};
+        float m_localclient_controller_probe_interval_sec{0.2f};
+        std::chrono::steady_clock::time_point m_localclient_controller_probe_last{};
+        RC::Unreal::UObject* m_localclient_controller_probe_cached{};
+        bool m_localclient_controller_probe_cache_valid{false};
+        std::chrono::steady_clock::time_point m_localclient_stability_skip_last_log{};
+        std::string m_localclient_stability_skip_last_reason{};
         bool m_visual_verify_debug_force_reapply{false};
         bool m_visual_verify_session_ready{false};
         bool m_visual_verify_pass1_done{false};
