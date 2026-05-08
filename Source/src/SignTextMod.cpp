@@ -5233,6 +5233,11 @@ namespace WindroseTextSigns
             m_dedicated_restore_stable_since = {};
             m_dedicated_last_probable_label_count = 0;
             m_prune_deferred_logged = false;
+            m_recent_destroy_confirmations.clear();
+            m_destroy_signal_log_offset = 0;
+            m_destroy_signal_log_initialized = false;
+            m_destroy_signal_last_poll = {};
+            m_hosted_post_ready_reconcile_done = false;
             reset_bridge_snapshot_state("sidecar_route_change");
             m_bridge_next_snapshot_request = std::chrono::steady_clock::now();
             load_sidecar_json();
@@ -8827,16 +8832,24 @@ namespace WindroseTextSigns
         const auto snapshot_count = fields.count("snapshotCount") ? safe_stoi(fields.at("snapshotCount"), -1) : -1;
         if (!snapshot_id.empty())
         {
+            const bool deferred_end_for_same_snapshot =
+                !m_bridge_snapshot_active &&
+                m_bridge_snapshot_end_seen &&
+                !m_bridge_snapshot_id.empty() &&
+                snapshot_id == m_bridge_snapshot_id;
             if (!m_bridge_snapshot_active || snapshot_id != m_bridge_snapshot_id)
             {
                 m_bridge_snapshot_active = true;
-                m_bridge_snapshot_end_seen = false;
+                m_bridge_snapshot_end_seen = deferred_end_for_same_snapshot;
                 m_bridge_snapshot_id = snapshot_id;
-                m_bridge_snapshot_expected_count = snapshot_count;
+                if (snapshot_count >= 0)
+                {
+                    m_bridge_snapshot_expected_count = snapshot_count;
+                }
                 m_bridge_snapshot_seen_keys.clear();
                 log_line("[bridge] snapshot_begin id=" + snapshot_id +
                          " expected=" + std::to_string(snapshot_count) +
-                         " reason=upsert");
+                         " reason=" + std::string{deferred_end_for_same_snapshot ? "upsert_after_end" : "upsert"});
             }
             else if (snapshot_count >= 0)
             {
@@ -9221,6 +9234,16 @@ namespace WindroseTextSigns
             return;
         }
         const auto type = unescape_json(type_it->second);
+        const auto incoming_session = unescape_json(fields.count("session") ? fields.at("session") : "");
+        if (m_bridge_role == BridgeRole::ListenHost &&
+            !incoming_session.empty() &&
+            !m_session_id.empty() &&
+            incoming_session == m_session_id)
+        {
+            log_line("[bridge] payload_ignored type=" + type +
+                     " role=ListenHost reason=self_originated session=" + incoming_session);
+            return;
+        }
         if (type == "snapshot_request")
         {
             log_line("[bridge] snapshot_request_received fromSession=" + unescape_json(fields.count("session") ? fields.at("session") : ""));
@@ -9269,12 +9292,18 @@ namespace WindroseTextSigns
             {
                 if (!m_bridge_snapshot_active || snapshot_id != m_bridge_snapshot_id)
                 {
-                    m_bridge_snapshot_active = true;
+                    m_bridge_snapshot_active = false;
                     m_bridge_snapshot_id = snapshot_id;
                     m_bridge_snapshot_seen_keys.clear();
-                    log_line("[bridge] snapshot_begin id=" + snapshot_id +
+                    if (snapshot_count >= 0)
+                    {
+                        m_bridge_snapshot_expected_count = snapshot_count;
+                    }
+                    m_bridge_snapshot_end_seen = true;
+                    log_line("[bridge] snapshot_end_deferred id=" + snapshot_id +
                              " expected=" + std::to_string(snapshot_count) +
-                             " reason=end_arrived_first");
+                             " reason=awaiting_first_record");
+                    return;
                 }
                 if (snapshot_count >= 0)
                 {
@@ -9282,7 +9311,9 @@ namespace WindroseTextSigns
                 }
                 m_bridge_snapshot_end_seen = true;
 
+                const bool has_any_snapshot_record = !m_bridge_snapshot_seen_keys.empty();
                 const bool complete =
+                    ((m_bridge_snapshot_expected_count == 0) || has_any_snapshot_record) &&
                     m_bridge_snapshot_expected_count >= 0 &&
                     static_cast<int>(m_bridge_snapshot_seen_keys.size()) >= m_bridge_snapshot_expected_count;
                 log_line("[bridge] snapshot_end revision=" + std::to_string(m_revision) +
@@ -9290,6 +9321,7 @@ namespace WindroseTextSigns
                          " id=" + snapshot_id +
                          " seen=" + std::to_string(m_bridge_snapshot_seen_keys.size()) +
                          " expected=" + std::to_string(m_bridge_snapshot_expected_count) +
+                         " hasRecord=" + std::string{has_any_snapshot_record ? "true" : "false"} +
                          " complete=" + std::string{complete ? "true" : "false"});
                 if (complete)
                 {
@@ -10970,6 +11002,190 @@ namespace WindroseTextSigns
         return true;
     }
 
+    auto SignTextMod::refresh_recent_destroy_signals_from_r5_log() -> void
+    {
+        constexpr auto k_poll_interval = std::chrono::seconds(1);
+        constexpr auto k_destroy_confirmation_ttl = std::chrono::seconds(45);
+        const auto now = std::chrono::steady_clock::now();
+        if (m_destroy_signal_last_poll.time_since_epoch().count() != 0 &&
+            (now - m_destroy_signal_last_poll) < k_poll_interval)
+        {
+            return;
+        }
+        m_destroy_signal_last_poll = now;
+
+        for (auto it = m_recent_destroy_confirmations.begin(); it != m_recent_destroy_confirmations.end();)
+        {
+            if ((now - it->second) > k_destroy_confirmation_ttl)
+            {
+                it = m_recent_destroy_confirmations.erase(it);
+            }
+            else
+            {
+                ++it;
+            }
+        }
+
+        if (m_destroy_signal_log_path.empty() || !std::filesystem::exists(m_destroy_signal_log_path))
+        {
+            for (const auto& candidate : collect_r5_log_candidates(m_destroy_signal_log_path))
+            {
+                if (std::filesystem::exists(candidate))
+                {
+                    m_destroy_signal_log_path = candidate;
+                    m_destroy_signal_log_initialized = false;
+                    break;
+                }
+            }
+        }
+
+        if (m_destroy_signal_log_path.empty() || !std::filesystem::exists(m_destroy_signal_log_path))
+        {
+            return;
+        }
+
+        std::error_code size_ec{};
+        const auto size = std::filesystem::file_size(m_destroy_signal_log_path, size_ec);
+        if (size_ec)
+        {
+            return;
+        }
+
+        if (!m_destroy_signal_log_initialized || m_destroy_signal_log_offset > size)
+        {
+            m_destroy_signal_log_initialized = true;
+            m_destroy_signal_log_offset = size;
+            log_line("[save] destroy_signal_r5log armed path=" + m_destroy_signal_log_path.string() +
+                     " offset=" + std::to_string(static_cast<unsigned long long>(size)));
+            return;
+        }
+
+        if (size == m_destroy_signal_log_offset)
+        {
+            return;
+        }
+
+        std::ifstream input{m_destroy_signal_log_path, std::ios::binary};
+        if (!input)
+        {
+            return;
+        }
+        input.seekg(static_cast<std::streamoff>(m_destroy_signal_log_offset), std::ios::beg);
+        const auto bytes_to_read = std::min<uintmax_t>(size - m_destroy_signal_log_offset, 262144);
+        std::string chunk{};
+        chunk.resize(static_cast<size_t>(bytes_to_read));
+        input.read(chunk.data(), static_cast<std::streamsize>(chunk.size()));
+        chunk.resize(static_cast<size_t>(std::max<std::streamsize>(0, input.gcount())));
+        m_destroy_signal_log_offset = size;
+        if (chunk.empty())
+        {
+            return;
+        }
+
+        static const std::regex stable_id_rx{R"((BuildingBlock\|[A-Fa-f0-9]{16,32}\|[0-9]+))"};
+        std::istringstream lines{chunk};
+        std::string line{};
+        while (std::getline(lines, line))
+        {
+            const auto line_lower = lower_ascii(line);
+            const bool destroy_like =
+                line_lower.find("destroy") != std::string::npos ||
+                line_lower.find("demolish") != std::string::npos ||
+                line_lower.find("dismantle") != std::string::npos ||
+                line_lower.find("deconstruct") != std::string::npos;
+            if (!destroy_like)
+            {
+                continue;
+            }
+            for (auto it = std::sregex_iterator(line.begin(), line.end(), stable_id_rx);
+                 it != std::sregex_iterator{};
+                 ++it)
+            {
+                if (it->size() < 2)
+                {
+                    continue;
+                }
+                const auto stable_id = (*it)[1].str();
+                m_recent_destroy_confirmations[stable_id] = now;
+                log_line("[save] destroy_signal_r5log stableId=" + stable_id +
+                         " ttlSec=45 path=" + m_destroy_signal_log_path.string());
+            }
+        }
+    }
+
+    auto SignTextMod::has_recent_destroy_confirmation(const std::string& stable_id) -> bool
+    {
+        if (stable_id.empty())
+        {
+            return false;
+        }
+        constexpr auto k_destroy_confirmation_ttl = std::chrono::seconds(45);
+        const auto now = std::chrono::steady_clock::now();
+        if (const auto found = m_recent_destroy_confirmations.find(stable_id);
+            found != m_recent_destroy_confirmations.end())
+        {
+            if ((now - found->second) <= k_destroy_confirmation_ttl)
+            {
+                return true;
+            }
+            m_recent_destroy_confirmations.erase(found);
+        }
+        return false;
+    }
+
+    auto SignTextMod::maybe_run_hosted_post_ready_reconcile() -> void
+    {
+        if (m_hosted_post_ready_reconcile_done)
+        {
+            return;
+        }
+        if (!m_sidecar_authoritative || m_bridge_role != BridgeRole::ListenHost)
+        {
+            return;
+        }
+
+        const auto runtime_role_lower = lower_ascii(m_runtime_role);
+        const auto authority_mode_lower = lower_ascii(m_authority_mode);
+        const bool authority_source_resolved =
+            runtime_role_lower != "localclientpending" &&
+            authority_mode_lower != "worldauthoritypending";
+        if (!is_localclient_prune_ready(authority_source_resolved, nullptr))
+        {
+            return;
+        }
+
+        uint32_t matched_labels = 0;
+        uint32_t restore_calls = 0;
+        UObjectGlobals::ForEachUObject([&](UObject* object, int32, int32) {
+            if (!object || !object->IsA(AActor::StaticClass()))
+            {
+                return LoopAction::Continue;
+            }
+            auto* actor = Cast<AActor>(object);
+            if (!actor || !is_probable_label_actor(actor))
+            {
+                return LoopAction::Continue;
+            }
+            const auto stable_id = extract_stable_id(actor);
+            const auto actor_world_id = build_world_id_for_actor(actor);
+            configure_sidecar_for_actor(actor, actor_world_id);
+            const auto world_id = active_storage_world_id(actor_world_id);
+            const auto key = build_storage_key(world_id, stable_id);
+            if (m_labels.find(key) == m_labels.end())
+            {
+                return LoopAction::Continue;
+            }
+            ++matched_labels;
+            restore_known_text_if_any(actor, stable_id);
+            ++restore_calls;
+            return LoopAction::Continue;
+        });
+
+        m_hosted_post_ready_reconcile_done = true;
+        log_line("[save] hosted_post_ready_reconcile matched=" + std::to_string(matched_labels) +
+                 " restoreCalls=" + std::to_string(restore_calls));
+    }
+
     auto SignTextMod::on_update() -> void
     {
         if (!m_unreal_ready)
@@ -11002,6 +11218,7 @@ namespace WindroseTextSigns
         tick_file_triggers();
         tick_player_marker_replication_probe();
         tick_bridge();
+        maybe_run_hosted_post_ready_reconcile();
         const auto now = std::chrono::steady_clock::now();
 
         if (now - m_last_restore_scan > std::chrono::seconds(2))
@@ -11042,6 +11259,13 @@ namespace WindroseTextSigns
                 !m_sidecar_authoritative &&
                 m_bridge_role == BridgeRole::RemoteClient &&
                 !m_bridge_snapshot_received;
+            const bool localclient_authoritative =
+                m_sidecar_authoritative &&
+                !is_dedicated_runtime_process();
+            if (localclient_authoritative)
+            {
+                refresh_recent_destroy_signals_from_r5_log();
+            }
             uint32_t scan_actor_count = 0;
             uint32_t scan_probable_label_count = 0;
             uint32_t scan_buildingish_count = 0;
@@ -11101,13 +11325,38 @@ namespace WindroseTextSigns
                             const uint32_t miss_count = (miss_it != m_missing_label_scan_counts.end()) ? miss_it->second : 0;
                             constexpr uint32_t k_rebuild_prune_missing_scan_threshold = 4;
                             const bool seen_live_this_session = m_seen_live_label_keys.find(key) != m_seen_live_label_keys.end();
-                            const bool localclient_authoritative =
-                                m_sidecar_authoritative &&
-                                !is_dedicated_runtime_process();
+                            const bool destroy_confirmed_r5log =
+                                localclient_authoritative &&
+                                has_recent_destroy_confirmation(found->second.stable_id);
                             std::string localclient_prune_ready_reason{};
                             const bool localclient_prune_ready =
                                 is_localclient_prune_ready(authority_source_resolved, &localclient_prune_ready_reason);
-                            if (localclient_authoritative && !localclient_prune_ready)
+                            if (destroy_confirmed_r5log)
+                            {
+                                log_line("[save] prune_rebuilt_label key=" + key +
+                                         " stableId=" + found->second.stable_id +
+                                         " worldId=" + found->second.world_id +
+                                         " reason=destroy_confirmed_r5log" +
+                                         " missCount=" + std::to_string(miss_count));
+                                if (m_sidecar_authoritative)
+                                {
+                                    broadcast_bridge_clear(found->second.stable_id, found->second.world_id, "prune_rebuilt_label");
+                                }
+                                m_labels.erase(found);
+                                m_rendered_text_cache.erase(key);
+                                m_component_name_cache.erase(key);
+                                m_phase4_next_retry.erase(key);
+                                m_missing_label_scan_counts.erase(key);
+                                m_recent_destroy_confirmations.erase(found->second.stable_id);
+                                if (m_text_buffer_bound_key == key)
+                                {
+                                    m_text_buffer.fill('\0');
+                                    m_text_buffer_bound_key.clear();
+                                }
+                                save_sidecar_json("prune_rebuilt_label", key, stable_id, world_id);
+                                pruned_rebuilt_label = true;
+                            }
+                            else if (localclient_authoritative && !localclient_prune_ready)
                             {
                                 log_line("[save] prune_rebuilt_label deferred key=" + key +
                                          " stableId=" + found->second.stable_id +

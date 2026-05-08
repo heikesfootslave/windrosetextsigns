@@ -147,6 +147,9 @@ namespace WindroseTextSigns
         auto tick_phase5_build_menu_selection_probe() -> void;
         auto is_restore_scan_world_active() -> bool;
         auto is_localclient_prune_ready(bool authority_source_resolved, std::string* out_reason = nullptr) -> bool;
+        auto refresh_recent_destroy_signals_from_r5_log() -> void;
+        auto has_recent_destroy_confirmation(const std::string& stable_id) -> bool;
+        auto maybe_run_hosted_post_ready_reconcile() -> void;
         auto ensure_selected_label_for_action(const std::string& action_name) -> bool;
         auto is_actor_pointer_live(RC::Unreal::AActor* actor) const -> bool;
         auto ensure_selected_actor_valid(const std::string& reason) -> bool;
@@ -417,6 +420,12 @@ namespace WindroseTextSigns
         std::unordered_set<std::string> m_seen_live_label_keys{};
         std::unordered_map<std::string, uintptr_t> m_live_label_actor_ptrs{};
         std::unordered_map<std::string, uint32_t> m_missing_label_scan_counts{};
+        std::unordered_map<std::string, std::chrono::steady_clock::time_point> m_recent_destroy_confirmations{};
+        std::filesystem::path m_destroy_signal_log_path{};
+        uintmax_t m_destroy_signal_log_offset{0};
+        bool m_destroy_signal_log_initialized{false};
+        std::chrono::steady_clock::time_point m_destroy_signal_last_poll{};
+        bool m_hosted_post_ready_reconcile_done{false};
         uint32_t m_consecutive_empty_label_scans{0};
         bool m_restore_scan_has_seen_live_labels{false};
         bool m_restore_scan_wait_logged{false};
