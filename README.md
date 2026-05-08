@@ -190,3 +190,8 @@ Raw font files alone are not enough for `TextRenderComponent`. A custom font nee
 - Auto server route discovery may not work for every network setup.
 - UPnP depends on the router and local network configuration.
 - Static IP or manual port forwarding may be needed for some dedicated servers.
+
+## Known Issues
+
+- Very quickly destroying and rebuilding a sign may result in the text coming back.
+- Workaround: Wait 5-10 seconds before rebuilding.

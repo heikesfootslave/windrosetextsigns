@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+- Hardened role/bootstrap flow around session-ready gating to reduce role/route churn during world-load transitions.
+- Improved authoritative prune safety and stale-record handling across Solo/Hosted/Dedicated paths, including additional suppression/confirm telemetry.
+- Expanded replay/offline diagnostics with dedicated-server session pairing and dedicated prune-path assertions.
+- Added visual verification debug instrumentation to help diagnose “apply succeeded but text not visible” scenarios.
+
 ## 0.1.2-prototype
 - Added remote-client bridge hardening for no-snapshot/UDP-failure scenarios:
   - bridge health gate with degraded/recovered state logging
