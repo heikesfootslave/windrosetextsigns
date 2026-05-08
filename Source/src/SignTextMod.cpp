@@ -5746,6 +5746,8 @@ namespace WindroseTextSigns
             m_hosted_ready_sequence_complete = false;
             m_hosted_post_ready_reconcile_done = false;
             m_pending_world_inactive_ignored_logged = false;
+            m_locked_world_inactive_ignored_logged = false;
+            m_world_inactive_since = {};
             m_ready_baseline_live_keys.clear();
             m_ready_baseline_capture_remaining_scans = 0;
             m_restore_scan_cycle_counter = 0;
@@ -12148,16 +12150,21 @@ namespace WindroseTextSigns
 
         if (old_actor_gone && replacement_live && stable_replacement && matured && gameplay_window_active)
         {
+            const bool hosted_localclient =
+                !is_dedicated_runtime_process() &&
+                m_sidecar_authoritative &&
+                m_bridge_role == BridgeRole::ListenHost;
+            const std::string reason = hosted_localclient ? "destroy_confirmed_inprocess_hosted" : "inprocess_confirmation";
             log_line("[save] suspect_rebuild confirmed key=" + key +
                      " stableId=" + stable_id +
                      " worldId=" + world_id +
-                     " reason=inprocess_confirmation" +
+                     " reason=" + reason +
                      " stableHits=" + std::to_string(state.stable_scan_hits));
             trace_behavior_sm("suspect_rebuild_confirmed",
                               "key=" + key +
                               " stableId=" + stable_id +
                               " worldId=" + world_id +
-                              " reason=inprocess_confirmation");
+                              " reason=" + reason);
             m_suspect_rebuild_states.erase(found);
             return true;
         }
@@ -12414,6 +12421,8 @@ namespace WindroseTextSigns
         const auto old_epoch = m_session_epoch;
         const bool had_ready = m_session_ready_latched;
         const bool had_locks = m_role_lock_acquired || m_bridge_route_lock_acquired;
+        const bool preserve_hosted_ready_markers =
+            reason == "world_inactive" && lower_ascii(m_runtime_role) == "localclientpending";
         const bool had_ready_markers =
             m_hosted_ready_world_client_seen ||
             m_hosted_ready_player_ready_seen ||
@@ -12434,13 +12443,18 @@ namespace WindroseTextSigns
         m_pending_role_watchdog_logged = false;
         m_pending_resolution_last_block_reason.clear();
         m_pending_resolution_last_controller_signature.clear();
-        m_hosted_ready_world_client_seen = false;
-        m_hosted_ready_player_ready_seen = false;
-        m_hosted_ready_datakeeper_seen = false;
-        m_hosted_ready_hide_loading_seen = false;
-        m_hosted_ready_sequence_complete = false;
+        if (!preserve_hosted_ready_markers)
+        {
+            m_hosted_ready_world_client_seen = false;
+            m_hosted_ready_player_ready_seen = false;
+            m_hosted_ready_datakeeper_seen = false;
+            m_hosted_ready_hide_loading_seen = false;
+            m_hosted_ready_sequence_complete = false;
+        }
         m_hosted_post_ready_reconcile_done = false;
         m_pending_world_inactive_ignored_logged = false;
+        m_locked_world_inactive_ignored_logged = false;
+        m_world_inactive_since = {};
         m_ready_baseline_live_keys.clear();
         m_ready_baseline_capture_remaining_scans = 0;
         m_bridge_route_retry_consumed = false;
@@ -12660,6 +12674,14 @@ namespace WindroseTextSigns
             STR("/Script/Engine.Controller:GetPawn"),
             controlled_pawn);
         if (!got_pawn_from_fn || !controlled_pawn)
+        {
+            controlled_pawn = get_object_property_if_present(controller, "Pawn");
+        }
+        if (!controlled_pawn)
+        {
+            controlled_pawn = get_object_property_if_present(controller, "AcknowledgedPawn");
+        }
+        if (!controlled_pawn)
         {
             set_reason("controlled_pawn_missing");
             return false;
@@ -13175,41 +13197,67 @@ namespace WindroseTextSigns
             {
                 const auto runtime_role_lower = lower_ascii(m_runtime_role);
                 const bool pending_localclient = runtime_role_lower == "localclientpending";
-                if (!pending_localclient)
+                const bool locked_localclient_session =
+                    !is_dedicated_runtime_process() &&
+                    m_session_ready_latched &&
+                    m_role_lock_acquired;
+                if (locked_localclient_session)
                 {
-                    reset_session_state("world_inactive");
+                    if (!m_locked_world_inactive_ignored_logged)
+                    {
+                        log_line("[session] reset_ignored reason=locked_session_transient_world_inactive");
+                        m_locked_world_inactive_ignored_logged = true;
+                    }
+                    m_world_inactive_since = {};
+                }
+                else if (!pending_localclient)
+                {
+                    constexpr auto k_world_inactive_reset_debounce = std::chrono::seconds(3);
+                    if (m_world_inactive_since.time_since_epoch().count() == 0)
+                    {
+                        m_world_inactive_since = now;
+                    }
+                    if ((now - m_world_inactive_since) >= k_world_inactive_reset_debounce)
+                    {
+                        reset_session_state("world_inactive");
+                        m_world_inactive_since = {};
+                        m_locked_world_inactive_ignored_logged = false;
+                    }
                 }
                 else if (!m_pending_world_inactive_ignored_logged)
                 {
                     log_line("[role] pending_world_inactive_ignored reason=awaiting_hosted_ready_or_role_resolution");
                     m_pending_world_inactive_ignored_logged = true;
                 }
-                m_consecutive_empty_label_scans = 0;
-                m_restore_scan_has_seen_live_labels = false;
-                m_live_label_actor_ptrs.clear();
-                m_missing_label_scan_counts.clear();
-                m_seen_live_label_keys.clear();
-                // Hard reset transient render/component caches across logout/map travel.
-                // Without this, reconnect can retain stale "already rendered" state and
-                // skip reapplying visible text even though actors/components were rebuilt.
-                m_rendered_text_cache.clear();
-                m_component_name_cache.clear();
-                m_phase4_next_retry.clear();
-                m_label_text_visual_logged_keys.clear();
-                m_dedicated_restore_active_since = {};
-                m_dedicated_restore_stable_since = {};
-                m_dedicated_last_probable_label_count = 0;
-                reset_visual_verify_debug_state();
-                if (!pending_localclient)
+                if (!locked_localclient_session)
                 {
-                    m_pending_world_inactive_ignored_logged = false;
-                    m_ready_baseline_live_keys.clear();
-                    m_ready_baseline_capture_remaining_scans = 0;
-                }
-                if (!m_restore_scan_wait_logged)
-                {
-                    log_line("[save] restore_scan waiting reason=no_active_world");
-                    m_restore_scan_wait_logged = true;
+                    m_consecutive_empty_label_scans = 0;
+                    m_restore_scan_has_seen_live_labels = false;
+                    m_live_label_actor_ptrs.clear();
+                    m_missing_label_scan_counts.clear();
+                    m_seen_live_label_keys.clear();
+                    // Hard reset transient render/component caches across logout/map travel.
+                    // Without this, reconnect can retain stale "already rendered" state and
+                    // skip reapplying visible text even though actors/components were rebuilt.
+                    m_rendered_text_cache.clear();
+                    m_component_name_cache.clear();
+                    m_phase4_next_retry.clear();
+                    m_label_text_visual_logged_keys.clear();
+                    m_dedicated_restore_active_since = {};
+                    m_dedicated_restore_stable_since = {};
+                    m_dedicated_last_probable_label_count = 0;
+                    reset_visual_verify_debug_state();
+                    if (!pending_localclient)
+                    {
+                        m_pending_world_inactive_ignored_logged = false;
+                        m_ready_baseline_live_keys.clear();
+                        m_ready_baseline_capture_remaining_scans = 0;
+                    }
+                    if (!m_restore_scan_wait_logged)
+                    {
+                        log_line("[save] restore_scan waiting reason=no_active_world");
+                        m_restore_scan_wait_logged = true;
+                    }
                 }
                 return;
             }
@@ -13218,6 +13266,8 @@ namespace WindroseTextSigns
                 log_line("[save] restore_scan active");
                 m_restore_scan_wait_logged = false;
             }
+            m_world_inactive_since = {};
+            m_locked_world_inactive_ignored_logged = false;
             m_pending_world_inactive_ignored_logged = false;
             ++m_restore_scan_cycle_counter;
 

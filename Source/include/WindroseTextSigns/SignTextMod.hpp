@@ -473,6 +473,8 @@ namespace WindroseTextSigns
         std::unordered_set<std::string> m_ready_baseline_live_keys{};
         uint32_t m_ready_baseline_capture_remaining_scans{0};
         bool m_pending_world_inactive_ignored_logged{false};
+        bool m_locked_world_inactive_ignored_logged{false};
+        std::chrono::steady_clock::time_point m_world_inactive_since{};
         struct SuspectRebuildState
         {
             std::string stable_id{};
