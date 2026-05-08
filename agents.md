@@ -59,4 +59,4 @@ Derived from session: `019ddfe0-2e60-77f1-9c58-63ee854fbf0e`
 - Do not build/complile code unless explicitly asked to.  Keep "C:\Users\User\Documents\Windrose Addons\WindroseTextSigns\build_windrosetextsigns.ps1" up to date for manual code build/compile.
 - Do not deploy to game folders unless explicitly asked to.  Keep "C:\Users\User\Documents\Windrose Addons\WindroseTextSigns\deploy_TextSigns_clean.ps1" up to date for manual packaging and deployment.
 - Keep C:\Users\User\Documents\Windrose Addons\WindroseTextSigns\tools\run_offline_qa.ps1" up to date with latest findings and always run it against changes made.
-
+- Before analyzing any new runtime logs, create a local archive snapshot first using `tools\archive_log_analysis.ps1` (include provided paths + known defaults) and record the archive path in notes/results.

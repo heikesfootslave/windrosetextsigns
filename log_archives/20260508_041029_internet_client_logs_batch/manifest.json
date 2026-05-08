@@ -1,0 +1,134 @@
+﻿{
+    "archive_created_utc":  "2026-05-08T04:10:30.1972404Z",
+    "tag":  "internet_client_logs_batch",
+    "archive_dir":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_041029_internet_client_logs_batch",
+    "file_count":  18,
+    "files":  [
+                  {
+                      "source_path":  "E:\\Windrose\\logs\\0.1.2 auto fix\\R5.log",
+                      "archived_path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_041029_internet_client_logs_batch\\files\\E\\Windrose\\logs\\0.1.2 auto fix\\R5.log",
+                      "size_bytes":  1225768,
+                      "last_write_utc":  "2026-05-07T18:02:16.0000000Z",
+                      "sha256":  "F627852570C80EADD82D32E9D261CA8C53DD2C6AA58C45DFF84A9B911D0440D8"
+                  },
+                  {
+                      "source_path":  "E:\\Windrose\\logs\\0.1.2 auto fix\\WindroseTextSigns.log",
+                      "archived_path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_041029_internet_client_logs_batch\\files\\E\\Windrose\\logs\\0.1.2 auto fix\\WindroseTextSigns.log",
+                      "size_bytes":  48475,
+                      "last_write_utc":  "2026-05-07T18:02:16.0000000Z",
+                      "sha256":  "EEC40F5334BA8EA8822E713EE8430ECDA0FDA6EBD6653652AD9B5965FCBD0857"
+                  },
+                  {
+                      "source_path":  "E:\\Windrose\\logs\\0.1.2 prune test\\R5.log",
+                      "archived_path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_041029_internet_client_logs_batch\\files\\E\\Windrose\\logs\\0.1.2 prune test\\R5.log",
+                      "size_bytes":  2075281,
+                      "last_write_utc":  "2026-05-07T18:40:20.0000000Z",
+                      "sha256":  "6951313AEF3F8C55C24002174AE2FBF5E0D8F055BBF46C47EC382E16140B617B"
+                  },
+                  {
+                      "source_path":  "E:\\Windrose\\logs\\0.1.2 prune test\\WindroseTextSigns.log",
+                      "archived_path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_041029_internet_client_logs_batch\\files\\E\\Windrose\\logs\\0.1.2 prune test\\WindroseTextSigns.log",
+                      "size_bytes":  376430,
+                      "last_write_utc":  "2026-05-07T18:40:20.0000000Z",
+                      "sha256":  "42F3A1EA922C34C5EE58AC449E5234BD52746190A645B60CF2BE5065B8F71EC8"
+                  },
+                  {
+                      "source_path":  "E:\\Windrose\\logs\\2_55_pm\\R5.log",
+                      "archived_path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_041029_internet_client_logs_batch\\files\\E\\Windrose\\logs\\2_55_pm\\R5.log",
+                      "size_bytes":  2079344,
+                      "last_write_utc":  "2026-05-07T21:56:12.0000000Z",
+                      "sha256":  "15FF1D70D7DD85442541A2D3972042D4ADAA49321461D41DA7E19FDF91171607"
+                  },
+                  {
+                      "source_path":  "E:\\Windrose\\logs\\2_55_pm\\WindroseTextSigns.log",
+                      "archived_path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_041029_internet_client_logs_batch\\files\\E\\Windrose\\logs\\2_55_pm\\WindroseTextSigns.log",
+                      "size_bytes":  68563,
+                      "last_write_utc":  "2026-05-07T21:56:18.0000000Z",
+                      "sha256":  "269242252FC37AC2AA45C26638A0C05D1D18C293C04A99F424DD26971C63C122"
+                  },
+                  {
+                      "source_path":  "E:\\Windrose\\logs\\2pm\\R5.log",
+                      "archived_path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_041029_internet_client_logs_batch\\files\\E\\Windrose\\logs\\2pm\\R5.log",
+                      "size_bytes":  2982867,
+                      "last_write_utc":  "2026-05-07T21:03:00.0000000Z",
+                      "sha256":  "4D5CC2103B6E10A3898CEF573FE348E54FD4C9711D3E03AD219CAA3B4A5B951D"
+                  },
+                  {
+                      "source_path":  "E:\\Windrose\\logs\\2pm\\WindroseTextSigns.log",
+                      "archived_path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_041029_internet_client_logs_batch\\files\\E\\Windrose\\logs\\2pm\\WindroseTextSigns.log",
+                      "size_bytes":  131787,
+                      "last_write_utc":  "2026-05-07T21:03:22.0000000Z",
+                      "sha256":  "A8292A3EC6D53BE5715E65CFB1646EC5F0DBF388862B651E83D88CFAF3589A17"
+                  },
+                  {
+                      "source_path":  "E:\\Windrose\\logs\\3_33_pm\\R5.log",
+                      "archived_path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_041029_internet_client_logs_batch\\files\\E\\Windrose\\logs\\3_33_pm\\R5.log",
+                      "size_bytes":  1094926,
+                      "last_write_utc":  "2026-05-07T22:46:02.0000000Z",
+                      "sha256":  "2A8FA6A9D664FF7885682410BBEB979AF10A93A56EDFD48541F8696CF8AC75B3"
+                  },
+                  {
+                      "source_path":  "E:\\Windrose\\logs\\3_33_pm\\WindroseTextSigns.log",
+                      "archived_path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_041029_internet_client_logs_batch\\files\\E\\Windrose\\logs\\3_33_pm\\WindroseTextSigns.log",
+                      "size_bytes":  31910,
+                      "last_write_utc":  "2026-05-07T22:45:50.0000000Z",
+                      "sha256":  "0ACAE0A11693F7BB56E5F1D2370F4839204ADCAB8B07047EF9B96394442B92FD"
+                  },
+                  {
+                      "source_path":  "E:\\Windrose\\logs\\hosted_client\\R5.log",
+                      "archived_path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_041029_internet_client_logs_batch\\files\\E\\Windrose\\logs\\hosted_client\\R5.log",
+                      "size_bytes":  1148179,
+                      "last_write_utc":  "2026-05-07T20:07:54.0000000Z",
+                      "sha256":  "D6F657B15049E2AE1BDD7F4FCF2A4247A471755387B2B49D296AD3017CFED1A2"
+                  },
+                  {
+                      "source_path":  "E:\\Windrose\\logs\\hosted_client\\WindroseTextSigns.log",
+                      "archived_path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_041029_internet_client_logs_batch\\files\\E\\Windrose\\logs\\hosted_client\\WindroseTextSigns.log",
+                      "size_bytes":  59005,
+                      "last_write_utc":  "2026-05-07T20:07:54.0000000Z",
+                      "sha256":  "30B86038CCF91028865EDB89389387659C97AEF06B81479F76E08FECE6E23666"
+                  },
+                  {
+                      "source_path":  "E:\\Windrose\\logs\\UPnP auto 3\\R5.log",
+                      "archived_path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_041029_internet_client_logs_batch\\files\\E\\Windrose\\logs\\UPnP auto 3\\R5.log",
+                      "size_bytes":  1225124,
+                      "last_write_utc":  "2026-05-06T21:14:56.0000000Z",
+                      "sha256":  "ECF3D7055FB7A7AEFA7939EF873A02357356519A75E8B2BA51ACFFA1F508237A"
+                  },
+                  {
+                      "source_path":  "E:\\Windrose\\logs\\UPnP auto 3\\WindroseTextSigns.log",
+                      "archived_path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_041029_internet_client_logs_batch\\files\\E\\Windrose\\logs\\UPnP auto 3\\WindroseTextSigns.log",
+                      "size_bytes":  113153,
+                      "last_write_utc":  "2026-05-06T21:14:54.0000000Z",
+                      "sha256":  "B05529C3D368BA3387F8F568A70A9504AEFB6883CCC0ADBA807323F6568D0C8A"
+                  },
+                  {
+                      "source_path":  "E:\\Windrose\\logs\\UPnP auto ip\\R5.log",
+                      "archived_path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_041029_internet_client_logs_batch\\files\\E\\Windrose\\logs\\UPnP auto ip\\R5.log",
+                      "size_bytes":  1224591,
+                      "last_write_utc":  "2026-05-06T20:22:00.0000000Z",
+                      "sha256":  "3FB2031956011C32A8027A438CC0D30A0868D735660BA765FC315052DAFB32FC"
+                  },
+                  {
+                      "source_path":  "E:\\Windrose\\logs\\UPnP auto ip\\WindroseTextSigns.log",
+                      "archived_path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_041029_internet_client_logs_batch\\files\\E\\Windrose\\logs\\UPnP auto ip\\WindroseTextSigns.log",
+                      "size_bytes":  5062816,
+                      "last_write_utc":  "2026-05-06T20:22:00.0000000Z",
+                      "sha256":  "F8EDC851533CC93EEDD9C3AA828EA473B78FA0D16CDB12F4E6FCAB7DB4CC2B92"
+                  },
+                  {
+                      "source_path":  "E:\\Windrose\\logs\\UPnP static ip\\R5.log",
+                      "archived_path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_041029_internet_client_logs_batch\\files\\E\\Windrose\\logs\\UPnP static ip\\R5.log",
+                      "size_bytes":  1295285,
+                      "last_write_utc":  "2026-05-06T19:43:54.0000000Z",
+                      "sha256":  "E3A38EED2F1D970CF09916FD2712AF0214F8C0E37246E197854163486C53CAF6"
+                  },
+                  {
+                      "source_path":  "E:\\Windrose\\logs\\UPnP static ip\\WindroseTextSigns.log",
+                      "archived_path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_041029_internet_client_logs_batch\\files\\E\\Windrose\\logs\\UPnP static ip\\WindroseTextSigns.log",
+                      "size_bytes":  4157857,
+                      "last_write_utc":  "2026-05-06T19:43:46.0000000Z",
+                      "sha256":  "59866F98C45D9B5C283409C11318B2B74C2D6B0269FD9EC2CB331169917123EA"
+                  }
+              ]
+}

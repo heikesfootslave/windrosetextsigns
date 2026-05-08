@@ -183,7 +183,10 @@ namespace WindroseTextSigns
 
         auto apply_text_to_selected_label(const std::string& text_value) -> void;
         auto clear_text_on_selected_label() -> void;
-        auto restore_known_text_if_any(RC::Unreal::AActor* actor, const std::string& stable_id) -> void;
+        auto restore_known_text_if_any(
+            RC::Unreal::AActor* actor,
+            const std::string& stable_id,
+            bool force_bypass_retry_guard = false) -> void;
         auto apply_text_to_actor_component(RC::Unreal::AActor* actor, const std::string& text_value) -> bool;
         auto should_render_world_text_components() const -> bool;
         auto diagnose_or_patch_label_visual(RC::Unreal::AActor* actor, const std::string& storage_key, const std::string& reason) -> bool;
@@ -420,11 +423,18 @@ namespace WindroseTextSigns
         std::unordered_set<std::string> m_seen_live_label_keys{};
         std::unordered_map<std::string, uintptr_t> m_live_label_actor_ptrs{};
         std::unordered_map<std::string, uint32_t> m_missing_label_scan_counts{};
-        std::unordered_map<std::string, std::chrono::steady_clock::time_point> m_recent_destroy_confirmations{};
+        std::unordered_map<std::string, std::chrono::steady_clock::time_point> m_recent_destroy_guid_signals{};
+        std::unordered_map<std::string, std::chrono::steady_clock::time_point> m_recent_destroy_slot_confirmations{};
         std::filesystem::path m_destroy_signal_log_path{};
         uintmax_t m_destroy_signal_log_offset{0};
         bool m_destroy_signal_log_initialized{false};
         std::chrono::steady_clock::time_point m_destroy_signal_last_poll{};
+        uint32_t m_destroy_confirm_ttl_sec{10};
+        bool m_hosted_ready_world_client_seen{false};
+        bool m_hosted_ready_player_ready_seen{false};
+        bool m_hosted_ready_datakeeper_seen{false};
+        bool m_hosted_ready_hide_loading_seen{false};
+        bool m_hosted_ready_sequence_complete{false};
         bool m_hosted_post_ready_reconcile_done{false};
         uint32_t m_consecutive_empty_label_scans{0};
         bool m_restore_scan_has_seen_live_labels{false};

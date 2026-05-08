@@ -1,0 +1,169 @@
+﻿{
+    "archive_created_utc":  "2026-05-08T04:09:38.9814723Z",
+    "tag":  "baseline_policy_setup",
+    "archive_dir":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_040938_baseline_policy_setup",
+    "file_count":  23,
+    "files":  [
+                  {
+                      "source_path":  "C:\\Games\\WindowsServer\\R5\\Saved\\Logs\\R5.log",
+                      "archived_path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_040938_baseline_policy_setup\\files\\C\\Games\\WindowsServer\\R5\\Saved\\Logs\\R5.log",
+                      "size_bytes":  843744,
+                      "last_write_utc":  "2026-05-07T22:47:13.6450679Z",
+                      "sha256":  "31AA68C7AA3094F0CECF77555669F247C7C3F7281316CB40BB8708CE278486F0"
+                  },
+                  {
+                      "source_path":  "C:\\Games\\WindowsServer\\R5\\Saved\\Logs\\R5-backup-2026.05.07-18.02.05.log",
+                      "archived_path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_040938_baseline_policy_setup\\files\\C\\Games\\WindowsServer\\R5\\Saved\\Logs\\R5-backup-2026.05.07-18.02.05.log",
+                      "size_bytes":  982890,
+                      "last_write_utc":  "2026-05-07T18:02:05.0000000Z",
+                      "sha256":  "2460C3C26F990EB715A7BF4BBEDB8A9A16255054CD273E3A09F7EBB9D4A9F632"
+                  },
+                  {
+                      "source_path":  "C:\\Games\\WindowsServer\\R5\\Saved\\Logs\\R5-backup-2026.05.07-18.36.18.log",
+                      "archived_path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_040938_baseline_policy_setup\\files\\C\\Games\\WindowsServer\\R5\\Saved\\Logs\\R5-backup-2026.05.07-18.36.18.log",
+                      "size_bytes":  1101974,
+                      "last_write_utc":  "2026-05-07T18:36:18.0000000Z",
+                      "sha256":  "B85AC8186CC06FF51144E40C0E8A2AF9D59C1E3B425372F1AF3126B4E5607211"
+                  },
+                  {
+                      "source_path":  "C:\\Games\\WindowsServer\\R5\\Saved\\Logs\\R5-backup-2026.05.07-18.42.59.log",
+                      "archived_path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_040938_baseline_policy_setup\\files\\C\\Games\\WindowsServer\\R5\\Saved\\Logs\\R5-backup-2026.05.07-18.42.59.log",
+                      "size_bytes":  973617,
+                      "last_write_utc":  "2026-05-07T18:42:59.0000000Z",
+                      "sha256":  "C429534ACDCAF166E800FB9B5647FDFF58E7EFBDFBDB0401E2721CADDC33A20C"
+                  },
+                  {
+                      "source_path":  "C:\\Games\\WindowsServer\\R5\\Saved\\Logs\\R5-backup-2026.05.07-19.16.02.log",
+                      "archived_path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_040938_baseline_policy_setup\\files\\C\\Games\\WindowsServer\\R5\\Saved\\Logs\\R5-backup-2026.05.07-19.16.02.log",
+                      "size_bytes":  1257624,
+                      "last_write_utc":  "2026-05-07T19:16:02.0000000Z",
+                      "sha256":  "C9C6093DF5753795AC7544467719D813E57935AB57C7044B62211CB9F9D3168B"
+                  },
+                  {
+                      "source_path":  "C:\\Games\\WindowsServer\\R5\\Saved\\Logs\\R5-backup-2026.05.07-19.33.17.log",
+                      "archived_path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_040938_baseline_policy_setup\\files\\C\\Games\\WindowsServer\\R5\\Saved\\Logs\\R5-backup-2026.05.07-19.33.17.log",
+                      "size_bytes":  175623,
+                      "last_write_utc":  "2026-05-07T19:33:17.0000000Z",
+                      "sha256":  "0678BF977185E9BEE0899DE4C562BFBE0464222DA35D8C5C4B8A7EF87A00B37D"
+                  },
+                  {
+                      "source_path":  "C:\\Games\\WindowsServer\\R5\\Saved\\Logs\\R5-backup-2026.05.07-19.43.47.log",
+                      "archived_path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_040938_baseline_policy_setup\\files\\C\\Games\\WindowsServer\\R5\\Saved\\Logs\\R5-backup-2026.05.07-19.43.47.log",
+                      "size_bytes":  159793,
+                      "last_write_utc":  "2026-05-07T19:43:47.0000000Z",
+                      "sha256":  "632B663D71C5A7672889D209D4EEA7AC104DA3FB093662A8C8C3443532EA3C36"
+                  },
+                  {
+                      "source_path":  "C:\\Games\\WindowsServer\\R5\\Saved\\Logs\\R5-backup-2026.05.07-20.37.41.log",
+                      "archived_path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_040938_baseline_policy_setup\\files\\C\\Games\\WindowsServer\\R5\\Saved\\Logs\\R5-backup-2026.05.07-20.37.41.log",
+                      "size_bytes":  160825,
+                      "last_write_utc":  "2026-05-07T20:37:41.0000000Z",
+                      "sha256":  "739C472E599785941AC023524624233B8EA467B205A38D5FF04769CF1677B966"
+                  },
+                  {
+                      "source_path":  "C:\\Games\\WindowsServer\\R5\\Saved\\Logs\\R5-backup-2026.05.07-21.13.50.log",
+                      "archived_path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_040938_baseline_policy_setup\\files\\C\\Games\\WindowsServer\\R5\\Saved\\Logs\\R5-backup-2026.05.07-21.13.50.log",
+                      "size_bytes":  980832,
+                      "last_write_utc":  "2026-05-07T21:13:50.0000000Z",
+                      "sha256":  "A3D9BA4D0C3EC0F3F5FCC4441A613A760516642AAB40C5D4F25219E817818CE4"
+                  },
+                  {
+                      "source_path":  "C:\\Games\\WindowsServer\\R5\\Saved\\Logs\\R5-backup-2026.05.07-21.56.39.log",
+                      "archived_path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_040938_baseline_policy_setup\\files\\C\\Games\\WindowsServer\\R5\\Saved\\Logs\\R5-backup-2026.05.07-21.56.39.log",
+                      "size_bytes":  968053,
+                      "last_write_utc":  "2026-05-07T21:56:39.0000000Z",
+                      "sha256":  "66331986B4A7A2885E678B781D9C96A16FE2E9E3CD2EEDF1B7C42F9712D1B43E"
+                  },
+                  {
+                      "source_path":  "C:\\Games\\WindowsServer\\R5\\Saved\\Logs\\R5-backup-2026.05.07-22.38.37.log",
+                      "archived_path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_040938_baseline_policy_setup\\files\\C\\Games\\WindowsServer\\R5\\Saved\\Logs\\R5-backup-2026.05.07-22.38.37.log",
+                      "size_bytes":  970452,
+                      "last_write_utc":  "2026-05-07T22:38:37.0000000Z",
+                      "sha256":  "29095B70EEC0AEA585A872ABCE75D5D9A55F1F636E22C12FB83FFF6299F9A7E1"
+                  },
+                  {
+                      "source_path":  "C:\\SteamLibrary\\steamapps\\common\\Windrose\\R5\\Binaries\\Win64\\ue4ss\\Mods\\WindroseTextSigns\\WindroseTextSigns.log",
+                      "archived_path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_040938_baseline_policy_setup\\files\\C\\SteamLibrary\\steamapps\\common\\Windrose\\R5\\Binaries\\Win64\\ue4ss\\Mods\\WindroseTextSigns\\WindroseTextSigns.log",
+                      "size_bytes":  10067,
+                      "last_write_utc":  "2026-05-08T02:36:55.5971975Z",
+                      "sha256":  "708B5BF9D5954618FBE793B52BD5D0775E14A7559FF1DC70608E0FF2CE0B8F55"
+                  },
+                  {
+                      "source_path":  "C:\\Users\\User\\AppData\\Local\\R5\\Saved\\Logs\\R5.log",
+                      "archived_path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_040938_baseline_policy_setup\\files\\C\\Users\\User\\AppData\\Local\\R5\\Saved\\Logs\\R5.log",
+                      "size_bytes":  1197042,
+                      "last_write_utc":  "2026-05-08T02:37:05.3132116Z",
+                      "sha256":  "57968AA7F7682B6899ECEA4803D9954A6F572DD921A5F076EC81F55F1E56F273"
+                  },
+                  {
+                      "source_path":  "C:\\Users\\User\\AppData\\Local\\R5\\Saved\\Logs\\R5-backup-2026.05.07-18.40.08.log",
+                      "archived_path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_040938_baseline_policy_setup\\files\\C\\Users\\User\\AppData\\Local\\R5\\Saved\\Logs\\R5-backup-2026.05.07-18.40.08.log",
+                      "size_bytes":  1244848,
+                      "last_write_utc":  "2026-05-07T18:40:08.0000000Z",
+                      "sha256":  "137F0C5164A8D36FFA9DB1C8857884A9316207322B5465C49C46E97197E476E9"
+                  },
+                  {
+                      "source_path":  "C:\\Users\\User\\AppData\\Local\\R5\\Saved\\Logs\\R5-backup-2026.05.07-19.11.10.log",
+                      "archived_path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_040938_baseline_policy_setup\\files\\C\\Users\\User\\AppData\\Local\\R5\\Saved\\Logs\\R5-backup-2026.05.07-19.11.10.log",
+                      "size_bytes":  2969594,
+                      "last_write_utc":  "2026-05-07T19:11:10.0000000Z",
+                      "sha256":  "EC6FB19DE1B24BF5817D39CD0BD43E7A7B2EC913A72A33E326AB73DCDD2FB2C9"
+                  },
+                  {
+                      "source_path":  "C:\\Users\\User\\AppData\\Local\\R5\\Saved\\Logs\\R5-backup-2026.05.07-19.41.33.log",
+                      "archived_path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_040938_baseline_policy_setup\\files\\C\\Users\\User\\AppData\\Local\\R5\\Saved\\Logs\\R5-backup-2026.05.07-19.41.33.log",
+                      "size_bytes":  2009042,
+                      "last_write_utc":  "2026-05-07T19:41:33.0000000Z",
+                      "sha256":  "D19F4A7234606D8224642D4A1BECCC36417DD490D43772FAB76CDBC88A753937"
+                  },
+                  {
+                      "source_path":  "C:\\Users\\User\\AppData\\Local\\R5\\Saved\\Logs\\R5-backup-2026.05.07-19.54.25.log",
+                      "archived_path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_040938_baseline_policy_setup\\files\\C\\Users\\User\\AppData\\Local\\R5\\Saved\\Logs\\R5-backup-2026.05.07-19.54.25.log",
+                      "size_bytes":  2726866,
+                      "last_write_utc":  "2026-05-07T19:54:25.0000000Z",
+                      "sha256":  "31205877E9C011CB58E9C78EE1EE8782B01BDF706DF1FB273DBA9B6B6A4A0620"
+                  },
+                  {
+                      "source_path":  "C:\\Users\\User\\AppData\\Local\\R5\\Saved\\Logs\\R5-backup-2026.05.07-20.17.49.log",
+                      "archived_path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_040938_baseline_policy_setup\\files\\C\\Users\\User\\AppData\\Local\\R5\\Saved\\Logs\\R5-backup-2026.05.07-20.17.49.log",
+                      "size_bytes":  1291524,
+                      "last_write_utc":  "2026-05-07T20:17:49.0000000Z",
+                      "sha256":  "28B2993C73AD56F02D164C73515347C50AF050CE760E1C79850BBAED0D748236"
+                  },
+                  {
+                      "source_path":  "C:\\Users\\User\\AppData\\Local\\R5\\Saved\\Logs\\R5-backup-2026.05.07-21.13.42.log",
+                      "archived_path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_040938_baseline_policy_setup\\files\\C\\Users\\User\\AppData\\Local\\R5\\Saved\\Logs\\R5-backup-2026.05.07-21.13.42.log",
+                      "size_bytes":  4585653,
+                      "last_write_utc":  "2026-05-07T21:13:42.0000000Z",
+                      "sha256":  "A5791CC79C3A6C676CA0F482F94285F9DE05DA403B9FD021CE2C10EE8690AE22"
+                  },
+                  {
+                      "source_path":  "C:\\Users\\User\\AppData\\Local\\R5\\Saved\\Logs\\R5-backup-2026.05.07-21.56.38.log",
+                      "archived_path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_040938_baseline_policy_setup\\files\\C\\Users\\User\\AppData\\Local\\R5\\Saved\\Logs\\R5-backup-2026.05.07-21.56.38.log",
+                      "size_bytes":  3629495,
+                      "last_write_utc":  "2026-05-07T21:56:38.0000000Z",
+                      "sha256":  "231CEF4F1D8EEC44B1760E8F5663D5BE82A0D68D2F76091070651C9387EADDC4"
+                  },
+                  {
+                      "source_path":  "C:\\Users\\User\\AppData\\Local\\R5\\Saved\\Logs\\R5-backup-2026.05.07-22.38.29.log",
+                      "archived_path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_040938_baseline_policy_setup\\files\\C\\Users\\User\\AppData\\Local\\R5\\Saved\\Logs\\R5-backup-2026.05.07-22.38.29.log",
+                      "size_bytes":  2769187,
+                      "last_write_utc":  "2026-05-07T22:38:29.0000000Z",
+                      "sha256":  "D5D2EA664A0D4444DCB6801D6FA5A8F62028A5AB88E9FDE918B35B67B2290AE2"
+                  },
+                  {
+                      "source_path":  "C:\\Users\\User\\AppData\\Local\\R5\\Saved\\Logs\\R5-backup-2026.05.08-01.19.18.log",
+                      "archived_path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_040938_baseline_policy_setup\\files\\C\\Users\\User\\AppData\\Local\\R5\\Saved\\Logs\\R5-backup-2026.05.08-01.19.18.log",
+                      "size_bytes":  2874987,
+                      "last_write_utc":  "2026-05-08T01:19:18.0000000Z",
+                      "sha256":  "BD2628B3F87EBC27E851F85FD293F44C3CC675BF93634E0153EFFB67FF1D3927"
+                  },
+                  {
+                      "source_path":  "C:\\Users\\User\\AppData\\Local\\R5\\Saved\\Logs\\R5-backup-2026.05.08-02.09.38.log",
+                      "archived_path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_040938_baseline_policy_setup\\files\\C\\Users\\User\\AppData\\Local\\R5\\Saved\\Logs\\R5-backup-2026.05.08-02.09.38.log",
+                      "size_bytes":  2800211,
+                      "last_write_utc":  "2026-05-08T02:09:38.0000000Z",
+                      "sha256":  "6FA607CA38E04A627E15C347D57EA10390928D6DFE7C4BE1BA673F2B36DA0F3F"
+                  }
+              ]
+}

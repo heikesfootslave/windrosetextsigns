@@ -1,0 +1,5 @@
+﻿Archive: C:\Users\User\Documents\Windrose Addons\WindroseTextSigns\log_archives\20260508_040938_baseline_policy_setup
+CreatedUtc: 2026-05-08T04:09:38.9814723Z
+Tag: baseline_policy_setup
+FileCount: 23
+Manifest: C:\Users\User\Documents\Windrose Addons\WindroseTextSigns\log_archives\20260508_040938_baseline_policy_setup\manifest.json
