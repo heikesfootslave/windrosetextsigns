@@ -10963,13 +10963,17 @@ namespace WindroseTextSigns
         const bool localclient_authoritative =
             m_sidecar_authoritative &&
             !is_dedicated_runtime_process();
+        const bool trusted_destroy_confirmed_local =
+            localclient_authoritative &&
+            has_recent_destroy_confirmation(stable_id);
         const bool seen_live_this_session = m_seen_live_label_keys.find(key) != m_seen_live_label_keys.end();
         std::string localclient_prune_ready_reason{};
         const bool localclient_prune_ready =
             is_localclient_prune_ready(authority_source_resolved, &localclient_prune_ready_reason);
         const bool authoritative_local_guard_blocked =
             localclient_authoritative &&
-            !localclient_prune_ready;
+            !localclient_prune_ready &&
+            !trusted_destroy_confirmed_local;
         const bool remote_bridge_unsynced =
             !m_sidecar_authoritative &&
             m_bridge_role == BridgeRole::RemoteClient &&
@@ -11196,6 +11200,17 @@ namespace WindroseTextSigns
                 ++it;
             }
         }
+        for (auto it = m_recent_construct_slot_signals.begin(); it != m_recent_construct_slot_signals.end();)
+        {
+            if ((now - it->second) > ttl)
+            {
+                it = m_recent_construct_slot_signals.erase(it);
+            }
+            else
+            {
+                ++it;
+            }
+        }
 
         if (m_destroy_signal_log_path.empty() || !std::filesystem::exists(m_destroy_signal_log_path))
         {
@@ -11236,10 +11251,15 @@ namespace WindroseTextSigns
             return;
         }
 
-        const bool localclient_authoritative =
-            m_sidecar_authoritative &&
+        const auto runtime_role_lower = lower_ascii(m_runtime_role);
+        const bool localclient_runtime =
+            runtime_role_lower == "localclient" ||
+            runtime_role_lower == "localclientpending";
+        // Parse destroy/construct signals in LocalClient runtime states (including Pending)
+        // so short-lived evidence is not lost during authority-route bootstrap churn.
+        const bool parse_destroy_construct_signals =
             !is_dedicated_runtime_process() &&
-            lower_ascii(m_runtime_role) == "localclient";
+            localclient_runtime;
 
         std::ifstream input{m_destroy_signal_log_path, std::ios::binary};
         if (!input)
@@ -11262,6 +11282,9 @@ namespace WindroseTextSigns
         static const std::regex guid_key_value_rx{R"((?:BuildingGuid|Guid|ActorGuid)\s*[:=]\s*([A-Fa-f0-9]{16,32}))", std::regex::icase};
         static const std::regex guid_any_rx{R"(\b([A-Fa-f0-9]{32})\b)"};
         static const std::regex index_key_value_rx{R"((?:Block(?:Index)?|Index|Slot)\s*[:=]\s*([0-9]+))", std::regex::icase};
+        static const std::regex construct_block_rx{
+            R"(Construct\s+BuildingBlock\s+([0-9]+)\s+from\s+building\s+([A-Fa-f0-9]{16,32}))",
+            std::regex::icase};
         std::istringstream lines{chunk};
         std::string line{};
         while (std::getline(lines, line))
@@ -11314,7 +11337,7 @@ namespace WindroseTextSigns
                 log_line("[save] hosted_ready_sequence complete=true");
             }
 
-            if (!localclient_authoritative)
+            if (!parse_destroy_construct_signals)
             {
                 continue;
             }
@@ -11329,7 +11352,12 @@ namespace WindroseTextSigns
             std::string guid{};
             std::string index{};
             std::smatch match{};
-            if (std::regex_search(line, match, slot_token_rx) && match.size() >= 4)
+            if (construct_rule && std::regex_search(line, match, construct_block_rx) && match.size() >= 3)
+            {
+                index = match[1].str();
+                guid = match[2].str();
+            }
+            else if (std::regex_search(line, match, slot_token_rx) && match.size() >= 4)
             {
                 guid = match[2].str();
                 index = match[3].str();
@@ -11360,19 +11388,37 @@ namespace WindroseTextSigns
             {
                 m_recent_destroy_guid_signals[guid] = now;
                 log_line("[save] destroy_signal_seen guid=" + guid);
+                for (const auto& [slot_key, seen_at] : m_recent_construct_slot_signals)
+                {
+                    if ((now - seen_at) > ttl)
+                    {
+                        continue;
+                    }
+                    const auto guid_delim = slot_key.find('|');
+                    if (guid_delim == std::string::npos || guid_delim == 0)
+                    {
+                        continue;
+                    }
+                    const auto slot_guid = slot_key.substr(0, guid_delim);
+                    if (lower_ascii(slot_guid) != lower_ascii(guid))
+                    {
+                        continue;
+                    }
+                    const auto index_value = slot_key.substr(guid_delim + 1);
+                    m_recent_destroy_slot_confirmations[slot_key] = now;
+                    log_line("[save] destroy_construct_correlated guid=" + guid + " index=" + index_value);
+                }
             }
             if (construct_rule)
             {
                 if (!index.empty())
                 {
+                    const auto slot_key = make_building_slot_key(guid, index);
+                    m_recent_construct_slot_signals[slot_key] = now;
                     log_line("[save] construct_signal_seen guid=" + guid + " index=" + index);
-                }
-                if (!index.empty())
-                {
                     const auto guid_it = m_recent_destroy_guid_signals.find(guid);
                     if (guid_it != m_recent_destroy_guid_signals.end() && (now - guid_it->second) <= ttl)
                     {
-                        const auto slot_key = make_building_slot_key(guid, index);
                         m_recent_destroy_slot_confirmations[slot_key] = now;
                         log_line("[save] destroy_construct_correlated guid=" + guid + " index=" + index);
                     }
@@ -12332,20 +12378,27 @@ namespace WindroseTextSigns
                         continue;
                     }
                     ++considered_missing_labels;
+                    const bool trusted_destroy_confirmed =
+                        localclient_authoritative &&
+                        has_recent_destroy_confirmation(rec.stable_id);
                     const auto world_it = present_world_counts.find(rec.world_id);
                     if (world_it == present_world_counts.end() || world_it->second < k_min_live_labels_in_world_for_prune)
                     {
                         ++blocked_by_world_count;
                         continue;
                     }
-                    if (require_seen_live_for_authoritative_prune && !localclient_prune_ready)
+                    if (require_seen_live_for_authoritative_prune &&
+                        !localclient_prune_ready &&
+                        !trusted_destroy_confirmed)
                     {
                         ++blocked_by_localclient_readiness;
                         continue;
                     }
                     const bool seen_live_this_session = m_seen_live_label_keys.find(key) != m_seen_live_label_keys.end();
                     if ((!m_sidecar_authoritative && !seen_live_this_session) ||
-                        (require_seen_live_for_authoritative_prune && !seen_live_this_session))
+                        (require_seen_live_for_authoritative_prune &&
+                         !seen_live_this_session &&
+                         !trusted_destroy_confirmed))
                     {
                         ++blocked_by_live_guard;
                         continue;

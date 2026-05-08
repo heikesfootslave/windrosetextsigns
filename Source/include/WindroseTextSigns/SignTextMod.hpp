@@ -442,6 +442,7 @@ namespace WindroseTextSigns
         std::unordered_map<std::string, uint32_t> m_missing_label_scan_counts{};
         std::unordered_map<std::string, std::chrono::steady_clock::time_point> m_recent_destroy_guid_signals{};
         std::unordered_map<std::string, std::chrono::steady_clock::time_point> m_recent_destroy_slot_confirmations{};
+        std::unordered_map<std::string, std::chrono::steady_clock::time_point> m_recent_construct_slot_signals{};
         struct SuspectRebuildState
         {
             std::string stable_id{};
