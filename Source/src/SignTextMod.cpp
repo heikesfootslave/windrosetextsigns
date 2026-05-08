@@ -344,7 +344,9 @@ namespace
         std::string remote_host_candidate{};
         std::string remote_public_candidate{};
         std::string local_host_summary{};
+        bool same_machine_evidence{false};
         std::vector<std::string> ordered_candidates{};
+        std::vector<std::pair<std::string, std::string>> fallback_direct_candidates{};
     };
 
     auto parse_ipv4_octets(const std::string& ip) -> std::optional<std::array<int, 4>>
@@ -523,6 +525,18 @@ namespace
         static const std::regex candidate_rx{
             R"(\b(?:UDP|TCP)\s+([0-9]{1,3}(?:\.[0-9]{1,3}){3}):([0-9]+)\s+[A-Fa-f0-9]+\s+\d+\s+(host|srflx)\b)",
             std::regex::icase};
+        static const std::regex direct_server_address_rx{
+            R"(Start direct connection to server\.\s*ServerAddress\s+([0-9]{1,3}(?:\.[0-9]{1,3}){3}))",
+            std::regex::icase};
+        static const std::regex browse_endpoint_rx{
+            R"(\bBrowse:\s*([0-9]{1,3}(?:\.[0-9]{1,3}){3}):([0-9]+)\b)",
+            std::regex::icase};
+        static const std::regex loadmap_endpoint_rx{
+            R"(\bLoadMap:\s*([0-9]{1,3}(?:\.[0-9]{1,3}){3}):([0-9]+)\b)",
+            std::regex::icase};
+        static const std::regex remoteaddr_endpoint_rx{
+            R"(\bRemoteAddr:\s*([0-9]{1,3}(?:\.[0-9]{1,3}){3}):([0-9]+)\b)",
+            std::regex::icase};
 
         for (const auto& candidate_path : collect_r5_log_candidates(preferred))
         {
@@ -535,6 +549,21 @@ namespace
             std::vector<std::string> local_hosts{};
             std::vector<std::string> remote_hosts{};
             std::vector<std::string> remote_publics{};
+            std::vector<std::pair<std::string, std::string>> fallback_direct_candidates{};
+            auto append_fallback_candidate = [&](const std::string& ip, const std::string& source) {
+                if (!parse_ipv4_octets(ip).has_value())
+                {
+                    return;
+                }
+                for (const auto& existing : fallback_direct_candidates)
+                {
+                    if (existing.first == ip)
+                    {
+                        return;
+                    }
+                }
+                fallback_direct_candidates.emplace_back(ip, source);
+            };
             std::istringstream lines{content};
             std::string line{};
             while (std::getline(lines, line))
@@ -543,37 +572,53 @@ namespace
                 const bool remote_line =
                     line.find("SetRemoteIceData") != std::string::npos ||
                     line.find("Added remote candidates") != std::string::npos;
-                if (!local_line && !remote_line)
+                if (local_line || remote_line)
                 {
-                    continue;
+                    for (auto it = std::sregex_iterator(line.begin(), line.end(), candidate_rx);
+                         it != std::sregex_iterator{};
+                         ++it)
+                    {
+                        if (it->size() < 4)
+                        {
+                            continue;
+                        }
+                        const auto ip = (*it)[1].str();
+                        auto type = (*it)[3].str();
+                        std::transform(type.begin(), type.end(), type.begin(), [](unsigned char c) {
+                            return static_cast<char>(std::tolower(c));
+                        });
+
+                        if (local_line && type == "host")
+                        {
+                            append_unique_ip(local_hosts, ip);
+                        }
+                        else if (remote_line && type == "host")
+                        {
+                            append_unique_ip(remote_hosts, ip);
+                        }
+                        else if (remote_line && type == "srflx" && is_public_ipv4(ip))
+                        {
+                            append_unique_ip(remote_publics, ip);
+                        }
+                    }
                 }
 
-                for (auto it = std::sregex_iterator(line.begin(), line.end(), candidate_rx);
-                     it != std::sregex_iterator{};
-                     ++it)
+                std::smatch direct_match{};
+                if (std::regex_search(line, direct_match, direct_server_address_rx) && direct_match.size() >= 2)
                 {
-                    if (it->size() < 4)
-                    {
-                        continue;
-                    }
-                    const auto ip = (*it)[1].str();
-                    auto type = (*it)[3].str();
-                    std::transform(type.begin(), type.end(), type.begin(), [](unsigned char c) {
-                        return static_cast<char>(std::tolower(c));
-                    });
-
-                    if (local_line && type == "host")
-                    {
-                        append_unique_ip(local_hosts, ip);
-                    }
-                    else if (remote_line && type == "host")
-                    {
-                        append_unique_ip(remote_hosts, ip);
-                    }
-                    else if (remote_line && type == "srflx" && is_public_ipv4(ip))
-                    {
-                        append_unique_ip(remote_publics, ip);
-                    }
+                    append_fallback_candidate(direct_match[1].str(), "start_direct_connection");
+                }
+                if (std::regex_search(line, direct_match, browse_endpoint_rx) && direct_match.size() >= 2)
+                {
+                    append_fallback_candidate(direct_match[1].str(), "browse_endpoint");
+                }
+                if (std::regex_search(line, direct_match, loadmap_endpoint_rx) && direct_match.size() >= 2)
+                {
+                    append_fallback_candidate(direct_match[1].str(), "loadmap_endpoint");
+                }
+                if (std::regex_search(line, direct_match, remoteaddr_endpoint_rx) && direct_match.size() >= 2)
+                {
+                    append_fallback_candidate(direct_match[1].str(), "remoteaddr_endpoint");
                 }
             }
 
@@ -582,6 +627,7 @@ namespace
             result.remote_host_candidate = remote_hosts.empty() ? std::string{} : remote_hosts.front();
             result.remote_public_candidate = remote_publics.empty() ? std::string{} : remote_publics.front();
             result.local_host_summary = summarize_ips(local_hosts);
+            result.fallback_direct_candidates = fallback_direct_candidates;
 
             bool same_machine = false;
             for (const auto& remote_host : remote_hosts)
@@ -595,6 +641,7 @@ namespace
 
             if (same_machine)
             {
+                result.same_machine_evidence = true;
                 append_unique_ip(result.ordered_candidates, "127.0.0.1");
                 for (const auto& remote_host : remote_hosts)
                 {
@@ -665,6 +712,148 @@ namespace
                 result.host = result.ordered_candidates.front();
                 result.reason = is_public_ipv4(result.host) ? "public_srflx_candidate" : "remote_host_fallback";
                 return result;
+            }
+
+            if (!fallback_direct_candidates.empty())
+            {
+                std::vector<std::string> same_machine_hosts{};
+                std::vector<std::string> same_lan_hosts_from_direct{};
+                std::vector<std::string> public_hosts_from_direct{};
+                std::vector<std::string> other_hosts_from_direct{};
+                for (const auto& entry : fallback_direct_candidates)
+                {
+                    const auto& ip = entry.first;
+                    const bool same_machine_direct =
+                        ip == "127.0.0.1" ||
+                        std::find(local_hosts.begin(), local_hosts.end(), ip) != local_hosts.end();
+                    if (same_machine_direct)
+                    {
+                        append_unique_ip(same_machine_hosts, ip);
+                        continue;
+                    }
+                    if (is_private_candidate_on_local_subnet(ip, local_hosts))
+                    {
+                        if (is_private_ipv4(ip))
+                        {
+                            append_unique_ip(same_lan_hosts_from_direct, ip);
+                        }
+                        else if (is_public_ipv4(ip))
+                        {
+                            append_unique_ip(public_hosts_from_direct, ip);
+                        }
+                        else
+                        {
+                            append_unique_ip(other_hosts_from_direct, ip);
+                        }
+                        continue;
+                    }
+                    if (is_public_ipv4(ip))
+                    {
+                        append_unique_ip(public_hosts_from_direct, ip);
+                    }
+                    else
+                    {
+                        append_unique_ip(other_hosts_from_direct, ip);
+                    }
+                }
+
+                if (!same_machine_hosts.empty())
+                {
+                    result.same_machine_evidence = true;
+                    for (const auto& ip : same_machine_hosts)
+                    {
+                        append_unique_ip(result.ordered_candidates, ip);
+                    }
+                    for (const auto& ip : same_lan_hosts_from_direct)
+                    {
+                        append_unique_ip(result.ordered_candidates, ip);
+                    }
+                    for (const auto& ip : public_hosts_from_direct)
+                    {
+                        append_unique_ip(result.ordered_candidates, ip);
+                    }
+                    for (const auto& ip : other_hosts_from_direct)
+                    {
+                        append_unique_ip(result.ordered_candidates, ip);
+                    }
+                    result.found = !result.ordered_candidates.empty();
+                    if (result.found)
+                    {
+                        result.host = result.ordered_candidates.front();
+                        result.reason = "same_machine_direct_connect_candidate";
+                        if (result.remote_host_candidate.empty())
+                        {
+                            result.remote_host_candidate = result.host;
+                        }
+                        return result;
+                    }
+                }
+
+                if (!same_lan_hosts_from_direct.empty())
+                {
+                    for (const auto& ip : same_lan_hosts_from_direct)
+                    {
+                        append_unique_ip(result.ordered_candidates, ip);
+                    }
+                    for (const auto& ip : public_hosts_from_direct)
+                    {
+                        append_unique_ip(result.ordered_candidates, ip);
+                    }
+                    for (const auto& ip : other_hosts_from_direct)
+                    {
+                        append_unique_ip(result.ordered_candidates, ip);
+                    }
+                    result.found = !result.ordered_candidates.empty();
+                    if (result.found)
+                    {
+                        result.host = result.ordered_candidates.front();
+                        result.reason = "same_lan_direct_connect_candidate";
+                        if (result.remote_host_candidate.empty())
+                        {
+                            result.remote_host_candidate = result.host;
+                        }
+                        return result;
+                    }
+                }
+
+                if (!public_hosts_from_direct.empty())
+                {
+                    for (const auto& ip : public_hosts_from_direct)
+                    {
+                        append_unique_ip(result.ordered_candidates, ip);
+                    }
+                    for (const auto& ip : other_hosts_from_direct)
+                    {
+                        append_unique_ip(result.ordered_candidates, ip);
+                    }
+                    result.found = !result.ordered_candidates.empty();
+                    if (result.found)
+                    {
+                        result.host = result.ordered_candidates.front();
+                        result.reason = "public_direct_connect_candidate";
+                        if (result.remote_host_candidate.empty())
+                        {
+                            result.remote_host_candidate = result.host;
+                        }
+                        return result;
+                    }
+                }
+
+                for (const auto& ip : other_hosts_from_direct)
+                {
+                    append_unique_ip(result.ordered_candidates, ip);
+                }
+                if (!result.ordered_candidates.empty())
+                {
+                    result.found = true;
+                    result.host = result.ordered_candidates.front();
+                    result.reason = "direct_connect_fallback";
+                    if (result.remote_host_candidate.empty())
+                    {
+                        result.remote_host_candidate = result.host;
+                    }
+                    return result;
+                }
             }
         }
 
@@ -3961,7 +4150,9 @@ namespace WindroseTextSigns
         m_role_lock_world_id.clear();
         m_bridge_route_lock_acquired = false;
         m_bridge_route_locked_host.clear();
+        m_bridge_route_loopback_same_machine_ok = false;
         m_bridge_route_rejected_candidates_logged.clear();
+        m_bridge_route_fallback_candidates_logged.clear();
         m_bridge_route_bootstrap_pause_logged = false;
         log_line("[session] bootstrap_begin stage=startup");
         log_line("[startup] WindroseTextSigns initialized");
@@ -8791,9 +8982,11 @@ namespace WindroseTextSigns
         m_bridge_route_last_switch = {};
         m_bridge_route_lock_acquired = false;
         m_bridge_route_locked_host.clear();
+        m_bridge_route_loopback_same_machine_ok = false;
         m_bridge_route_force_non_loopback = false;
         m_bridge_route_recovery_logged = false;
         m_bridge_route_rejected_candidates_logged.clear();
+        m_bridge_route_fallback_candidates_logged.clear();
         m_bridge_route_bootstrap_pause_logged = false;
         m_bridge_upnp_timeout_logged = false;
         if (desired != BridgeRole::DedicatedServer && desired != BridgeRole::ListenHost)
@@ -9931,6 +10124,16 @@ namespace WindroseTextSigns
             m_bridge_route_log_path = discovered.log_path;
         }
 
+        for (const auto& fallback : discovered.fallback_direct_candidates)
+        {
+            const std::string key = fallback.first + "|" + fallback.second;
+            if (m_bridge_route_fallback_candidates_logged.insert(key).second)
+            {
+                log_line("[bridge-route] fallback_direct_connect_candidate host=" + fallback.first +
+                         " source=" + fallback.second);
+            }
+        }
+
         if (!discovered.found || discovered.host.empty())
         {
             log_line("[bridge-route] waiting reason=no_candidate logPath=" +
@@ -9953,6 +10156,14 @@ namespace WindroseTextSigns
         viable_candidates.reserve(ordered_candidates.size());
         for (const auto& candidate : ordered_candidates)
         {
+            if (candidate == "127.0.0.1" && !discovered.same_machine_evidence)
+            {
+                if (m_bridge_route_rejected_candidates_logged.insert("127.0.0.1:no_same_machine_evidence").second)
+                {
+                    log_line("[bridge-route] candidate_rejected host=127.0.0.1 reason=loopback_without_same_machine_evidence");
+                }
+                continue;
+            }
             if (candidate == "127.0.0.1" && m_bridge_route_force_non_loopback)
             {
                 if (m_bridge_route_rejected_candidates_logged.insert("127.0.0.1:force_non_loopback").second)
@@ -10009,6 +10220,8 @@ namespace WindroseTextSigns
             // Keep low-noise route handling deterministic: lock to the first viable route.
             m_bridge_route_lock_acquired = true;
             m_bridge_route_locked_host = selected_host;
+            m_bridge_route_loopback_same_machine_ok =
+                (selected_host == "127.0.0.1" && discovered.same_machine_evidence);
             log_line("[bridge-route] lock_acquired host=" + m_bridge_route_locked_host +
                      " reason=first_viable_candidate");
             trace_behavior_sm("route_lock_acquired",
@@ -10034,6 +10247,8 @@ namespace WindroseTextSigns
 
         m_bridge_route_lock_acquired = true;
         m_bridge_route_locked_host = selected_host;
+        m_bridge_route_loopback_same_machine_ok =
+            (selected_host == "127.0.0.1" && discovered.same_machine_evidence);
         log_line("[bridge-route] discovered host=" + m_bridge_remote_server_host +
                  " reason=" + discovered.reason +
                  " port=" + std::to_string(m_bridge_udp_port) +
@@ -10066,6 +10281,31 @@ namespace WindroseTextSigns
         }
     }
 
+    auto SignTextMod::has_viable_remote_route_for_snapshot() const -> bool
+    {
+        if (m_bridge_role != BridgeRole::RemoteClient)
+        {
+            return false;
+        }
+        if (!m_bridge_route_auto_enabled)
+        {
+            return !m_bridge_remote_server_host.empty();
+        }
+        if (!m_bridge_route_lock_acquired || m_bridge_route_locked_host.empty())
+        {
+            return false;
+        }
+        if (m_bridge_route_locked_host != m_bridge_remote_server_host)
+        {
+            return false;
+        }
+        if (m_bridge_route_locked_host == "127.0.0.1" && !m_bridge_route_loopback_same_machine_ok)
+        {
+            return false;
+        }
+        return true;
+    }
+
     auto SignTextMod::is_bootstrap_resolution_window_active(const std::chrono::steady_clock::time_point now) const -> bool
     {
         constexpr auto k_bootstrap_resolution_window = std::chrono::seconds(45);
@@ -10089,7 +10329,9 @@ namespace WindroseTextSigns
         m_role_lock_world_id.clear();
         m_bridge_route_lock_acquired = false;
         m_bridge_route_locked_host.clear();
+        m_bridge_route_loopback_same_machine_ok = false;
         m_bridge_route_rejected_candidates_logged.clear();
+        m_bridge_route_fallback_candidates_logged.clear();
         m_bridge_route_bootstrap_pause_logged = false;
         m_bridge_route_force_non_loopback = false;
         m_bridge_route_recovery_logged = false;
@@ -10162,6 +10404,15 @@ namespace WindroseTextSigns
             m_bridge_snapshot_world_id.clear();
         }
 
+        if (!has_viable_remote_route_for_snapshot())
+        {
+            m_bridge_health_unhealthy = false;
+            m_bridge_health_warning_logged = false;
+            m_bridge_snapshot_retry_attempts = 0;
+            m_bridge_sync_wait_started = {};
+            return;
+        }
+
         if (snapshot_current_world)
         {
             m_bridge_health_unhealthy = false;
@@ -10193,12 +10444,14 @@ namespace WindroseTextSigns
                 m_bridge_route_retry_consumed = true;
                 m_bridge_route_lock_acquired = false;
                 m_bridge_route_locked_host.clear();
+                m_bridge_route_loopback_same_machine_ok = false;
                 m_bridge_route_bootstrap_pause_logged = false;
                 m_bridge_route_next_check = now;
                 m_bridge_next_snapshot_request = now;
                 log_line("[bridge-route] retry_reselect reason=no_snapshot_ack waitedSec=" + std::to_string(waited_sec));
             }
-            if (m_bridge_remote_server_host == "127.0.0.1")
+            if (m_bridge_remote_server_host == "127.0.0.1" &&
+                !m_bridge_route_loopback_same_machine_ok)
             {
                 if (!m_bridge_route_force_non_loopback)
                 {
@@ -10270,12 +10523,19 @@ namespace WindroseTextSigns
         update_bridge_health(now);
         if (m_bridge_role == BridgeRole::RemoteClient && now >= m_bridge_next_snapshot_request)
         {
-            const bool bootstrap_window_active = is_bootstrap_resolution_window_active(now);
-            const std::string request_reason = m_bridge_snapshot_received
-                ? "periodic_sync"
-                : (bootstrap_window_active ? "initial_sync" : "post_bootstrap_sync");
-            send_bridge_snapshot_request(request_reason);
-            m_bridge_next_snapshot_request = now + next_snapshot_retry_delay();
+            if (!has_viable_remote_route_for_snapshot())
+            {
+                m_bridge_next_snapshot_request = now + std::chrono::seconds(5);
+            }
+            else
+            {
+                const bool bootstrap_window_active = is_bootstrap_resolution_window_active(now);
+                const std::string request_reason = m_bridge_snapshot_received
+                    ? "periodic_sync"
+                    : (bootstrap_window_active ? "initial_sync" : "post_bootstrap_sync");
+                send_bridge_snapshot_request(request_reason);
+                m_bridge_next_snapshot_request = now + next_snapshot_retry_delay();
+            }
         }
         maybe_acquire_role_lock(now, "tick");
 
@@ -11197,10 +11457,30 @@ namespace WindroseTextSigns
         {
             return;
         }
+        const auto log_restore_skip_guard = [&](const std::string& reason, const std::chrono::milliseconds remaining) {
+            const auto remaining_ms = static_cast<int64_t>(std::max<int64_t>(0, remaining.count()));
+            const uint32_t remaining_bucket_sec = static_cast<uint32_t>((remaining_ms + 999) / 1000);
+            const std::string bucket_key = key + "|" + reason;
+            const auto existing = m_restore_skip_guard_log_buckets.find(bucket_key);
+            if (existing != m_restore_skip_guard_log_buckets.end() && existing->second == remaining_bucket_sec)
+            {
+                return;
+            }
+            m_restore_skip_guard_log_buckets[bucket_key] = remaining_bucket_sec;
+            log_line("[save] restore_skip key=" + key +
+                     " stableId=" + stable_id +
+                     " worldId=" + actor_world_id +
+                     " reason=" + reason +
+                     " remainingGuardMs=" + std::to_string(remaining_ms));
+        };
+
         if (const auto suspect = m_suspect_rebuild_states.find(key); suspect != m_suspect_rebuild_states.end())
         {
-            if (std::chrono::steady_clock::now() < suspect->second.suppress_until)
+            const auto now = std::chrono::steady_clock::now();
+            if (now < suspect->second.suppress_until)
             {
+                const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(suspect->second.suppress_until - now);
+                log_restore_skip_guard("suspect_rebuild_active", remaining);
                 trace_behavior_sm("restore_suppressed",
                                   "key=" + key + " reason=suspect_rebuild_active");
                 return;
@@ -11210,8 +11490,11 @@ namespace WindroseTextSigns
         {
             if (const auto retry = m_phase4_next_retry.find(key); retry != m_phase4_next_retry.end())
             {
-                if (std::chrono::steady_clock::now() < retry->second)
+                const auto now = std::chrono::steady_clock::now();
+                if (now < retry->second)
                 {
+                    const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(retry->second - now);
+                    log_restore_skip_guard("retry_guard_active", remaining);
                     trace_behavior_sm("restore_suppressed",
                                       "key=" + key + " reason=retry_guard_active");
                     return;
@@ -12059,19 +12342,25 @@ namespace WindroseTextSigns
         {
             state.stable_id = stable_id;
             state.world_id = world_id;
+            state.session_epoch = m_session_epoch;
             state.old_actor_ptr = old_actor_ptr;
             state.replacement_actor_ptr = new_actor_ptr;
             state.stable_scan_hits = 1;
+            state.live_scans_post_ready = 0;
+            state.last_live_scan_cycle = 0;
+            state.unsuppress_fallback_issued = false;
             state.first_detected = now;
             log_line("[save] suspect_rebuild mark key=" + key +
                      " stableId=" + stable_id +
                      " worldId=" + world_id +
+                     " epoch=" + std::to_string(m_session_epoch) +
                      " oldPtr=" + std::to_string(static_cast<unsigned long long>(old_actor_ptr)) +
                      " newPtr=" + std::to_string(static_cast<unsigned long long>(new_actor_ptr)));
             trace_behavior_sm("suspect_rebuild_mark",
                               "key=" + key +
                               " stableId=" + stable_id +
-                              " worldId=" + world_id);
+                              " worldId=" + world_id +
+                              " epoch=" + std::to_string(m_session_epoch));
         }
         else
         {
@@ -12109,18 +12398,38 @@ namespace WindroseTextSigns
         const std::string& key,
         const std::string& stable_id,
         const std::string& world_id,
-        const std::chrono::steady_clock::time_point now) -> bool
+        const std::chrono::steady_clock::time_point now) -> SuspectRebuildDecision
     {
         auto found = m_suspect_rebuild_states.find(key);
         if (found == m_suspect_rebuild_states.end())
         {
-            return false;
+            return SuspectRebuildDecision::None;
         }
 
-        const auto& state = found->second;
+        auto& state = found->second;
         if (state.first_detected.time_since_epoch().count() == 0)
         {
-            return false;
+            return SuspectRebuildDecision::None;
+        }
+        if (state.session_epoch != m_session_epoch ||
+            state.world_id != world_id ||
+            state.stable_id != stable_id)
+        {
+            return SuspectRebuildDecision::None;
+        }
+
+        const bool hosted_localclient =
+            !is_dedicated_runtime_process() &&
+            m_sidecar_authoritative &&
+            m_bridge_role == BridgeRole::ListenHost;
+
+        if (hosted_localclient && m_session_ready_latched)
+        {
+            if (state.last_live_scan_cycle != m_restore_scan_cycle_counter)
+            {
+                state.last_live_scan_cycle = m_restore_scan_cycle_counter;
+                ++state.live_scans_post_ready;
+            }
         }
 
         if (has_recent_destroy_confirmation(stable_id, world_id))
@@ -12136,7 +12445,7 @@ namespace WindroseTextSigns
                               " worldId=" + world_id +
                               " reason=destroy_confirmed_r5log");
             m_suspect_rebuild_states.erase(found);
-            return true;
+            return SuspectRebuildDecision::PromotePrune;
         }
 
         const bool old_actor_gone = !is_actor_pointer_live(reinterpret_cast<AActor*>(state.old_actor_ptr));
@@ -12147,13 +12456,18 @@ namespace WindroseTextSigns
             (m_last_player_activity.time_since_epoch().count() != 0 &&
              (now - m_last_player_activity) <= std::chrono::seconds(20)) ||
             m_hosted_ready_sequence_complete;
+        const bool trusted_context =
+            m_session_ready_latched &&
+            state.session_epoch == m_session_epoch &&
+            state.world_id == world_id;
 
-        if (old_actor_gone && replacement_live && stable_replacement && matured && gameplay_window_active)
+        if (trusted_context &&
+            old_actor_gone &&
+            replacement_live &&
+            stable_replacement &&
+            matured &&
+            gameplay_window_active)
         {
-            const bool hosted_localclient =
-                !is_dedicated_runtime_process() &&
-                m_sidecar_authoritative &&
-                m_bridge_role == BridgeRole::ListenHost;
             const std::string reason = hosted_localclient ? "destroy_confirmed_inprocess_hosted" : "inprocess_confirmation";
             log_line("[save] suspect_rebuild confirmed key=" + key +
                      " stableId=" + stable_id +
@@ -12166,9 +12480,32 @@ namespace WindroseTextSigns
                               " worldId=" + world_id +
                               " reason=" + reason);
             m_suspect_rebuild_states.erase(found);
-            return true;
+            return SuspectRebuildDecision::PromotePrune;
         }
-        return false;
+
+        constexpr uint32_t k_hosted_unsuppress_scans = 3;
+        if (hosted_localclient &&
+            m_session_ready_latched &&
+            !state.unsuppress_fallback_issued &&
+            state.live_scans_post_ready >= k_hosted_unsuppress_scans)
+        {
+            state.unsuppress_fallback_issued = true;
+            state.suppress_until = now;
+            log_line("[save] suspect_rebuild unsuppress_fallback key=" + key +
+                     " stableId=" + stable_id +
+                     " worldId=" + world_id +
+                     " epoch=" + std::to_string(state.session_epoch) +
+                     " scansPostReady=" + std::to_string(state.live_scans_post_ready) +
+                     " reason=live_stable_no_trusted_destroy_confirmation");
+            trace_behavior_sm("suspect_rebuild_unsuppress_fallback",
+                              "key=" + key +
+                              " stableId=" + stable_id +
+                              " worldId=" + world_id +
+                              " scansPostReady=" + std::to_string(state.live_scans_post_ready));
+            return SuspectRebuildDecision::UnsuppressRestoreOnce;
+        }
+
+        return SuspectRebuildDecision::None;
     }
 
     auto SignTextMod::tick_localclient_role_resolution() -> void
@@ -12457,6 +12794,7 @@ namespace WindroseTextSigns
         m_world_inactive_since = {};
         m_ready_baseline_live_keys.clear();
         m_ready_baseline_capture_remaining_scans = 0;
+        m_restore_skip_guard_log_buckets.clear();
         m_bridge_route_retry_consumed = false;
         reset_visual_verify_debug_state();
         reset_role_route_locks("session_reset_" + reason);
@@ -13348,6 +13686,7 @@ namespace WindroseTextSigns
                 }
                 const auto actor_ptr = reinterpret_cast<uintptr_t>(actor);
                 bool pruned_rebuilt_label = false;
+                bool forced_unsuppress_restore_once = false;
                 if (m_restore_scan_has_seen_live_labels)
                 {
                     if (const auto ptr_it = m_live_label_actor_ptrs.find(key);
@@ -13406,40 +13745,43 @@ namespace WindroseTextSigns
                                 m_suspect_rebuild_states.erase(key);
                                 pruned_rebuilt_label = true;
                             }
-                            else if (localclient_authoritative &&
-                                     maybe_promote_suspect_rebuild_to_prune(
-                                         key,
-                                         found->second.stable_id,
-                                         found->second.world_id,
-                                         now))
+                            else if (localclient_authoritative)
                             {
-                                log_line("[save] prune_rebuilt_label key=" + key +
-                                         " stableId=" + found->second.stable_id +
-                                         " worldId=" + found->second.world_id +
-                                         " reason=suspect_rebuild_confirmed" +
-                                         " trustedDestroyConfirmed=true" +
-                                         " missCount=" + std::to_string(miss_count));
-                                trace_behavior_sm("prune_commit",
-                                                  "path=restore_scan_rebuild key=" + key +
-                                                  " stableId=" + found->second.stable_id +
-                                                  " worldId=" + found->second.world_id +
-                                                  " reason=suspect_rebuild_confirmed trustedDestroyConfirmed=true");
-                                if (m_sidecar_authoritative)
+                                const auto suspect_decision = maybe_promote_suspect_rebuild_to_prune(
+                                    key,
+                                    found->second.stable_id,
+                                    found->second.world_id,
+                                    now);
+                                if (suspect_decision == SuspectRebuildDecision::PromotePrune)
                                 {
-                                    broadcast_bridge_clear(found->second.stable_id, found->second.world_id, "prune_rebuilt_label");
+                                    log_line("[save] prune_rebuilt_label key=" + key +
+                                             " stableId=" + found->second.stable_id +
+                                             " worldId=" + found->second.world_id +
+                                             " reason=suspect_rebuild_confirmed" +
+                                             " trustedDestroyConfirmed=true" +
+                                             " missCount=" + std::to_string(miss_count));
+                                    trace_behavior_sm("prune_commit",
+                                                      "path=restore_scan_rebuild key=" + key +
+                                                      " stableId=" + found->second.stable_id +
+                                                      " worldId=" + found->second.world_id +
+                                                      " reason=suspect_rebuild_confirmed trustedDestroyConfirmed=true");
+                                    if (m_sidecar_authoritative)
+                                    {
+                                        broadcast_bridge_clear(found->second.stable_id, found->second.world_id, "prune_rebuilt_label");
+                                    }
+                                    m_labels.erase(found);
+                                    m_rendered_text_cache.erase(key);
+                                    m_component_name_cache.erase(key);
+                                    m_phase4_next_retry.erase(key);
+                                    m_missing_label_scan_counts.erase(key);
+                                    if (m_text_buffer_bound_key == key)
+                                    {
+                                        m_text_buffer.fill('\0');
+                                        m_text_buffer_bound_key.clear();
+                                    }
+                                    save_sidecar_json("prune_rebuilt_label", key, stable_id, world_id);
+                                    pruned_rebuilt_label = true;
                                 }
-                                m_labels.erase(found);
-                                m_rendered_text_cache.erase(key);
-                                m_component_name_cache.erase(key);
-                                m_phase4_next_retry.erase(key);
-                                m_missing_label_scan_counts.erase(key);
-                                if (m_text_buffer_bound_key == key)
-                                {
-                                    m_text_buffer.fill('\0');
-                                    m_text_buffer_bound_key.clear();
-                                }
-                                save_sidecar_json("prune_rebuilt_label", key, stable_id, world_id);
-                                pruned_rebuilt_label = true;
                             }
                             else if (localclient_authoritative && !localclient_prune_ready)
                             {
@@ -13569,41 +13911,59 @@ namespace WindroseTextSigns
                 m_missing_label_scan_counts.erase(key);
                 if (!pruned_rebuilt_label)
                 {
-                    if (localclient_authoritative &&
-                        maybe_promote_suspect_rebuild_to_prune(
+                    if (localclient_authoritative)
+                    {
+                        const auto suspect_decision = maybe_promote_suspect_rebuild_to_prune(
                             key,
                             stable_id,
                             world_id,
-                            now))
-                    {
-                        if (const auto found = m_labels.find(key); found != m_labels.end())
+                            now);
+                        if (suspect_decision == SuspectRebuildDecision::PromotePrune)
                         {
-                            log_line("[save] prune_rebuilt_label key=" + key +
-                                     " stableId=" + found->second.stable_id +
-                                     " worldId=" + found->second.world_id +
-                                     " reason=suspect_rebuild_confirmed" +
-                                     " trustedDestroyConfirmed=true" +
-                                     " missCount=0");
-                            trace_behavior_sm("prune_commit",
-                                              "path=restore_scan_rebuild key=" + key +
-                                              " stableId=" + found->second.stable_id +
-                                              " worldId=" + found->second.world_id +
-                                              " reason=suspect_rebuild_confirmed trustedDestroyConfirmed=true");
-                            if (m_sidecar_authoritative)
+                            if (const auto found = m_labels.find(key); found != m_labels.end())
                             {
-                                broadcast_bridge_clear(found->second.stable_id, found->second.world_id, "prune_rebuilt_label");
+                                log_line("[save] prune_rebuilt_label key=" + key +
+                                         " stableId=" + found->second.stable_id +
+                                         " worldId=" + found->second.world_id +
+                                         " reason=suspect_rebuild_confirmed" +
+                                         " trustedDestroyConfirmed=true" +
+                                         " missCount=0");
+                                trace_behavior_sm("prune_commit",
+                                                  "path=restore_scan_rebuild key=" + key +
+                                                  " stableId=" + found->second.stable_id +
+                                                  " worldId=" + found->second.world_id +
+                                                  " reason=suspect_rebuild_confirmed trustedDestroyConfirmed=true");
+                                if (m_sidecar_authoritative)
+                                {
+                                    broadcast_bridge_clear(found->second.stable_id, found->second.world_id, "prune_rebuilt_label");
+                                }
+                                m_labels.erase(found);
+                                m_rendered_text_cache.erase(key);
+                                m_component_name_cache.erase(key);
+                                m_phase4_next_retry.erase(key);
+                                if (m_text_buffer_bound_key == key)
+                                {
+                                    m_text_buffer.fill('\0');
+                                    m_text_buffer_bound_key.clear();
+                                }
+                                save_sidecar_json("prune_rebuilt_label", key, stable_id, world_id);
+                                pruned_rebuilt_label = true;
                             }
-                            m_labels.erase(found);
-                            m_rendered_text_cache.erase(key);
-                            m_component_name_cache.erase(key);
+                        }
+                        else if (suspect_decision == SuspectRebuildDecision::UnsuppressRestoreOnce)
+                        {
                             m_phase4_next_retry.erase(key);
-                            if (m_text_buffer_bound_key == key)
-                            {
-                                m_text_buffer.fill('\0');
-                                m_text_buffer_bound_key.clear();
-                            }
-                            save_sidecar_json("prune_rebuilt_label", key, stable_id, world_id);
-                            pruned_rebuilt_label = true;
+                            forced_unsuppress_restore_once = true;
+                            log_line("[save] prune_rebuilt_label deferred key=" + key +
+                                     " stableId=" + stable_id +
+                                     " worldId=" + world_id +
+                                     " reason=suspect_unsuppress_fallback" +
+                                     " trustedDestroyConfirmed=false");
+                            trace_behavior_sm("prune_deferred",
+                                              "path=restore_scan_rebuild key=" + key +
+                                              " stableId=" + stable_id +
+                                              " worldId=" + world_id +
+                                              " reason=suspect_unsuppress_fallback trustedDestroyConfirmed=false");
                         }
                     }
                 }
@@ -13618,7 +13978,14 @@ namespace WindroseTextSigns
                         is_ready_baseline_key);
                     if (!stale_restore_blocked)
                     {
-                        restore_known_text_if_any(actor, stable_id);
+                        if (forced_unsuppress_restore_once)
+                        {
+                            restore_known_text_if_any(actor, stable_id, true);
+                        }
+                        else
+                        {
+                            restore_known_text_if_any(actor, stable_id);
+                        }
                     }
                 }
                 return LoopAction::Continue;

@@ -152,6 +152,12 @@ namespace WindroseTextSigns
         auto tick_r5_readiness_markers() -> void;
         auto refresh_recent_destroy_signals_from_r5_log() -> void;
         auto has_recent_destroy_confirmation(const std::string& stable_id, const std::string& expected_world_id) -> bool;
+        enum class SuspectRebuildDecision
+        {
+            None,
+            PromotePrune,
+            UnsuppressRestoreOnce
+        };
         auto mark_suspect_rebuild(
             const std::string& key,
             const std::string& stable_id,
@@ -164,7 +170,7 @@ namespace WindroseTextSigns
             const std::string& key,
             const std::string& stable_id,
             const std::string& world_id,
-            std::chrono::steady_clock::time_point now) -> bool;
+            std::chrono::steady_clock::time_point now) -> SuspectRebuildDecision;
         auto maybe_handle_new_construct_overrides_stale_record(
             RC::Unreal::AActor* actor,
             const std::string& key,
@@ -248,6 +254,7 @@ namespace WindroseTextSigns
         auto tick_bridge_route_discovery() -> void;
         auto reset_bridge_snapshot_state(const std::string& reason) -> void;
         auto mark_bridge_healthy(const std::string& reason) -> void;
+        auto has_viable_remote_route_for_snapshot() const -> bool;
         auto update_bridge_health(std::chrono::steady_clock::time_point now) -> void;
         auto is_bootstrap_resolution_window_active(std::chrono::steady_clock::time_point now) const -> bool;
         auto maybe_acquire_role_lock(std::chrono::steady_clock::time_point now, const std::string& reason) -> void;
@@ -342,10 +349,12 @@ namespace WindroseTextSigns
         size_t m_bridge_route_candidate_index{0};
         bool m_bridge_route_lock_acquired{false};
         std::string m_bridge_route_locked_host{};
+        bool m_bridge_route_loopback_same_machine_ok{false};
         bool m_bridge_route_retry_consumed{false};
         bool m_bridge_route_force_non_loopback{false};
         bool m_bridge_route_recovery_logged{false};
         std::unordered_set<std::string> m_bridge_route_rejected_candidates_logged{};
+        std::unordered_set<std::string> m_bridge_route_fallback_candidates_logged{};
         bool m_bridge_route_bootstrap_pause_logged{false};
         int m_bridge_udp_port{45801};
         bool m_bridge_upnp_enabled{false};
@@ -479,14 +488,19 @@ namespace WindroseTextSigns
         {
             std::string stable_id{};
             std::string world_id{};
+            uint64_t session_epoch{0};
             uintptr_t old_actor_ptr{0};
             uintptr_t replacement_actor_ptr{0};
             uint32_t stable_scan_hits{0};
+            uint32_t live_scans_post_ready{0};
+            uint64_t last_live_scan_cycle{0};
+            bool unsuppress_fallback_issued{false};
             std::chrono::steady_clock::time_point first_detected{};
             std::chrono::steady_clock::time_point last_seen{};
             std::chrono::steady_clock::time_point suppress_until{};
         };
         std::unordered_map<std::string, SuspectRebuildState> m_suspect_rebuild_states{};
+        std::unordered_map<std::string, uint32_t> m_restore_skip_guard_log_buckets{};
         std::filesystem::path m_destroy_signal_log_path{};
         uintmax_t m_destroy_signal_log_offset{0};
         bool m_destroy_signal_log_initialized{false};
