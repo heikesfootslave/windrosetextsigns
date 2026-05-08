@@ -4037,6 +4037,7 @@ namespace WindroseTextSigns
         m_player_marker_replication_probe_action_trigger_enabled = is_player_marker_replication_probe_action_trigger_enabled();
         m_verbose_log = config_bool_value("WTS_VERBOSE_LOG", false);
         m_behavior_trace_enabled = config_bool_value("WTS_BEHAVIOR_TRACE_ENABLED", false);
+        m_visual_verify_debug_force_reapply = config_bool_value("WTS_VISUAL_VERIFY_DEBUG_FORCE_REAPPLY", false);
         m_world_text_font_enabled = config_bool_value("WTS_WORLD_TEXT_FONT_ENABLED", false);
         m_player_marker_replication_probe_action_tokens = config_string_value(
             "WTS_PLAYER_MARKER_REPLICATION_PROBE_ACTION_TOKENS",
@@ -5037,6 +5038,259 @@ namespace WindroseTextSigns
         return found_return;
     }
 
+    auto invoke_get_text_render_value(UObject* context, std::string& out_text) -> bool
+    {
+        auto* fn = find_function_by_chain_or_path(
+            context,
+            STR("GetText"),
+            STR("/Script/Engine.TextRenderComponent:GetText"));
+        if (!context || !fn)
+        {
+            return false;
+        }
+
+        std::vector<uint8_t> params(static_cast<size_t>(std::max<int32_t>(fn->GetStructureSize(), 64)), 0);
+        context->ProcessEvent(fn, params.data());
+
+        bool found_return = false;
+        for_each_property_in_chain_compat(fn, [&](FProperty* prop) {
+            if (found_return || !prop || !prop->HasAnyPropertyFlags(CPF_ReturnParm))
+            {
+                return;
+            }
+            if (prop->GetClass().HashObject() != FTextProperty::StaticClass().HashObject())
+            {
+                return;
+            }
+            auto* text_ptr = prop->ContainerPtrToValuePtr<FText>(params.data());
+            if (!text_ptr)
+            {
+                return;
+            }
+            out_text = RC::to_string(text_ptr->ToString());
+            found_return = true;
+        });
+        return found_return;
+    }
+
+    auto invoke_bool_return_with_float_param(
+        UObject* context,
+        const TCHAR* in_chain_name,
+        const TCHAR* path_name,
+        float value,
+        bool& out_value) -> bool
+    {
+        auto* fn = find_function_by_chain_or_path(context, in_chain_name, path_name);
+        if (!context || !fn)
+        {
+            return false;
+        }
+
+        std::vector<uint8_t> params(static_cast<size_t>(std::max<int32_t>(fn->GetStructureSize(), 64)), 0);
+        bool assigned = false;
+        for_each_property_in_chain_compat(fn, [&](FProperty* prop) {
+            if (!prop || prop->HasAnyPropertyFlags(CPF_ReturnParm) || prop->HasAnyPropertyFlags(CPF_OutParm))
+            {
+                return;
+            }
+            if (prop->GetClass().HashObject() == FFloatProperty::StaticClass().HashObject())
+            {
+                if (auto* value_ptr = prop->ContainerPtrToValuePtr<float>(params.data()))
+                {
+                    *value_ptr = value;
+                    assigned = true;
+                }
+            }
+        });
+        if (!assigned)
+        {
+            return false;
+        }
+
+        context->ProcessEvent(fn, params.data());
+        for_each_property_in_chain_compat(fn, [&](FProperty* prop) {
+            if (!prop || !prop->HasAnyPropertyFlags(CPF_ReturnParm))
+            {
+                return;
+            }
+            if (prop->GetClass().HashObject() == FBoolProperty::StaticClass().HashObject())
+            {
+                if (auto* value_ptr = prop->ContainerPtrToValuePtr<bool>(params.data()))
+                {
+                    out_value = *value_ptr;
+                }
+            }
+        });
+        return true;
+    }
+
+    auto invoke_project_world_to_screen(
+        UObject* player_controller,
+        const FVector& world_location,
+        float& out_x,
+        float& out_y,
+        bool& out_projected) -> bool
+    {
+        auto* fn = find_function_by_chain_or_path(
+            player_controller,
+            STR("ProjectWorldLocationToScreen"),
+            STR("/Script/Engine.PlayerController:ProjectWorldLocationToScreen"));
+        if (!player_controller || !fn)
+        {
+            return false;
+        }
+
+        std::vector<uint8_t> params(static_cast<size_t>(std::max<int32_t>(fn->GetStructureSize(), 128)), 0);
+        bool assigned_world_loc = false;
+        for_each_property_in_chain_compat(fn, [&](FProperty* prop) {
+            if (!prop)
+            {
+                return;
+            }
+            if (prop->HasAnyPropertyFlags(CPF_ReturnParm))
+            {
+                return;
+            }
+
+            const auto prop_name = lower_copy_ascii(RC::to_string(prop->GetName()));
+            if (prop->GetClass().HashObject() == FStructProperty::StaticClass().HashObject())
+            {
+                if ((prop_name.find("worldlocation") != std::string::npos || prop_name == "worldlocation") &&
+                    prop->GetSize() >= FVector::StaticSize())
+                {
+                    if (auto* loc_ptr = prop->ContainerPtrToValuePtr<FVector>(params.data()))
+                    {
+                        *loc_ptr = world_location;
+                        assigned_world_loc = true;
+                    }
+                    return;
+                }
+                if (prop->HasAnyPropertyFlags(CPF_OutParm))
+                {
+                    auto* storage = prop->ContainerPtrToValuePtr<void>(params.data());
+                    if (!storage)
+                    {
+                        return;
+                    }
+                    if (prop->GetSize() == 8)
+                    {
+                        auto* values = static_cast<float*>(storage);
+                        values[0] = 0.0f;
+                        values[1] = 0.0f;
+                    }
+                    else if (prop->GetSize() == 16)
+                    {
+                        auto* values = static_cast<double*>(storage);
+                        values[0] = 0.0;
+                        values[1] = 0.0;
+                    }
+                }
+            }
+            else if (prop->GetClass().HashObject() == FBoolProperty::StaticClass().HashObject() &&
+                     !prop->HasAnyPropertyFlags(CPF_OutParm))
+            {
+                // bPlayerViewportRelative=false for absolute viewport coordinates.
+                if (auto* bool_ptr = prop->ContainerPtrToValuePtr<bool>(params.data()))
+                {
+                    *bool_ptr = false;
+                }
+            }
+        });
+        if (!assigned_world_loc)
+        {
+            return false;
+        }
+
+        player_controller->ProcessEvent(fn, params.data());
+        out_projected = false;
+        out_x = 0.0f;
+        out_y = 0.0f;
+        for_each_property_in_chain_compat(fn, [&](FProperty* prop) {
+            if (!prop)
+            {
+                return;
+            }
+            if (prop->HasAnyPropertyFlags(CPF_ReturnParm) &&
+                prop->GetClass().HashObject() == FBoolProperty::StaticClass().HashObject())
+            {
+                if (auto* value_ptr = prop->ContainerPtrToValuePtr<bool>(params.data()))
+                {
+                    out_projected = *value_ptr;
+                }
+                return;
+            }
+            if (!prop->HasAnyPropertyFlags(CPF_OutParm))
+            {
+                return;
+            }
+            if (prop->GetClass().HashObject() != FStructProperty::StaticClass().HashObject())
+            {
+                return;
+            }
+
+            auto* storage = prop->ContainerPtrToValuePtr<void>(params.data());
+            if (!storage)
+            {
+                return;
+            }
+            if (prop->GetSize() == 8)
+            {
+                auto* values = static_cast<float*>(storage);
+                out_x = values[0];
+                out_y = values[1];
+            }
+            else if (prop->GetSize() == 16)
+            {
+                auto* values = static_cast<double*>(storage);
+                out_x = static_cast<float>(values[0]);
+                out_y = static_cast<float>(values[1]);
+            }
+        });
+        return true;
+    }
+
+    auto invoke_get_viewport_size(UObject* player_controller, int32_t& out_x, int32_t& out_y) -> bool
+    {
+        auto* fn = find_function_by_chain_or_path(
+            player_controller,
+            STR("GetViewportSize"),
+            STR("/Script/Engine.PlayerController:GetViewportSize"));
+        if (!player_controller || !fn)
+        {
+            return false;
+        }
+
+        std::vector<uint8_t> params(static_cast<size_t>(std::max<int32_t>(fn->GetStructureSize(), 32)), 0);
+        player_controller->ProcessEvent(fn, params.data());
+
+        int32_t captured[2] = {0, 0};
+        int32_t captured_count = 0;
+        for_each_property_in_chain_compat(fn, [&](FProperty* prop) {
+            if (!prop || !prop->HasAnyPropertyFlags(CPF_OutParm))
+            {
+                return;
+            }
+            if (prop->GetClass().HashObject() != FIntProperty::StaticClass().HashObject())
+            {
+                return;
+            }
+            if (auto* value_ptr = prop->ContainerPtrToValuePtr<int32_t>(params.data()))
+            {
+                if (captured_count < 2)
+                {
+                    captured[captured_count++] = *value_ptr;
+                }
+            }
+        });
+        if (captured_count < 2)
+        {
+            return false;
+        }
+        out_x = captured[0];
+        out_y = captured[1];
+        return true;
+    }
+
     auto read_text_property_value_no_process_event(UObject* context, std::string& out_text) -> bool
     {
         if (!context || !context->GetClassPrivate())
@@ -5326,6 +5580,8 @@ namespace WindroseTextSigns
             m_hosted_ready_hide_loading_seen = false;
             m_hosted_ready_sequence_complete = false;
             m_hosted_post_ready_reconcile_done = false;
+            m_restore_scan_cycle_counter = 0;
+            reset_visual_verify_debug_state();
             reset_bridge_snapshot_state("sidecar_route_change");
             m_bridge_next_snapshot_request = std::chrono::steady_clock::now();
             load_sidecar_json();
@@ -11860,6 +12116,412 @@ namespace WindroseTextSigns
         }
     }
 
+    auto SignTextMod::reset_visual_verify_debug_state() -> void
+    {
+        m_visual_verify_session_ready = false;
+        m_visual_verify_pass1_done = false;
+        m_visual_verify_pass2_done = false;
+        m_visual_verify_pass3_done = false;
+        m_visual_verify_motion_logged = false;
+        m_visual_verify_pass1_scan_cycle = 0;
+        m_visual_verify_ready_at = {};
+        m_visual_verify_ready_pawn_loc = FVector(0.0, 0.0, 0.0);
+        m_visual_verify_ready_pawn_loc_valid = false;
+        m_visual_verify_expected_keys.clear();
+        m_visual_verify_last_result.clear();
+    }
+
+    auto SignTextMod::run_localclient_visual_verify_pass(
+        int pass_number,
+        bool apply_before_verify,
+        bool force_reapply,
+        const std::string& reason) -> void
+    {
+        if (pass_number <= 0)
+        {
+            return;
+        }
+        if (!m_sidecar_authoritative || is_dedicated_runtime_process())
+        {
+            return;
+        }
+        if (lower_ascii(m_runtime_role) != "localclient")
+        {
+            return;
+        }
+
+        auto* controller = try_get_primary_player_controller();
+        if (!controller)
+        {
+            return;
+        }
+        auto* controller_actor = controller->IsA(AActor::StaticClass()) ? Cast<AActor>(controller) : nullptr;
+        if (!controller_actor)
+        {
+            return;
+        }
+
+        UObject* controlled_pawn = nullptr;
+        const bool got_pawn_from_fn = invoke_object_return_no_param(
+            controller,
+            STR("GetPawn"),
+            STR("/Script/Engine.Controller:GetPawn"),
+            controlled_pawn);
+        if (!got_pawn_from_fn || !controlled_pawn)
+        {
+            controlled_pawn = get_object_property_if_present(controller, "Pawn");
+        }
+        if (!controlled_pawn)
+        {
+            controlled_pawn = get_object_property_if_present(controller, "AcknowledgedPawn");
+        }
+        auto* pawn_actor = controlled_pawn && controlled_pawn->IsA(AActor::StaticClass()) ? Cast<AActor>(controlled_pawn) : nullptr;
+
+        const auto controller_world_id = build_world_id_for_actor(controller_actor);
+        const auto active_world_id = active_storage_world_id(controller_world_id);
+        if (!active_world_id.empty() && m_visual_verify_expected_keys.empty())
+        {
+            for (const auto& [key, rec] : m_labels)
+            {
+                if (rec.world_id != active_world_id || rec.text.empty() || !is_confirmed_label_text_kind(rec.kind))
+                {
+                    continue;
+                }
+                m_visual_verify_expected_keys.insert(key);
+            }
+        }
+
+        std::unordered_map<std::string, AActor*> actors_by_key{};
+        UObjectGlobals::ForEachUObject([&](UObject* object, int32, int32) {
+            if (!object || !object->IsA(AActor::StaticClass()))
+            {
+                return LoopAction::Continue;
+            }
+            auto* actor = Cast<AActor>(object);
+            if (!actor || !is_probable_label_actor(actor))
+            {
+                return LoopAction::Continue;
+            }
+            const auto stable_id = extract_stable_id(actor);
+            const auto actor_world_id = build_world_id_for_actor(actor);
+            const auto key = build_storage_key(active_storage_world_id(actor_world_id), stable_id);
+            if (m_visual_verify_expected_keys.find(key) == m_visual_verify_expected_keys.end())
+            {
+                return LoopAction::Continue;
+            }
+            actors_by_key[key] = actor;
+            return LoopAction::Continue;
+        });
+
+        uint32_t pass_count = 0;
+        uint32_t fail_count = 0;
+        const auto view = get_player_viewpoint_reflective(controller);
+        const auto view_forward = view.valid ? vec_normalize(rotation_to_forward(view.rotation)) : FVector(0.0, 0.0, 0.0);
+        const float max_dist = std::max(100.0f, static_cast<float>(safe_stoi(config_string_value("WTS_MAX_TARGET_DISTANCE", "1000"), 1000)));
+
+        log_line("[visual-verify] pass_start pass=" + std::to_string(pass_number) +
+                 " reason=" + reason +
+                 " expectedKeys=" + std::to_string(m_visual_verify_expected_keys.size()) +
+                 " forceReapply=" + std::string{force_reapply ? "true" : "false"} +
+                 " applyBeforeVerify=" + std::string{apply_before_verify ? "true" : "false"});
+
+        for (const auto& key : m_visual_verify_expected_keys)
+        {
+            const auto rec_it = m_labels.find(key);
+            if (rec_it == m_labels.end())
+            {
+                continue;
+            }
+            const auto& rec = rec_it->second;
+            auto* actor = actors_by_key.count(key) > 0 ? actors_by_key[key] : nullptr;
+            if (apply_before_verify && actor)
+            {
+                restore_known_text_if_any(actor, rec.stable_id, true);
+            }
+
+            bool component_exists = false;
+            bool component_registered = false;
+            bool component_attached = false;
+            bool component_pending_kill = false;
+            bool hidden_in_game = true;
+            bool visible = false;
+            bool text_non_empty = false;
+            bool text_matches_expected = false;
+            bool projectable = false;
+            bool in_front = false;
+            bool in_viewport = false;
+            bool within_fov = false;
+            bool recently_rendered = false;
+            float screen_x = 0.0f;
+            float screen_y = 0.0f;
+            int32_t viewport_w = 0;
+            int32_t viewport_h = 0;
+            double distance = 0.0;
+
+            std::string observed_text{};
+            auto* component = actor ? find_managed_text_component(actor, key) : nullptr;
+            component_exists = component != nullptr;
+            if (component)
+            {
+                (void)invoke_bool_return_no_param(
+                    component,
+                    STR("IsRegistered"),
+                    STR("/Script/Engine.ActorComponent:IsRegistered"),
+                    component_registered);
+
+                auto* attach_parent = get_object_property_if_present(component, "AttachParent");
+                auto* owner = get_object_property_if_present(component, "Owner");
+                component_attached = (attach_parent != nullptr) || (owner != nullptr);
+
+                bool pending_func = false;
+                if (invoke_bool_return_no_param(
+                        component,
+                        STR("IsPendingKill"),
+                        STR("/Script/CoreUObject.Object:IsPendingKill"),
+                        pending_func))
+                {
+                    component_pending_kill = pending_func;
+                }
+                bool pending_prop = false;
+                if (get_bool_property_if_present(component, "bpendingkill", pending_prop) && pending_prop)
+                {
+                    component_pending_kill = true;
+                }
+                bool destroyed_prop = false;
+                if (get_bool_property_if_present(component, "bbeingdestroyed", destroyed_prop) && destroyed_prop)
+                {
+                    component_pending_kill = true;
+                }
+
+                (void)get_bool_property_if_present(component, "bhiddeningame", hidden_in_game);
+                (void)get_bool_property_if_present(component, "bvisible", visible);
+
+                if (invoke_get_text_render_value(component, observed_text))
+                {
+                    text_non_empty = !observed_text.empty();
+                    text_matches_expected = (observed_text == rec.text);
+                }
+
+                bool recent_render_value = false;
+                if (invoke_bool_return_with_float_param(
+                        component,
+                        STR("WasRecentlyRendered"),
+                        STR("/Script/Engine.PrimitiveComponent:WasRecentlyRendered"),
+                        0.35f,
+                        recent_render_value))
+                {
+                    recently_rendered = recent_render_value;
+                }
+            }
+
+            if (actor && view.valid)
+            {
+                const auto actor_loc = actor->K2_GetActorLocation();
+                const auto to_actor = vec_sub(actor_loc, view.location);
+                distance = vec_len(to_actor);
+                const auto dir = vec_normalize(to_actor);
+                const auto dot = vec_dot(view_forward, dir);
+                in_front = dot > 0.0;
+                within_fov = dot >= 0.5; // approximately 60deg half-angle
+
+                bool projected = false;
+                if (invoke_project_world_to_screen(controller, actor_loc, screen_x, screen_y, projected))
+                {
+                    projectable = projected;
+                    if (invoke_get_viewport_size(controller, viewport_w, viewport_h) && viewport_w > 0 && viewport_h > 0)
+                    {
+                        in_viewport =
+                            screen_x >= 0.0f && screen_x <= static_cast<float>(viewport_w) &&
+                            screen_y >= 0.0f && screen_y <= static_cast<float>(viewport_h);
+                    }
+                    else
+                    {
+                        in_viewport = projected;
+                    }
+                }
+            }
+
+            const bool visible_state_ok = !hidden_in_game && visible;
+            const bool screen_ok = in_front && within_fov && distance <= max_dist && projectable && in_viewport;
+            const bool pass = component_exists &&
+                component_registered &&
+                component_attached &&
+                !component_pending_kill &&
+                visible_state_ok &&
+                text_non_empty &&
+                text_matches_expected &&
+                screen_ok &&
+                recently_rendered;
+
+            ++pass_count;
+            if (!pass)
+            {
+                ++fail_count;
+            }
+            const bool had_prior = m_visual_verify_last_result.find(key) != m_visual_verify_last_result.end();
+            const bool prior = had_prior ? m_visual_verify_last_result[key] : false;
+            m_visual_verify_last_result[key] = pass;
+
+            log_line("[visual-verify] pass=" + std::to_string(pass_number) +
+                     " key=" + key +
+                     " stableId=" + rec.stable_id +
+                     " result=" + std::string{pass ? "pass" : "fail"} +
+                     " changed=" + std::string{had_prior ? ((prior != pass) ? "true" : "false") : "n/a"} +
+                     " exists=" + std::string{component_exists ? "true" : "false"} +
+                     " registered=" + std::string{component_registered ? "true" : "false"} +
+                     " attached=" + std::string{component_attached ? "true" : "false"} +
+                     " pendingKill=" + std::string{component_pending_kill ? "true" : "false"} +
+                     " hiddenInGame=" + std::string{hidden_in_game ? "true" : "false"} +
+                     " visible=" + std::string{visible ? "true" : "false"} +
+                     " textMatch=" + std::string{text_matches_expected ? "true" : "false"} +
+                     " textNonEmpty=" + std::string{text_non_empty ? "true" : "false"} +
+                     " projectable=" + std::string{projectable ? "true" : "false"} +
+                     " inFront=" + std::string{in_front ? "true" : "false"} +
+                     " inViewport=" + std::string{in_viewport ? "true" : "false"} +
+                     " withinFov=" + std::string{within_fov ? "true" : "false"} +
+                     " dist=" + std::to_string(distance) +
+                     " screen=" + std::to_string(screen_x) + "," + std::to_string(screen_y) +
+                     " viewport=" + std::to_string(viewport_w) + "x" + std::to_string(viewport_h) +
+                     " recentlyRendered=" + std::string{recently_rendered ? "true" : "false"} +
+                     " expectedChars=" + std::to_string(rec.text.size()) +
+                     " observedChars=" + std::to_string(observed_text.size()));
+
+            if (force_reapply && actor)
+            {
+                restore_known_text_if_any(actor, rec.stable_id, true);
+                log_line("[visual-verify] forced_reapply pass=" + std::to_string(pass_number) +
+                         " key=" + key +
+                         " stableId=" + rec.stable_id +
+                         " reason=" + reason);
+            }
+        }
+
+        log_line("[visual-verify] pass_complete pass=" + std::to_string(pass_number) +
+                 " reason=" + reason +
+                 " checked=" + std::to_string(pass_count) +
+                 " failed=" + std::to_string(fail_count) +
+                 " forcedReapply=" + std::string{force_reapply ? "true" : "false"});
+    }
+
+    auto SignTextMod::tick_localclient_visual_verify_debug(std::chrono::steady_clock::time_point now) -> void
+    {
+        const auto runtime_role_lower = lower_ascii(m_runtime_role);
+        const auto authority_mode_lower = lower_ascii(m_authority_mode);
+        const bool authority_source_resolved =
+            runtime_role_lower != "localclientpending" &&
+            authority_mode_lower != "worldauthoritypending";
+        const bool session_ready =
+            is_restore_scan_world_active() &&
+            is_localclient_prune_ready(authority_source_resolved, nullptr);
+
+        if (!session_ready)
+        {
+            if (m_visual_verify_session_ready)
+            {
+                log_line("[visual-verify] session_ready_lost reset=true");
+            }
+            reset_visual_verify_debug_state();
+            return;
+        }
+
+        if (!m_visual_verify_session_ready)
+        {
+            m_visual_verify_session_ready = true;
+            m_visual_verify_ready_at = now;
+            m_visual_verify_pass1_scan_cycle = m_restore_scan_cycle_counter;
+            m_visual_verify_expected_keys.clear();
+            m_visual_verify_last_result.clear();
+
+            auto* controller = try_get_primary_player_controller();
+            UObject* controlled_pawn = nullptr;
+            if (controller)
+            {
+                const bool got_pawn_from_fn = invoke_object_return_no_param(
+                    controller,
+                    STR("GetPawn"),
+                    STR("/Script/Engine.Controller:GetPawn"),
+                    controlled_pawn);
+                if (!got_pawn_from_fn || !controlled_pawn)
+                {
+                    controlled_pawn = get_object_property_if_present(controller, "Pawn");
+                }
+                if (!controlled_pawn)
+                {
+                    controlled_pawn = get_object_property_if_present(controller, "AcknowledgedPawn");
+                }
+            }
+            if (controlled_pawn && controlled_pawn->IsA(AActor::StaticClass()))
+            {
+                auto* pawn_actor = Cast<AActor>(controlled_pawn);
+                if (pawn_actor)
+                {
+                    m_visual_verify_ready_pawn_loc = pawn_actor->K2_GetActorLocation();
+                    m_visual_verify_ready_pawn_loc_valid = true;
+                }
+            }
+
+            log_line("[visual-verify] session_ready passPlan=1_immediate,2_after_scan_plus2,3_on_player_motion forceReapplyDebug=" +
+                     std::string{m_visual_verify_debug_force_reapply ? "true" : "false"});
+        }
+
+        if (!m_visual_verify_pass1_done)
+        {
+            run_localclient_visual_verify_pass(1, true, false, "session_ready");
+            m_visual_verify_pass1_done = true;
+            m_visual_verify_pass1_scan_cycle = m_restore_scan_cycle_counter;
+        }
+
+        if (m_visual_verify_pass1_done &&
+            !m_visual_verify_pass2_done &&
+            m_restore_scan_cycle_counter >= (m_visual_verify_pass1_scan_cycle + 2))
+        {
+            run_localclient_visual_verify_pass(2, false, m_visual_verify_debug_force_reapply, "scan_plus_2");
+            m_visual_verify_pass2_done = true;
+        }
+
+        if (m_visual_verify_pass1_done && !m_visual_verify_pass3_done)
+        {
+            auto* controller = try_get_primary_player_controller();
+            UObject* controlled_pawn = nullptr;
+            if (controller)
+            {
+                const bool got_pawn_from_fn = invoke_object_return_no_param(
+                    controller,
+                    STR("GetPawn"),
+                    STR("/Script/Engine.Controller:GetPawn"),
+                    controlled_pawn);
+                if (!got_pawn_from_fn || !controlled_pawn)
+                {
+                    controlled_pawn = get_object_property_if_present(controller, "Pawn");
+                }
+                if (!controlled_pawn)
+                {
+                    controlled_pawn = get_object_property_if_present(controller, "AcknowledgedPawn");
+                }
+            }
+            if (controlled_pawn && controlled_pawn->IsA(AActor::StaticClass()) && m_visual_verify_ready_pawn_loc_valid)
+            {
+                auto* pawn_actor = Cast<AActor>(controlled_pawn);
+                if (pawn_actor)
+                {
+                    const auto current_loc = pawn_actor->K2_GetActorLocation();
+                    const auto delta = vec_sub(current_loc, m_visual_verify_ready_pawn_loc);
+                    const auto delta_len = vec_len(delta);
+                    if (delta_len >= 100.0)
+                    {
+                        if (!m_visual_verify_motion_logged)
+                        {
+                            log_line("[visual-verify] player_motion_detected delta=" + std::to_string(delta_len));
+                            m_visual_verify_motion_logged = true;
+                        }
+                        run_localclient_visual_verify_pass(3, false, m_visual_verify_debug_force_reapply, "player_motion");
+                        m_visual_verify_pass3_done = true;
+                    }
+                }
+            }
+        }
+    }
+
     auto SignTextMod::on_update() -> void
     {
         if (!m_unreal_ready)
@@ -11901,6 +12563,7 @@ namespace WindroseTextSigns
         tick_bridge();
         const auto now = std::chrono::steady_clock::now();
         maybe_run_hosted_post_ready_reconcile();
+        tick_localclient_visual_verify_debug(now);
 
         if (now - m_last_restore_scan > std::chrono::seconds(2))
         {
@@ -11922,6 +12585,7 @@ namespace WindroseTextSigns
                 m_dedicated_restore_active_since = {};
                 m_dedicated_restore_stable_since = {};
                 m_dedicated_last_probable_label_count = 0;
+                reset_visual_verify_debug_state();
                 if (!m_restore_scan_wait_logged)
                 {
                     log_line("[save] restore_scan waiting reason=no_active_world");
@@ -11934,6 +12598,7 @@ namespace WindroseTextSigns
                 log_line("[save] restore_scan active");
                 m_restore_scan_wait_logged = false;
             }
+            ++m_restore_scan_cycle_counter;
 
             std::unordered_set<std::string> present_label_keys{};
             std::unordered_map<std::string, uint32_t> present_world_counts{};

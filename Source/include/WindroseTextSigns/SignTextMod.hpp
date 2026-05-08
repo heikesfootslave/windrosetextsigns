@@ -166,6 +166,13 @@ namespace WindroseTextSigns
             const std::string& world_id,
             std::chrono::steady_clock::time_point now) -> bool;
         auto maybe_run_hosted_post_ready_reconcile() -> void;
+        auto reset_visual_verify_debug_state() -> void;
+        auto tick_localclient_visual_verify_debug(std::chrono::steady_clock::time_point now) -> void;
+        auto run_localclient_visual_verify_pass(
+            int pass_number,
+            bool apply_before_verify,
+            bool force_reapply,
+            const std::string& reason) -> void;
         auto ensure_selected_label_for_action(const std::string& action_name) -> bool;
         auto is_actor_pointer_live(RC::Unreal::AActor* actor) const -> bool;
         auto ensure_selected_actor_valid(const std::string& reason) -> bool;
@@ -498,6 +505,19 @@ namespace WindroseTextSigns
         bool m_world_text_font_enabled{false};
         bool m_world_text_font_resolved{false};
         bool m_world_text_font_missing_logged{false};
+        bool m_visual_verify_debug_force_reapply{false};
+        bool m_visual_verify_session_ready{false};
+        bool m_visual_verify_pass1_done{false};
+        bool m_visual_verify_pass2_done{false};
+        bool m_visual_verify_pass3_done{false};
+        bool m_visual_verify_motion_logged{false};
+        uint64_t m_restore_scan_cycle_counter{0};
+        uint64_t m_visual_verify_pass1_scan_cycle{0};
+        std::chrono::steady_clock::time_point m_visual_verify_ready_at{};
+        RC::Unreal::FVector m_visual_verify_ready_pawn_loc{};
+        bool m_visual_verify_ready_pawn_loc_valid{false};
+        std::unordered_set<std::string> m_visual_verify_expected_keys{};
+        std::unordered_map<std::string, bool> m_visual_verify_last_result{};
         bool m_in_process_event_probe{false};
     };
 }
