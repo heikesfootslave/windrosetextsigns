@@ -12117,7 +12117,9 @@ namespace WindroseTextSigns
         {
             return false;
         }
-        if (!first_seen_live_after_ready)
+        const bool has_existing_construct_hold =
+            m_first_seen_construct_hold_states.find(key) != m_first_seen_construct_hold_states.end();
+        if (!first_seen_live_after_ready && !has_existing_construct_hold)
         {
             return false;
         }
@@ -12367,6 +12369,9 @@ namespace WindroseTextSigns
             !is_dedicated_runtime_process() &&
             m_sidecar_authoritative &&
             m_bridge_role == BridgeRole::ListenHost;
+        const bool dedicated_authoritative_runtime =
+            is_dedicated_runtime_process() &&
+            m_sidecar_authoritative;
 
         if (hosted_localclient && m_session_ready_latched)
         {
@@ -12397,10 +12402,23 @@ namespace WindroseTextSigns
         const bool replacement_live = is_actor_pointer_live(reinterpret_cast<AActor*>(state.replacement_actor_ptr));
         const bool stable_replacement = state.stable_scan_hits >= 2;
         const bool matured = (now - state.first_detected) >= std::chrono::seconds(2);
-        const bool gameplay_window_active =
+        const bool local_or_hosted_gameplay_window_active =
             (m_last_player_activity.time_since_epoch().count() != 0 &&
              (now - m_last_player_activity) <= std::chrono::seconds(20)) ||
             m_hosted_ready_sequence_complete;
+        const auto runtime_role_lower = lower_ascii(m_runtime_role);
+        const auto authority_mode_lower = lower_ascii(m_authority_mode);
+        const bool authority_source_resolved =
+            runtime_role_lower != "localclientpending" &&
+            authority_mode_lower != "worldauthoritypending";
+        const bool dedicated_rebuild_promotion_window_active =
+            dedicated_authoritative_runtime &&
+            m_restore_scan_has_seen_live_labels &&
+            authority_source_resolved;
+        const bool promotion_window_active =
+            dedicated_authoritative_runtime
+                ? dedicated_rebuild_promotion_window_active
+                : local_or_hosted_gameplay_window_active;
         const bool trusted_context =
             m_session_ready_latched &&
             state.session_epoch == m_session_epoch &&
@@ -12411,9 +12429,14 @@ namespace WindroseTextSigns
             replacement_live &&
             stable_replacement &&
             matured &&
-            gameplay_window_active)
+            promotion_window_active)
         {
-            const std::string reason = hosted_localclient ? "destroy_confirmed_inprocess_hosted" : "inprocess_confirmation";
+            const std::string reason =
+                hosted_localclient
+                    ? "destroy_confirmed_inprocess_hosted"
+                    : (dedicated_authoritative_runtime
+                           ? "inprocess_confirmation_dedicated"
+                           : "inprocess_confirmation");
             log_line("[save] suspect_rebuild confirmed key=" + key +
                      " stableId=" + stable_id +
                      " worldId=" + world_id +
@@ -14262,7 +14285,7 @@ namespace WindroseTextSigns
                         continue;
                     }
                     const bool trusted_destroy_confirmed =
-                        localclient_authoritative &&
+                        authoritative_destroy_confirmation_runtime &&
                         has_recent_destroy_confirmation(found->second.stable_id, found->second.world_id);
                     const auto miss_it = m_missing_label_scan_counts.find(key);
                     const uint32_t miss_count = (miss_it != m_missing_label_scan_counts.end()) ? miss_it->second : 0;
@@ -14295,14 +14318,20 @@ namespace WindroseTextSigns
                              " stableId=" + found->second.stable_id +
                              " worldId=" + found->second.world_id +
                              " reason=" + prune_reason +
-                             " trustedDestroyConfirmed=" + std::string{localclient_authoritative ? (trusted_destroy_confirmed ? "true" : "false") : "n/a"} +
+                             " trustedDestroyConfirmed=" + std::string{
+                                 authoritative_destroy_confirmation_runtime
+                                     ? (trusted_destroy_confirmed ? "true" : "false")
+                                     : "n/a"} +
                              " missCount=" + std::to_string(miss_count));
                     trace_behavior_sm("prune_commit",
                                       "path=destroy_scan key=" + key +
                                       " stableId=" + found->second.stable_id +
                                       " worldId=" + found->second.world_id +
                                       " reason=" + prune_reason +
-                                      " trustedDestroyConfirmed=" + std::string{localclient_authoritative ? (trusted_destroy_confirmed ? "true" : "false") : "n/a"});
+                                      " trustedDestroyConfirmed=" + std::string{
+                                          authoritative_destroy_confirmation_runtime
+                                              ? (trusted_destroy_confirmed ? "true" : "false")
+                                              : "n/a"});
                     if (m_sidecar_authoritative)
                     {
                         broadcast_bridge_clear(found->second.stable_id, found->second.world_id, "prune_destroyed_label");
