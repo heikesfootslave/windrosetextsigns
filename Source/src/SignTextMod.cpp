@@ -11231,6 +11231,13 @@ namespace WindroseTextSigns
                 m_live_label_actor_ptrs.clear();
                 m_missing_label_scan_counts.clear();
                 m_seen_live_label_keys.clear();
+                // Hard reset transient render/component caches across logout/map travel.
+                // Without this, reconnect can retain stale "already rendered" state and
+                // skip reapplying visible text even though actors/components were rebuilt.
+                m_rendered_text_cache.clear();
+                m_component_name_cache.clear();
+                m_phase4_next_retry.clear();
+                m_label_text_visual_logged_keys.clear();
                 m_dedicated_restore_active_since = {};
                 m_dedicated_restore_stable_since = {};
                 m_dedicated_last_probable_label_count = 0;
