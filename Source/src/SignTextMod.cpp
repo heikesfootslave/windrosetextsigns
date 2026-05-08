@@ -2289,9 +2289,53 @@ namespace
         return guid + "|" + index;
     }
 
+    auto is_uobject_reflection_safe(UObject* candidate) -> bool
+    {
+        if (!candidate)
+        {
+            return false;
+        }
+        bool found = false;
+        UObjectGlobals::ForEachUObject([&](UObject* object, int32, int32) {
+            if (found)
+            {
+                return LoopAction::Break;
+            }
+            if (object == candidate)
+            {
+                found = true;
+                return LoopAction::Break;
+            }
+            return LoopAction::Continue;
+        });
+        if (!found)
+        {
+            return false;
+        }
+        auto* class_private = candidate->GetClassPrivate();
+        if (!class_private)
+        {
+            return false;
+        }
+        bool class_found = false;
+        UObjectGlobals::ForEachUObject([&](UObject* object, int32, int32) {
+            if (class_found)
+            {
+                return LoopAction::Break;
+            }
+            if (object == class_private)
+            {
+                class_found = true;
+                return LoopAction::Break;
+            }
+            return LoopAction::Continue;
+        });
+        return class_found;
+    }
+
     auto find_function_by_chain_or_path(UObject* context, const TCHAR* in_chain_name, const TCHAR* path_name) -> UFunction*
     {
-        if (context && in_chain_name)
+        if (context && in_chain_name && is_uobject_reflection_safe(context))
         {
             if (auto* fn = context->GetFunctionByNameInChain(in_chain_name))
             {
@@ -2308,7 +2352,7 @@ namespace
     auto invoke_no_param(UObject* context, const TCHAR* in_chain_name, const TCHAR* path_name) -> bool
     {
         auto* fn = find_function_by_chain_or_path(context, in_chain_name, path_name);
-        if (!context || !fn)
+        if (!context || !fn || !is_uobject_reflection_safe(context))
         {
             return false;
         }
@@ -2320,7 +2364,7 @@ namespace
     auto invoke_bool_return_no_param(UObject* context, const TCHAR* in_chain_name, const TCHAR* path_name, bool& out_value) -> bool
     {
         auto* fn = find_function_by_chain_or_path(context, in_chain_name, path_name);
-        if (!context || !fn)
+        if (!context || !fn || !is_uobject_reflection_safe(context))
         {
             return false;
         }
@@ -2349,7 +2393,7 @@ namespace
     auto invoke_object_return_no_param(UObject* context, const TCHAR* in_chain_name, const TCHAR* path_name, UObject*& out_value) -> bool
     {
         auto* fn = find_function_by_chain_or_path(context, in_chain_name, path_name);
-        if (!context || !fn)
+        if (!context || !fn || !is_uobject_reflection_safe(context))
         {
             return false;
         }
@@ -5006,6 +5050,7 @@ namespace WindroseTextSigns
             (now - m_localclient_controller_probe_last) < probe_interval)
         {
             if (m_localclient_controller_probe_cached &&
+                is_uobject_reflection_safe(m_localclient_controller_probe_cached) &&
                 m_localclient_controller_probe_cached->IsA(AActor::StaticClass()))
             {
                 auto* cached_actor = Cast<AActor>(m_localclient_controller_probe_cached);
@@ -12035,6 +12080,16 @@ namespace WindroseTextSigns
         const bool pawn_valid = controlled_pawn != nullptr;
 
         const auto world_name = lower_ascii(narrow_ascii(world->GetName()));
+        if (world_name.empty() ||
+            world_name == "none" ||
+            world_name.find("transition") != std::string::npos ||
+            world_name.find("lobby") != std::string::npos ||
+            world_name.find("entrance") != std::string::npos)
+        {
+            log_blocked("controller_world_transitional");
+            return;
+        }
+
         int controller_score = 0;
         bool is_local_controller = false;
         if (invoke_bool_return_no_param(
