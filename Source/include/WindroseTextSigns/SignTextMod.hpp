@@ -165,6 +165,13 @@ namespace WindroseTextSigns
             const std::string& stable_id,
             const std::string& world_id,
             std::chrono::steady_clock::time_point now) -> bool;
+        auto maybe_handle_new_construct_overrides_stale_record(
+            RC::Unreal::AActor* actor,
+            const std::string& key,
+            const std::string& stable_id,
+            const std::string& world_id,
+            bool first_seen_live_after_ready,
+            bool is_ready_baseline_key) -> bool;
         auto maybe_run_hosted_post_ready_reconcile() -> void;
         auto is_localclient_runtime_stable_for_post_ready(std::string* out_reason = nullptr) -> bool;
         auto is_session_ready_for_role_resolution(std::string* out_reason = nullptr) -> bool;
@@ -456,7 +463,16 @@ namespace WindroseTextSigns
         std::unordered_map<std::string, uint32_t> m_missing_label_scan_counts{};
         std::unordered_map<std::string, std::chrono::steady_clock::time_point> m_recent_destroy_guid_signals{};
         std::unordered_map<std::string, std::chrono::steady_clock::time_point> m_recent_destroy_slot_confirmations{};
-        std::unordered_map<std::string, std::chrono::steady_clock::time_point> m_recent_construct_slot_signals{};
+        struct RecentConstructSignal
+        {
+            std::chrono::steady_clock::time_point seen_at{};
+            std::string world_id{};
+            uint64_t session_epoch{0};
+        };
+        std::unordered_map<std::string, RecentConstructSignal> m_recent_construct_slot_signals{};
+        std::unordered_set<std::string> m_ready_baseline_live_keys{};
+        uint32_t m_ready_baseline_capture_remaining_scans{0};
+        bool m_pending_world_inactive_ignored_logged{false};
         struct SuspectRebuildState
         {
             std::string stable_id{};
