@@ -167,6 +167,8 @@ namespace WindroseTextSigns
             std::chrono::steady_clock::time_point now) -> bool;
         auto maybe_run_hosted_post_ready_reconcile() -> void;
         auto is_localclient_runtime_stable_for_post_ready(std::string* out_reason = nullptr) -> bool;
+        auto is_session_ready_for_role_resolution(std::string* out_reason = nullptr) -> bool;
+        auto reset_session_state(const std::string& reason) -> void;
         auto reset_visual_verify_debug_state() -> void;
         auto tick_localclient_visual_verify_debug(std::chrono::steady_clock::time_point now) -> void;
         auto run_localclient_visual_verify_pass(
@@ -303,6 +305,9 @@ namespace WindroseTextSigns
         bool m_bootstrap_begin_logged{false};
         bool m_bootstrap_end_logged{false};
         bool m_bootstrap_prune_phase_observed{false};
+        uint64_t m_session_epoch{1};
+        bool m_session_ready_latched{false};
+        std::string m_session_ready_world_id{};
         bool m_role_lock_acquired{false};
         std::string m_role_lock_runtime_role{};
         std::string m_role_lock_bridge_role{};
@@ -330,6 +335,7 @@ namespace WindroseTextSigns
         size_t m_bridge_route_candidate_index{0};
         bool m_bridge_route_lock_acquired{false};
         std::string m_bridge_route_locked_host{};
+        bool m_bridge_route_retry_consumed{false};
         bool m_bridge_route_force_non_loopback{false};
         bool m_bridge_route_recovery_logged{false};
         std::unordered_set<std::string> m_bridge_route_rejected_candidates_logged{};
@@ -513,6 +519,7 @@ namespace WindroseTextSigns
         std::chrono::steady_clock::time_point m_localclient_stability_skip_last_log{};
         std::string m_localclient_stability_skip_last_reason{};
         bool m_visual_verify_debug_force_reapply{false};
+        bool m_localclient_motion_reapply_enabled{true};
         bool m_visual_verify_session_ready{false};
         bool m_visual_verify_pass1_done{false};
         bool m_visual_verify_pass2_done{false};

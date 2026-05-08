@@ -4166,6 +4166,7 @@ namespace WindroseTextSigns
         m_verbose_log = config_bool_value("WTS_VERBOSE_LOG", false);
         m_behavior_trace_enabled = config_bool_value("WTS_BEHAVIOR_TRACE_ENABLED", false);
         m_visual_verify_debug_force_reapply = config_bool_value("WTS_VISUAL_VERIFY_DEBUG_FORCE_REAPPLY", false);
+        m_localclient_motion_reapply_enabled = config_bool_value("WTS_LOCALCLIENT_MOTION_REAPPLY_ENABLED", true);
         m_localclient_controller_probe_interval_sec = std::clamp(
             safe_stof(config_string_value("WTS_LOCALCLIENT_CONTROLLER_PROBE_INTERVAL_SEC", "0.2"), 0.2f),
             0.1f,
@@ -4284,6 +4285,7 @@ namespace WindroseTextSigns
                  " vk=" + std::to_string(m_hotkey_vk));
         log_line("[save] destroy_confirm_ttl_sec=" + std::to_string(m_destroy_confirm_ttl_sec));
         log_line("[save] localclient_controller_probe_interval_sec=" + std::to_string(m_localclient_controller_probe_interval_sec));
+        log_line("[save] localclient_motion_reapply_enabled=" + std::string{m_localclient_motion_reapply_enabled ? "true" : "false"});
         if (m_behavior_trace_enabled)
         {
             log_line("[trace-sm] config enabled=true");
@@ -5761,6 +5763,10 @@ namespace WindroseTextSigns
         }
 
         if (is_dedicated_server_process(std::filesystem::current_path(), m_mod_root))
+        {
+            return;
+        }
+        if (!m_session_ready_latched)
         {
             return;
         }
@@ -8735,6 +8741,7 @@ namespace WindroseTextSigns
         m_bridge_snapshot_seen_keys.clear();
         m_bridge_pending_request_keys.clear();
         m_bridge_route_recovery_logged = false;
+        m_bridge_route_retry_consumed = false;
     }
 
     auto SignTextMod::configure_bridge_role(const std::string& reason) -> void
@@ -10043,6 +10050,7 @@ namespace WindroseTextSigns
         m_bridge_health_warning_logged = false;
         m_bridge_route_force_non_loopback = false;
         m_bridge_route_recovery_logged = false;
+        m_bridge_route_retry_consumed = false;
         m_bridge_snapshot_retry_attempts = 0;
         m_bridge_sync_wait_started = std::chrono::steady_clock::now();
         if (was_unhealthy)
@@ -10080,6 +10088,7 @@ namespace WindroseTextSigns
         m_bridge_route_bootstrap_pause_logged = false;
         m_bridge_route_force_non_loopback = false;
         m_bridge_route_recovery_logged = false;
+        m_bridge_route_retry_consumed = false;
         if (had_lock)
         {
             log_line("[role] lock_released reason=" + reason);
@@ -10108,9 +10117,7 @@ namespace WindroseTextSigns
         {
             return;
         }
-
-        const bool bootstrap_window_active = is_bootstrap_resolution_window_active(now);
-        if (bootstrap_window_active && !m_bootstrap_end_logged)
+        if (!is_dedicated_runtime_process() && !m_session_ready_latched)
         {
             return;
         }
@@ -10176,6 +10183,16 @@ namespace WindroseTextSigns
         {
             m_bridge_health_warning_logged = true;
             const auto waited_sec = std::chrono::duration_cast<std::chrono::seconds>(wait_time).count();
+            if (!m_bridge_route_retry_consumed)
+            {
+                m_bridge_route_retry_consumed = true;
+                m_bridge_route_lock_acquired = false;
+                m_bridge_route_locked_host.clear();
+                m_bridge_route_bootstrap_pause_logged = false;
+                m_bridge_route_next_check = now;
+                m_bridge_next_snapshot_request = now;
+                log_line("[bridge-route] retry_reselect reason=no_snapshot_ack waitedSec=" + std::to_string(waited_sec));
+            }
             if (m_bridge_remote_server_host == "127.0.0.1")
             {
                 if (!m_bridge_route_force_non_loopback)
@@ -10184,10 +10201,6 @@ namespace WindroseTextSigns
                 }
                 m_bridge_route_force_non_loopback = true;
                 m_bridge_route_recovery_logged = false;
-                m_bridge_route_lock_acquired = false;
-                m_bridge_route_locked_host.clear();
-                m_bridge_route_bootstrap_pause_logged = false;
-                m_bridge_route_next_check = now;
             }
             log_line("[bridge-health] degraded reason=no_snapshot_ack role=RemoteClient" +
                      std::string(" waitedSec=") + std::to_string(waited_sec) +
@@ -10230,6 +10243,15 @@ namespace WindroseTextSigns
 
     auto SignTextMod::tick_bridge() -> void
     {
+        if (!is_dedicated_runtime_process() && !m_session_ready_latched)
+        {
+            if (m_bridge_role != BridgeRole::Unknown)
+            {
+                m_bridge_role = BridgeRole::Unknown;
+                NativeBridge::instance().set_role(m_bridge_role);
+            }
+            return;
+        }
         configure_bridge_role("tick");
         tick_bridge_upnp();
         tick_bridge_route_discovery();
@@ -11382,6 +11404,9 @@ namespace WindroseTextSigns
         const bool localclient_authoritative =
             m_sidecar_authoritative &&
             !is_dedicated_runtime_process();
+        const bool destructive_prune_allowed =
+            is_dedicated_runtime_process() ||
+            (m_session_ready_latched && m_role_lock_acquired);
         const bool trusted_destroy_confirmed_local =
             localclient_authoritative &&
             has_recent_destroy_confirmation(stable_id, world_id);
@@ -11401,6 +11426,7 @@ namespace WindroseTextSigns
             miss_it != m_missing_label_scan_counts.end() &&
             miss_it->second >= k_rebuild_prune_missing_scan_threshold &&
             m_restore_scan_has_seen_live_labels &&
+            destructive_prune_allowed &&
             !remote_bridge_unsynced &&
             !authoritative_local_guard_blocked)
         {
@@ -11461,6 +11487,7 @@ namespace WindroseTextSigns
                      " threshold=" + std::to_string(k_rebuild_prune_missing_scan_threshold) +
                      " seenLiveBeforeScan=" + std::string{m_restore_scan_has_seen_live_labels ? "true" : "false"} +
                      " bridgeUnsynced=" + std::string{remote_bridge_unsynced ? "true" : "false"} +
+                     " destructivePruneAllowed=" + std::string{destructive_prune_allowed ? "true" : "false"} +
                      " localClientPruneReady=" + std::string{localclient_prune_ready ? "true" : "false"} +
                      " localClientReadyReason=" + localclient_prune_ready_reason +
                      " seenLiveThisSession=" + std::string{seen_live_this_session ? "true" : "false"} +
@@ -11536,6 +11563,11 @@ namespace WindroseTextSigns
         if (runtime_role_lower != "localclient")
         {
             set_reason("runtime_role_not_localclient");
+            return false;
+        }
+        if (!m_session_ready_latched || !m_role_lock_acquired)
+        {
+            set_reason("session_ready_or_role_lock_pending");
             return false;
         }
 
@@ -12052,6 +12084,11 @@ namespace WindroseTextSigns
             m_pending_resolution_last_controller_signature.clear();
             return;
         }
+        if (!m_session_ready_latched)
+        {
+            log_blocked("session_ready_not_latched");
+            return;
+        }
 
         auto* controller = try_get_primary_player_controller();
         if (!controller || !controller->IsA(AActor::StaticClass()))
@@ -12194,6 +12231,7 @@ namespace WindroseTextSigns
         {
             m_pending_role_watchdog_started = {};
             m_pending_role_watchdog_logged = false;
+            log_line("[role] resolved runtimeRole=" + m_runtime_role + " reason=session_ready");
             log_line("[role] pending_resolution_success runtimeRole=" + m_runtime_role +
                      " authorityMode=" + m_authority_mode +
                      " bridgeRole=" + bridge_role_name(m_bridge_role) +
@@ -12248,6 +12286,7 @@ namespace WindroseTextSigns
             "pending_role_resolution");
         configure_bridge_role("pending_role_resolution");
         maybe_acquire_role_lock(now, "pending_role_resolution");
+        log_line("[role] resolved runtimeRole=" + m_runtime_role + " reason=session_ready");
         log_line("[role] pending_resolution_success runtimeRole=" + m_runtime_role +
                  " authorityMode=" + m_authority_mode +
                  " bridgeRole=" + bridge_role_name(m_bridge_role) +
@@ -12260,6 +12299,131 @@ namespace WindroseTextSigns
                           " path=fallback_route_set");
         m_pending_role_watchdog_started = {};
         m_pending_role_watchdog_logged = false;
+    }
+
+    auto SignTextMod::reset_session_state(const std::string& reason) -> void
+    {
+        const auto old_epoch = m_session_epoch;
+        const bool had_ready = m_session_ready_latched;
+        const bool had_locks = m_role_lock_acquired || m_bridge_route_lock_acquired;
+        const bool had_ready_markers =
+            m_hosted_ready_world_client_seen ||
+            m_hosted_ready_player_ready_seen ||
+            m_hosted_ready_datakeeper_seen ||
+            m_hosted_ready_hide_loading_seen ||
+            m_hosted_ready_sequence_complete;
+        if (!had_ready &&
+            !had_locks &&
+            !had_ready_markers &&
+            m_bridge_role == BridgeRole::Unknown)
+        {
+            return;
+        }
+        ++m_session_epoch;
+        m_session_ready_latched = false;
+        m_session_ready_world_id.clear();
+        m_pending_role_watchdog_started = {};
+        m_pending_role_watchdog_logged = false;
+        m_pending_resolution_last_block_reason.clear();
+        m_pending_resolution_last_controller_signature.clear();
+        m_hosted_ready_world_client_seen = false;
+        m_hosted_ready_player_ready_seen = false;
+        m_hosted_ready_datakeeper_seen = false;
+        m_hosted_ready_hide_loading_seen = false;
+        m_hosted_ready_sequence_complete = false;
+        m_hosted_post_ready_reconcile_done = false;
+        m_bridge_route_retry_consumed = false;
+        reset_visual_verify_debug_state();
+        reset_role_route_locks("session_reset_" + reason);
+        reset_bridge_snapshot_state("session_reset_" + reason);
+        if (!is_dedicated_runtime_process())
+        {
+            m_bridge_role = BridgeRole::Unknown;
+            NativeBridge::instance().set_role(m_bridge_role);
+        }
+        if (had_ready || had_locks)
+        {
+            log_line("[session] reset reason=" + reason +
+                     " oldEpoch=" + std::to_string(old_epoch) +
+                     " newEpoch=" + std::to_string(m_session_epoch));
+        }
+    }
+
+    auto SignTextMod::is_session_ready_for_role_resolution(std::string* out_reason) -> bool
+    {
+        const auto set_reason = [&](const std::string& reason) {
+            if (out_reason)
+            {
+                *out_reason = reason;
+            }
+        };
+
+        if (is_dedicated_runtime_process())
+        {
+            set_reason("dedicated_runtime");
+            return true;
+        }
+
+        auto* controller = try_get_primary_player_controller();
+        auto* controller_actor = controller && controller->IsA(AActor::StaticClass()) ? Cast<AActor>(controller) : nullptr;
+        if (!controller_actor)
+        {
+            set_reason("no_valid_player_controller");
+            return false;
+        }
+        auto* world = controller_actor->GetWorld();
+        if (!world)
+        {
+            set_reason("controller_world_unavailable");
+            return false;
+        }
+        const auto world_name = lower_ascii(narrow_ascii(world->GetName()));
+        if (world_name.empty() ||
+            world_name == "none" ||
+            world_name.find("transition") != std::string::npos ||
+            world_name.find("lobby") != std::string::npos ||
+            world_name.find("entrance") != std::string::npos)
+        {
+            set_reason("controller_world_transition");
+            return false;
+        }
+
+        UObject* controlled_pawn = nullptr;
+        const bool got_pawn_from_fn = invoke_object_return_no_param(
+            controller,
+            STR("GetPawn"),
+            STR("/Script/Engine.Controller:GetPawn"),
+            controlled_pawn);
+        if (!got_pawn_from_fn || !controlled_pawn)
+        {
+            controlled_pawn = get_object_property_if_present(controller, "Pawn");
+        }
+        if (!controlled_pawn)
+        {
+            controlled_pawn = get_object_property_if_present(controller, "AcknowledgedPawn");
+        }
+        if (!controlled_pawn)
+        {
+            set_reason("controlled_pawn_missing");
+            return false;
+        }
+
+        const auto runtime_role_lower = lower_ascii(m_runtime_role);
+        const auto authority_mode_lower = lower_ascii(m_authority_mode);
+        const bool authority_source_resolved =
+            runtime_role_lower != "localclientpending" &&
+            authority_mode_lower != "worldauthoritypending";
+        const bool local_ready_equivalent =
+            m_hosted_ready_sequence_complete ||
+            (m_hosted_ready_datakeeper_seen && m_hosted_ready_hide_loading_seen);
+        if (!authority_source_resolved && !local_ready_equivalent)
+        {
+            set_reason("authority_or_local_ready_pending");
+            return false;
+        }
+
+        set_reason("ready");
+        return true;
     }
 
     auto SignTextMod::maybe_run_hosted_post_ready_reconcile() -> void
@@ -12750,7 +12914,8 @@ namespace WindroseTextSigns
             }
 
             log_line("[visual-verify] session_ready passPlan=1_immediate,2_after_scan_plus2,3_on_player_motion forceReapplyDebug=" +
-                     std::string{m_visual_verify_debug_force_reapply ? "true" : "false"});
+                     std::string{m_visual_verify_debug_force_reapply ? "true" : "false"} +
+                     " motionReapplyEnabled=" + std::string{m_localclient_motion_reapply_enabled ? "true" : "false"});
         }
 
         if (!m_visual_verify_pass1_done)
@@ -12768,7 +12933,7 @@ namespace WindroseTextSigns
             m_visual_verify_pass2_done = true;
         }
 
-        if (m_visual_verify_pass1_done && !m_visual_verify_pass3_done)
+        if (m_localclient_motion_reapply_enabled && m_visual_verify_pass1_done && !m_visual_verify_pass3_done)
         {
             auto* controller = try_get_primary_player_controller();
             UObject* controlled_pawn = nullptr;
@@ -12847,7 +13012,26 @@ namespace WindroseTextSigns
         {
             // Always parse readiness markers in LocalClient states, including Pending.
             tick_r5_readiness_markers();
-            tick_localclient_role_resolution();
+            if (!m_session_ready_latched)
+            {
+                std::string ready_reason{};
+                if (is_session_ready_for_role_resolution(&ready_reason))
+                {
+                    m_session_ready_latched = true;
+                    auto* controller = try_get_primary_player_controller();
+                    auto* controller_actor = controller && controller->IsA(AActor::StaticClass()) ? Cast<AActor>(controller) : nullptr;
+                    m_session_ready_world_id = controller_actor ? build_world_id_for_actor(controller_actor) : std::string{};
+                    log_line("[session] ready_latched epoch=" + std::to_string(m_session_epoch) +
+                             " world=" + (m_session_ready_world_id.empty() ? "unknown" : m_session_ready_world_id));
+                    trace_behavior_sm("session_ready_latched",
+                                      "epoch=" + std::to_string(m_session_epoch) +
+                                      " world=" + (m_session_ready_world_id.empty() ? "unknown" : m_session_ready_world_id));
+                }
+            }
+            if (m_session_ready_latched && lower_ascii(m_runtime_role) == "localclientpending")
+            {
+                tick_localclient_role_resolution();
+            }
         }
         tick_bridge();
         const auto now = std::chrono::steady_clock::now();
@@ -12876,6 +13060,7 @@ namespace WindroseTextSigns
             m_last_restore_scan = now;
             if (!is_restore_scan_world_active())
             {
+                reset_session_state("world_inactive");
                 m_consecutive_empty_label_scans = 0;
                 m_restore_scan_has_seen_live_labels = false;
                 m_live_label_actor_ptrs.clear();
@@ -13324,8 +13509,12 @@ namespace WindroseTextSigns
                 uint32_t blocked_by_live_guard = 0;
                 uint32_t blocked_by_dedicated_warmup_guard = 0;
                 uint32_t blocked_by_localclient_readiness = 0;
+                uint32_t blocked_by_post_ready_role_lock = 0;
                 const bool require_seen_live_for_authoritative_prune =
                     m_sidecar_authoritative && !is_dedicated_runtime_process();
+                const bool destructive_prune_allowed =
+                    is_dedicated_runtime_process() ||
+                    (m_session_ready_latched && m_role_lock_acquired);
                 std::string localclient_prune_ready_reason{};
                 const bool localclient_prune_ready =
                     is_localclient_prune_ready(authority_source_resolved, &localclient_prune_ready_reason);
@@ -13356,6 +13545,11 @@ namespace WindroseTextSigns
                     if (world_it == present_world_counts.end() || world_it->second < k_min_live_labels_in_world_for_prune)
                     {
                         ++blocked_by_world_count;
+                        continue;
+                    }
+                    if (!destructive_prune_allowed)
+                    {
+                        ++blocked_by_post_ready_role_lock;
                         continue;
                     }
                     if (require_seen_live_for_authoritative_prune &&
@@ -13394,6 +13588,7 @@ namespace WindroseTextSigns
                              " ready=" + std::to_string(keys_to_prune.size()) +
                              " blockedWorldCount=" + std::to_string(blocked_by_world_count) +
                              " blockedLiveGuard=" + std::to_string(blocked_by_live_guard) +
+                             " blockedPostReadyRoleLock=" + std::to_string(blocked_by_post_ready_role_lock) +
                              " blockedLocalClientReady=" + std::to_string(blocked_by_localclient_readiness) +
                              " blockedDedicatedWarmup=" + std::to_string(blocked_by_dedicated_warmup_guard) +
                              " threshold=" + std::to_string(k_prune_missing_scan_threshold));
@@ -13466,6 +13661,10 @@ namespace WindroseTextSigns
                     {
                         defer_reason = "localclient_prune_readiness_guard";
                     }
+                    else if (blocked_by_post_ready_role_lock > 0)
+                    {
+                        defer_reason = "post_ready_role_lock_guard";
+                    }
                     else if (blocked_by_dedicated_warmup_guard > 0)
                     {
                         defer_reason = "dedicated_never_seen_warmup_guard";
@@ -13489,6 +13688,9 @@ namespace WindroseTextSigns
                                      " authoritySourceResolved=" + std::string{authority_source_resolved ? "true" : "false"} +
                                      " localClientPruneReady=" + std::string{localclient_prune_ready ? "true" : "false"} +
                                      " localClientReadyReason=" + localclient_prune_ready_reason +
+                                     " sessionReadyLatched=" + std::string{m_session_ready_latched ? "true" : "false"} +
+                                     " roleLockAcquired=" + std::string{m_role_lock_acquired ? "true" : "false"} +
+                                     " blockedPostReadyRoleLock=" + std::to_string(blocked_by_post_ready_role_lock) +
                                      " dedicatedActiveGraceOk=" + std::string{dedicated_active_world_grace_satisfied ? "true" : "false"} +
                                      " dedicatedStableWindowOk=" + std::string{dedicated_stable_window_satisfied ? "true" : "false"} +
                                      " blockedLocalClientReady=" + std::to_string(blocked_by_localclient_readiness) +
