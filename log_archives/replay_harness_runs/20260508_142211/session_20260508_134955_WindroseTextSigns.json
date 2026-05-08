@@ -1,0 +1,120 @@
+﻿{
+    "session_name":  "20260508_134955_WindroseTextSigns",
+    "status":  "FAIL",
+    "wts_path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_135000_my_test\\files\\C\\SteamLibrary\\steamapps\\common\\Windrose\\R5\\Binaries\\Win64\\ue4ss\\Mods\\WindroseTextSigns\\WindroseTextSigns.log",
+    "r5_path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_133151_my_test\\files\\C\\Users\\User\\AppData\\Local\\R5\\Saved\\Logs\\R5.log",
+    "pair_gap_sec":  1095,
+    "correlation_window_sec":  2,
+    "event_count":  40,
+    "match_count":  0,
+    "fixture":  {
+                    "primary":  "solo_relog_persistence",
+                    "candidates":  [
+                                       "solo_relog_persistence"
+                                   ],
+                    "evidence":  [
+                                     "localclient + load_record"
+                                 ]
+                },
+    "phases":  {
+                   "bootstrap_begin_utc":  "2026-05-08T13:39:35.0000000+00:00",
+                   "bootstrap_end_utc":  "2026-05-08T13:39:35.0000000+00:00",
+                   "player_ready_utc":  null,
+                   "steady_state_begin_utc":  "2026-05-08T13:40:05.0000000+00:00",
+                   "event_counts":  {
+                                        "bootstrap":  8,
+                                        "world_churn":  32,
+                                        "player_ready":  0,
+                                        "steady_state":  0
+                                    }
+               },
+    "summary":  {
+                    "restore_attempts":  0,
+                    "prune_commits":  0,
+                    "prune_deferred":  1,
+                    "destroy_correlations":  0,
+                    "hosted_reconcile_calls":  0
+                },
+    "simulator":  {
+                      "role_locked":  false,
+                      "role_runtime":  "LocalClientPending",
+                      "role_bridge":  "unknown",
+                      "route_locked":  false,
+                      "route_host":  "",
+                      "restore_attempts":  0,
+                      "restore_suppressed":  0,
+                      "restore_results":  0,
+                      "prune_deferred":  1,
+                      "prune_commits":  0,
+                      "untrusted_prune_commits":  0,
+                      "trace_marker_count":  0
+                  },
+    "key_state_summary":  {
+                              "tracked_key_count":  6,
+                              "deferred_never_restored_count":  0,
+                              "untrusted_pruned_key_count":  0,
+                              "deferred_never_restored_keys":  [
+
+                                                               ],
+                              "untrusted_pruned_keys":  [
+
+                                                        ]
+                          },
+    "perturbation":  {
+                         "enabled":  true,
+                         "profiles":  [
+                                          {
+                                              "profile":  "hosted_ready_delay_plus5s",
+                                              "finding_codes":  [
+                                                                    "ROLE_LOCK_MISSING"
+                                                                ],
+                                              "finding_count":  1,
+                                              "drift":  false
+                                          },
+                                          {
+                                              "profile":  "snapshot_end_early_minus3s",
+                                              "finding_codes":  [
+                                                                    "ROLE_LOCK_MISSING"
+                                                                ],
+                                              "finding_count":  1,
+                                              "drift":  false
+                                          },
+                                          {
+                                              "profile":  "snapshot_end_late_plus3s",
+                                              "finding_codes":  [
+                                                                    "ROLE_LOCK_MISSING"
+                                                                ],
+                                              "finding_count":  1,
+                                              "drift":  false
+                                          },
+                                          {
+                                              "profile":  "scan_jitter_ms_700",
+                                              "finding_codes":  [
+                                                                    "ROLE_LOCK_MISSING"
+                                                                ],
+                                              "finding_count":  1,
+                                              "drift":  false
+                                          }
+                                      ],
+                         "drift_profile_count":  0,
+                         "drift_profiles":  [
+
+                                            ]
+                     },
+    "first_failure":  {
+                          "code":  "ROLE_LOCK_MISSING",
+                          "message":  "No [role] lock_acquired event observed.",
+                          "path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_135000_my_test\\files\\C\\SteamLibrary\\steamapps\\common\\Windrose\\R5\\Binaries\\Win64\\ue4ss\\Mods\\WindroseTextSigns\\WindroseTextSigns.log",
+                          "line":  1,
+                          "token":  "bootstrap_begin",
+                          "timestamp_utc":  "2026-05-08T13:39:35.0000000+00:00"
+                      },
+    "findings":  {
+                     "code":  "ROLE_LOCK_MISSING",
+                     "message":  "No [role] lock_acquired event observed.",
+                     "path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_135000_my_test\\files\\C\\SteamLibrary\\steamapps\\common\\Windrose\\R5\\Binaries\\Win64\\ue4ss\\Mods\\WindroseTextSigns\\WindroseTextSigns.log",
+                     "line":  1,
+                     "token":  "bootstrap_begin",
+                     "timestamp_utc":  "2026-05-08T13:39:35.0000000+00:00"
+                 }
+}

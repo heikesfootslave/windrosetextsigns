@@ -1,0 +1,5 @@
+﻿Archive: C:\Users\User\Documents\Windrose Addons\WindroseTextSigns\log_archives\20260508_133151_my_test
+CreatedUtc: 2026-05-08T13:31:51.5688540Z
+Tag: my_test
+FileCount: 23
+Manifest: C:\Users\User\Documents\Windrose Addons\WindroseTextSigns\log_archives\20260508_133151_my_test\manifest.json

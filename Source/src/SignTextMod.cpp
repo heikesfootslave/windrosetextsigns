@@ -4009,6 +4009,21 @@ namespace WindroseTextSigns
         write_log_row(row);
     }
 
+    auto SignTextMod::trace_behavior_sm(const std::string& event, const std::string& fields) -> void
+    {
+        if (!m_behavior_trace_enabled || event.empty())
+        {
+            return;
+        }
+
+        std::string row = "[trace-sm] event=" + event;
+        if (!fields.empty())
+        {
+            row += " " + fields;
+        }
+        log_line(row);
+    }
+
     auto SignTextMod::on_unreal_init() -> void
     {
         m_mod_root = resolve_mod_root();
@@ -4021,6 +4036,7 @@ namespace WindroseTextSigns
         m_player_marker_replication_probe_enabled = is_player_marker_replication_probe_enabled();
         m_player_marker_replication_probe_action_trigger_enabled = is_player_marker_replication_probe_action_trigger_enabled();
         m_verbose_log = config_bool_value("WTS_VERBOSE_LOG", false);
+        m_behavior_trace_enabled = config_bool_value("WTS_BEHAVIOR_TRACE_ENABLED", false);
         m_world_text_font_enabled = config_bool_value("WTS_WORLD_TEXT_FONT_ENABLED", false);
         m_player_marker_replication_probe_action_tokens = config_string_value(
             "WTS_PLAYER_MARKER_REPLICATION_PROBE_ACTION_TOKENS",
@@ -4134,6 +4150,10 @@ namespace WindroseTextSigns
                  " resolved=" + m_hotkey_name +
                  " vk=" + std::to_string(m_hotkey_vk));
         log_line("[save] destroy_confirm_ttl_sec=" + std::to_string(m_destroy_confirm_ttl_sec));
+        if (m_behavior_trace_enabled)
+        {
+            log_line("[trace-sm] config enabled=true");
+        }
 
         std::error_code mkdir_ec{};
         std::filesystem::create_directories(m_data_root, mkdir_ec);
@@ -4909,6 +4929,13 @@ namespace WindroseTextSigns
                 first_non_default = object;
             }
 
+            auto* controller_actor = object->IsA(AActor::StaticClass()) ? Cast<AActor>(object) : nullptr;
+            auto* controller_world = controller_actor ? controller_actor->GetWorld() : nullptr;
+            if (!controller_world)
+            {
+                continue;
+            }
+
             int score = 0;
             bool is_local_controller = false;
             if (invoke_bool_return_no_param(
@@ -4926,13 +4953,43 @@ namespace WindroseTextSigns
             {
                 score += 100;
             }
+
+            UObject* controlled_pawn = nullptr;
+            const bool got_pawn_from_fn = invoke_object_return_no_param(
+                object,
+                STR("GetPawn"),
+                STR("/Script/Engine.Controller:GetPawn"),
+                controlled_pawn);
+            if (!got_pawn_from_fn || !controlled_pawn)
+            {
+                controlled_pawn = get_object_property_if_present(object, "AcknowledgedPawn");
+            }
+            if (controlled_pawn)
+            {
+                score += 120;
+            }
+
+            const auto world_name = lower_ascii(narrow_ascii(controller_world->GetName()));
+            if (world_name.find("lobby") != std::string::npos ||
+                world_name.find("transition") != std::string::npos ||
+                world_name.find("entrance") != std::string::npos)
+            {
+                score -= 120;
+            }
+            else
+            {
+                score += 60;
+            }
+
             if (full_name.find("bp_r5playercontroller_c") != std::string::npos)
             {
                 score += 25;
             }
-            if (full_name.find("transitionmap") != std::string::npos || full_name.find("clientlobby") != std::string::npos)
+            if (full_name.find("transitionmap") != std::string::npos ||
+                full_name.find("clientlobby") != std::string::npos ||
+                full_name.find("entrancehall") != std::string::npos)
             {
-                score -= 15;
+                score -= 80;
             }
 
             if (score > best_score)
@@ -9523,6 +9580,8 @@ namespace WindroseTextSigns
             m_bridge_route_locked_host = selected_host;
             log_line("[bridge-route] lock_acquired host=" + m_bridge_route_locked_host +
                      " reason=first_viable_candidate");
+            trace_behavior_sm("route_lock_acquired",
+                              "host=" + m_bridge_route_locked_host + " reason=first_viable_candidate");
             return;
         }
 
@@ -9554,6 +9613,8 @@ namespace WindroseTextSigns
                  " candidates=" + summarize_ips(viable_candidates));
         log_line("[bridge-route] lock_acquired host=" + m_bridge_route_locked_host +
                  " reason=first_viable_candidate");
+        trace_behavior_sm("route_lock_acquired",
+                          "host=" + m_bridge_route_locked_host + " reason=first_viable_candidate");
     }
 
     auto SignTextMod::mark_bridge_healthy(const std::string& reason) -> void
@@ -9643,6 +9704,11 @@ namespace WindroseTextSigns
                  " bridgeRole=" + m_role_lock_bridge_role +
                  " worldId=" + (m_role_lock_world_id.empty() ? "unknown" : m_role_lock_world_id) +
                  " reason=" + reason);
+        trace_behavior_sm("role_lock_acquired",
+                          "runtimeRole=" + m_role_lock_runtime_role +
+                          " bridgeRole=" + m_role_lock_bridge_role +
+                          " worldId=" + (m_role_lock_world_id.empty() ? "unknown" : m_role_lock_world_id) +
+                          " reason=" + reason);
     }
 
     auto SignTextMod::update_bridge_health(const std::chrono::steady_clock::time_point now) -> void
@@ -10685,12 +10751,23 @@ namespace WindroseTextSigns
         {
             return;
         }
+        if (const auto suspect = m_suspect_rebuild_states.find(key); suspect != m_suspect_rebuild_states.end())
+        {
+            if (std::chrono::steady_clock::now() < suspect->second.suppress_until)
+            {
+                trace_behavior_sm("restore_suppressed",
+                                  "key=" + key + " reason=suspect_rebuild_active");
+                return;
+            }
+        }
         if (!force_bypass_retry_guard)
         {
             if (const auto retry = m_phase4_next_retry.find(key); retry != m_phase4_next_retry.end())
             {
                 if (std::chrono::steady_clock::now() < retry->second)
                 {
+                    trace_behavior_sm("restore_suppressed",
+                                      "key=" + key + " reason=retry_guard_active");
                     return;
                 }
             }
@@ -10700,10 +10777,20 @@ namespace WindroseTextSigns
         {
             if (find_managed_text_component(actor, key))
             {
+                trace_behavior_sm("restore_suppressed",
+                                  "key=" + key + " reason=already_rendered_component_present");
                 return;
             }
         }
-        (void)apply_text_to_actor_component(actor, found->second.text);
+        trace_behavior_sm("restore_attempt",
+                          "key=" + key +
+                          " stableId=" + stable_id +
+                          " bypassRetryGuard=" + std::string{force_bypass_retry_guard ? "true" : "false"});
+        const bool applied = apply_text_to_actor_component(actor, found->second.text);
+        trace_behavior_sm("restore_result",
+                          "key=" + key +
+                          " stableId=" + stable_id +
+                          " applied=" + std::string{applied ? "true" : "false"});
     }
 
     auto SignTextMod::process_event_probe(UObject* context, UFunction* function, void* params) -> void
@@ -10905,7 +10992,13 @@ namespace WindroseTextSigns
                              " stableId=" + found->second.stable_id +
                              " worldId=" + found->second.world_id +
                              " reason=destroy_confirmed_r5log" +
+                             " trustedDestroyConfirmed=true" +
                              " missCount=" + std::to_string(miss_it->second));
+                    trace_behavior_sm("prune_commit",
+                                      "path=static_construct_probe key=" + key +
+                                      " stableId=" + found->second.stable_id +
+                                      " worldId=" + found->second.world_id +
+                                      " reason=destroy_confirmed_r5log trustedDestroyConfirmed=true");
                     m_labels.erase(found);
                     m_rendered_text_cache.erase(key);
                     m_component_name_cache.erase(key);
@@ -10920,12 +11013,18 @@ namespace WindroseTextSigns
                              " stableId=" + stable_id +
                              " worldId=" + world_id +
                              " reason=destroy_unconfirmed" +
+                             " trustedDestroyConfirmed=false" +
                              " missCount=" + std::to_string(miss_it->second) +
                              " threshold=" + std::to_string(k_rebuild_prune_missing_scan_threshold) +
                              " seenLiveBeforeScan=" + std::string{m_restore_scan_has_seen_live_labels ? "true" : "false"} +
                              " localClientPruneReady=" + std::string{localclient_prune_ready ? "true" : "false"} +
                              " localClientReadyReason=" + localclient_prune_ready_reason +
                              " seenLiveThisSession=" + std::string{seen_live_this_session ? "true" : "false"});
+                    trace_behavior_sm("prune_deferred",
+                                      "path=static_construct_probe key=" + key +
+                                      " stableId=" + stable_id +
+                                      " worldId=" + world_id +
+                                      " reason=destroy_unconfirmed trustedDestroyConfirmed=false");
                 }
             }
         }
@@ -11061,7 +11160,7 @@ namespace WindroseTextSigns
         return true;
     }
 
-    auto SignTextMod::refresh_recent_destroy_signals_from_r5_log() -> void
+    auto SignTextMod::tick_r5_readiness_markers() -> void
     {
         constexpr auto k_poll_interval = std::chrono::seconds(1);
         const auto now = std::chrono::steady_clock::now();
@@ -11137,6 +11236,11 @@ namespace WindroseTextSigns
             return;
         }
 
+        const bool localclient_authoritative =
+            m_sidecar_authoritative &&
+            !is_dedicated_runtime_process() &&
+            lower_ascii(m_runtime_role) == "localclient";
+
         std::ifstream input{m_destroy_signal_log_path, std::ios::binary};
         if (!input)
         {
@@ -11165,11 +11269,20 @@ namespace WindroseTextSigns
             const auto line_lower = lower_ascii(line);
 
             if (line_lower.find("world client") != std::string::npos &&
-                line_lower.find("genlandia") != std::string::npos &&
                 !m_hosted_ready_world_client_seen)
             {
                 m_hosted_ready_world_client_seen = true;
                 log_line("[save] hosted_ready_signal signal=world_client");
+            }
+            if (line_lower.find("openlevel") != std::string::npos ||
+                line_lower.find("loadmap:") != std::string::npos)
+            {
+                log_line("[save] hosted_ready_signal signal=level_open_started");
+            }
+            if (line_lower.find("bringing world") != std::string::npos &&
+                line_lower.find("up for play") != std::string::npos)
+            {
+                log_line("[save] hosted_ready_signal signal=world_play_begin");
             }
             if (line_lower.find("onplayerisready") != std::string::npos &&
                 line_lower.find("character bp_") != std::string::npos &&
@@ -11199,6 +11312,11 @@ namespace WindroseTextSigns
             {
                 m_hosted_ready_sequence_complete = true;
                 log_line("[save] hosted_ready_sequence complete=true");
+            }
+
+            if (!localclient_authoritative)
+            {
+                continue;
             }
 
             const bool destroy_rule = line_lower.find("destroyrule::do_impl") != std::string::npos;
@@ -11263,8 +11381,19 @@ namespace WindroseTextSigns
         }
     }
 
+    auto SignTextMod::refresh_recent_destroy_signals_from_r5_log() -> void
+    {
+        tick_r5_readiness_markers();
+    }
+
     auto SignTextMod::has_recent_destroy_confirmation(const std::string& stable_id) -> bool
     {
+        if (!m_sidecar_authoritative ||
+            is_dedicated_runtime_process() ||
+            lower_ascii(m_runtime_role) != "localclient")
+        {
+            return false;
+        }
         if (stable_id.empty())
         {
             return false;
@@ -11287,6 +11416,341 @@ namespace WindroseTextSigns
             m_recent_destroy_slot_confirmations.erase(found);
         }
         return false;
+    }
+
+    auto SignTextMod::mark_suspect_rebuild(
+        const std::string& key,
+        const std::string& stable_id,
+        const std::string& world_id,
+        uintptr_t old_actor_ptr,
+        uintptr_t new_actor_ptr,
+        const std::chrono::steady_clock::time_point now) -> void
+    {
+        auto& state = m_suspect_rebuild_states[key];
+        const bool first = state.first_detected.time_since_epoch().count() == 0;
+        if (first ||
+            state.replacement_actor_ptr != new_actor_ptr ||
+            state.old_actor_ptr != old_actor_ptr)
+        {
+            state.stable_id = stable_id;
+            state.world_id = world_id;
+            state.old_actor_ptr = old_actor_ptr;
+            state.replacement_actor_ptr = new_actor_ptr;
+            state.stable_scan_hits = 1;
+            state.first_detected = now;
+            log_line("[save] suspect_rebuild mark key=" + key +
+                     " stableId=" + stable_id +
+                     " worldId=" + world_id +
+                     " oldPtr=" + std::to_string(static_cast<unsigned long long>(old_actor_ptr)) +
+                     " newPtr=" + std::to_string(static_cast<unsigned long long>(new_actor_ptr)));
+            trace_behavior_sm("suspect_rebuild_mark",
+                              "key=" + key +
+                              " stableId=" + stable_id +
+                              " worldId=" + world_id);
+        }
+        else
+        {
+            ++state.stable_scan_hits;
+        }
+        state.last_seen = now;
+        state.suppress_until = now + std::chrono::seconds(12);
+    }
+
+    auto SignTextMod::expire_suspect_rebuild_states(const std::chrono::steady_clock::time_point now) -> void
+    {
+        constexpr auto k_suspect_timeout = std::chrono::seconds(20);
+        for (auto it = m_suspect_rebuild_states.begin(); it != m_suspect_rebuild_states.end();)
+        {
+            if (it->second.first_detected.time_since_epoch().count() != 0 &&
+                (now - it->second.first_detected) > k_suspect_timeout)
+            {
+                log_line("[save] suspect_rebuild rollback key=" + it->first +
+                         " stableId=" + it->second.stable_id +
+                         " worldId=" + it->second.world_id +
+                         " reason=timeout_no_inprocess_confirmation");
+                trace_behavior_sm("suspect_rebuild_rollback",
+                                  "key=" + it->first +
+                                  " stableId=" + it->second.stable_id +
+                                  " worldId=" + it->second.world_id +
+                                  " reason=timeout_no_inprocess_confirmation");
+                it = m_suspect_rebuild_states.erase(it);
+                continue;
+            }
+            ++it;
+        }
+    }
+
+    auto SignTextMod::maybe_promote_suspect_rebuild_to_prune(
+        const std::string& key,
+        const std::string& stable_id,
+        const std::string& world_id,
+        const std::chrono::steady_clock::time_point now) -> bool
+    {
+        auto found = m_suspect_rebuild_states.find(key);
+        if (found == m_suspect_rebuild_states.end())
+        {
+            return false;
+        }
+
+        const auto& state = found->second;
+        if (state.first_detected.time_since_epoch().count() == 0)
+        {
+            return false;
+        }
+
+        const bool old_actor_gone = !is_actor_pointer_live(reinterpret_cast<AActor*>(state.old_actor_ptr));
+        const bool replacement_live = is_actor_pointer_live(reinterpret_cast<AActor*>(state.replacement_actor_ptr));
+        const bool stable_replacement = state.stable_scan_hits >= 2;
+        const bool matured = (now - state.first_detected) >= std::chrono::seconds(2);
+        const bool gameplay_window_active =
+            (m_last_player_activity.time_since_epoch().count() != 0 &&
+             (now - m_last_player_activity) <= std::chrono::seconds(20)) ||
+            m_hosted_ready_sequence_complete;
+
+        if (old_actor_gone && replacement_live && stable_replacement && matured && gameplay_window_active)
+        {
+            log_line("[save] suspect_rebuild confirmed key=" + key +
+                     " stableId=" + stable_id +
+                     " worldId=" + world_id +
+                     " reason=inprocess_confirmation" +
+                     " stableHits=" + std::to_string(state.stable_scan_hits));
+            trace_behavior_sm("suspect_rebuild_confirmed",
+                              "key=" + key +
+                              " stableId=" + stable_id +
+                              " worldId=" + world_id +
+                              " reason=inprocess_confirmation");
+            m_suspect_rebuild_states.erase(found);
+            return true;
+        }
+        return false;
+    }
+
+    auto SignTextMod::tick_localclient_role_resolution() -> void
+    {
+        const auto log_blocked = [&](const std::string& reason) {
+            if (m_pending_resolution_last_block_reason != reason)
+            {
+                m_pending_resolution_last_block_reason = reason;
+                log_line("[role] pending_resolution_blocked reason=" + reason +
+                         " runtimeRole=" + m_runtime_role +
+                         " authorityMode=" + m_authority_mode);
+                trace_behavior_sm("role_pending_blocked",
+                                  "reason=" + reason +
+                                  " runtimeRole=" + m_runtime_role +
+                                  " authorityMode=" + m_authority_mode);
+            }
+        };
+        if (is_dedicated_runtime_process())
+        {
+            return;
+        }
+        const auto runtime_role_lower = lower_ascii(m_runtime_role);
+        if (runtime_role_lower != "localclientpending")
+        {
+            m_pending_role_watchdog_started = {};
+            m_pending_role_watchdog_logged = false;
+            m_pending_resolution_last_block_reason.clear();
+            m_pending_resolution_last_controller_signature.clear();
+            return;
+        }
+
+        auto* controller = try_get_primary_player_controller();
+        if (!controller || !controller->IsA(AActor::StaticClass()))
+        {
+            log_blocked("no_valid_player_controller");
+            return;
+        }
+        auto* controller_actor = Cast<AActor>(controller);
+        auto* world = controller_actor ? controller_actor->GetWorld() : nullptr;
+        if (!world)
+        {
+            log_blocked("controller_world_unavailable");
+            return;
+        }
+
+        UObject* controlled_pawn = nullptr;
+        const bool got_pawn_from_fn = invoke_object_return_no_param(
+            controller,
+            STR("GetPawn"),
+            STR("/Script/Engine.Controller:GetPawn"),
+            controlled_pawn);
+        if (!got_pawn_from_fn || !controlled_pawn)
+        {
+            controlled_pawn = get_object_property_if_present(controller, "AcknowledgedPawn");
+        }
+        const bool pawn_valid = controlled_pawn != nullptr;
+
+        const auto world_name = lower_ascii(narrow_ascii(world->GetName()));
+        int controller_score = 0;
+        bool is_local_controller = false;
+        if (invoke_bool_return_no_param(
+                controller,
+                STR("IsLocalController"),
+                STR("/Script/Engine.Controller:IsLocalController"),
+                is_local_controller) &&
+            is_local_controller)
+        {
+            controller_score += 200;
+        }
+        if (pawn_valid)
+        {
+            controller_score += 120;
+        }
+        if (world_name.find("lobby") != std::string::npos ||
+            world_name.find("transition") != std::string::npos ||
+            world_name.find("entrance") != std::string::npos)
+        {
+            controller_score -= 120;
+        }
+        else
+        {
+            controller_score += 60;
+        }
+
+        const auto authority_mode_lower = lower_ascii(m_authority_mode);
+        const bool authority_source_resolved = authority_mode_lower != "worldauthoritypending";
+        const bool hosted_ready_resolved = m_hosted_ready_world_client_seen &&
+            m_hosted_ready_player_ready_seen &&
+            m_hosted_ready_datakeeper_seen &&
+            m_hosted_ready_hide_loading_seen;
+        bool can_resolve_role = authority_source_resolved || hosted_ready_resolved;
+        const auto now = std::chrono::steady_clock::now();
+
+        const auto controller_signature =
+            world_name + "|score=" + std::to_string(controller_score) +
+            "|pawn=" + std::string{pawn_valid ? "1" : "0"};
+        if (m_pending_resolution_last_controller_signature != controller_signature)
+        {
+            m_pending_resolution_last_controller_signature = controller_signature;
+            log_line("[controller] candidate score=" + std::to_string(controller_score) +
+                     " world=" + world_name +
+                     " pawnValid=" + std::string{pawn_valid ? "true" : "false"} +
+                     " selected=true");
+        }
+
+        if (!can_resolve_role)
+        {
+            log_blocked("authority_or_hosted_ready_not_resolved");
+            if (m_hosted_ready_hide_loading_seen &&
+                m_pending_role_watchdog_started.time_since_epoch().count() == 0)
+            {
+                m_pending_role_watchdog_started = now;
+            }
+            if (!m_pending_role_watchdog_logged &&
+                m_pending_role_watchdog_started.time_since_epoch().count() != 0 &&
+                (now - m_pending_role_watchdog_started) >= std::chrono::seconds(20))
+            {
+                m_pending_role_watchdog_logged = true;
+                log_line("[role] pending_watchdog runtimeRole=" + m_runtime_role +
+                         " authorityMode=" + m_authority_mode +
+                         " world=" + world_name +
+                         " hideLoadingSeen=true");
+            }
+            if (m_pending_role_watchdog_logged)
+            {
+                can_resolve_role = true;
+                log_line("[role] pending_resolution_attempt runtimeRole=" + m_runtime_role +
+                         " authorityMode=" + m_authority_mode +
+                         " hostedReady=false world=" + world_name +
+                         " forcedByWatchdog=true");
+                trace_behavior_sm("role_pending_attempt",
+                                  "runtimeRole=" + m_runtime_role +
+                                  " authorityMode=" + m_authority_mode +
+                                  " hostedReady=false world=" + world_name +
+                                  " forcedByWatchdog=true");
+            }
+            else
+            {
+                return;
+            }
+        }
+
+        if (!(m_pending_role_watchdog_logged && !hosted_ready_resolved && !authority_source_resolved))
+        {
+            log_line("[role] pending_resolution_attempt runtimeRole=" + m_runtime_role +
+                     " authorityMode=" + m_authority_mode +
+                     " hostedReady=" + std::string{hosted_ready_resolved ? "true" : "false"} +
+                     " world=" + world_name);
+            trace_behavior_sm("role_pending_attempt",
+                              "runtimeRole=" + m_runtime_role +
+                              " authorityMode=" + m_authority_mode +
+                              " hostedReady=" + std::string{hosted_ready_resolved ? "true" : "false"} +
+                              " world=" + world_name);
+        }
+        m_pending_resolution_last_block_reason.clear();
+
+        const auto controller_world_id = build_world_id_for_actor(controller_actor);
+        configure_sidecar_for_actor(controller_actor, controller_world_id);
+        if (lower_ascii(m_runtime_role) == "localclient")
+        {
+            m_pending_role_watchdog_started = {};
+            m_pending_role_watchdog_logged = false;
+            log_line("[role] pending_resolution_success runtimeRole=" + m_runtime_role +
+                     " authorityMode=" + m_authority_mode +
+                     " bridgeRole=" + bridge_role_name(m_bridge_role) +
+                     " worldId=" + controller_world_id);
+            trace_behavior_sm("role_pending_success",
+                              "runtimeRole=" + m_runtime_role +
+                              " authorityMode=" + m_authority_mode +
+                              " bridgeRole=" + bridge_role_name(m_bridge_role) +
+                              " worldId=" + controller_world_id +
+                              " path=existing_localclient");
+            return;
+        }
+
+        // Fallback for hosted/local churn where authority probing lags behind readiness.
+        std::filesystem::path profile_root{};
+        if (!m_save_profile_root.empty() && std::filesystem::exists(m_save_profile_root))
+        {
+            profile_root = std::filesystem::path{m_save_profile_root};
+        }
+        else
+        {
+            const auto profile_roots = collect_local_client_save_profile_roots();
+            if (!profile_roots.empty())
+            {
+                profile_root = profile_roots.front();
+            }
+        }
+        auto world_folder_id = m_world_folder_id;
+        if (!is_hex_world_id(world_folder_id) && !profile_root.empty())
+        {
+            if (auto chosen = choose_world_id_for_profile(profile_root); chosen.has_value())
+            {
+                world_folder_id = *chosen;
+            }
+        }
+        if (!is_hex_world_id(world_folder_id))
+        {
+            world_folder_id = sanitize_path_segment(controller_world_id.empty() ? std::string{"unknown-world"} : controller_world_id);
+        }
+        const auto data_root = !profile_root.empty()
+            ? profile_root / "WindroseTextSigns" / world_folder_id
+            : m_mod_root / "Cache" / "LocalAuthoritative" / world_folder_id;
+        set_sidecar_route(
+            data_root,
+            "LocalClient",
+            profile_root.empty() ? "LocalProfileAuthoritativeFallbackModRoot" : "LocalProfileAuthoritative",
+            "LocalClientSoloOrHostedAuthoritative",
+            profile_root.empty() ? "authoritative-fallback" : "authoritative",
+            true,
+            profile_root,
+            world_folder_id,
+            "pending_role_resolution");
+        configure_bridge_role("pending_role_resolution");
+        maybe_acquire_role_lock(now, "pending_role_resolution");
+        log_line("[role] pending_resolution_success runtimeRole=" + m_runtime_role +
+                 " authorityMode=" + m_authority_mode +
+                 " bridgeRole=" + bridge_role_name(m_bridge_role) +
+                 " worldId=" + world_folder_id);
+        trace_behavior_sm("role_pending_success",
+                          "runtimeRole=" + m_runtime_role +
+                          " authorityMode=" + m_authority_mode +
+                          " bridgeRole=" + bridge_role_name(m_bridge_role) +
+                          " worldId=" + world_folder_id +
+                          " path=fallback_route_set");
+        m_pending_role_watchdog_started = {};
+        m_pending_role_watchdog_logged = false;
     }
 
     auto SignTextMod::maybe_run_hosted_post_ready_reconcile() -> void
@@ -11366,6 +11830,7 @@ namespace WindroseTextSigns
             if (hotkey_is_down && !m_hotkey_poll_was_down)
             {
                 m_hotkey_requested.store(true);
+                m_last_player_activity = std::chrono::steady_clock::now();
                 log_line("[input] hotkey polled_edge key=" + m_hotkey_name);
             }
             m_hotkey_poll_was_down = hotkey_is_down;
@@ -11381,15 +11846,14 @@ namespace WindroseTextSigns
         tick_pending_fallback_hotkeys();
         tick_file_triggers();
         tick_player_marker_replication_probe();
+        if (!is_dedicated_runtime_process())
+        {
+            // Always parse readiness markers in LocalClient states, including Pending.
+            tick_r5_readiness_markers();
+            tick_localclient_role_resolution();
+        }
         tick_bridge();
         const auto now = std::chrono::steady_clock::now();
-        const bool localclient_authoritative_tick =
-            m_sidecar_authoritative &&
-            !is_dedicated_runtime_process();
-        if (localclient_authoritative_tick)
-        {
-            refresh_recent_destroy_signals_from_r5_log();
-        }
         maybe_run_hosted_post_ready_reconcile();
 
         if (now - m_last_restore_scan > std::chrono::seconds(2))
@@ -11428,6 +11892,7 @@ namespace WindroseTextSigns
             std::unordered_set<std::string> present_label_keys{};
             std::unordered_map<std::string, uint32_t> present_world_counts{};
             const bool had_seen_live_labels_before_scan = m_restore_scan_has_seen_live_labels;
+            expire_suspect_rebuild_states(now);
             const auto runtime_role_lower = lower_ascii(m_runtime_role);
             const auto authority_mode_lower = lower_ascii(m_authority_mode);
             const bool authority_source_resolved =
@@ -11506,13 +11971,65 @@ namespace WindroseTextSigns
                             std::string localclient_prune_ready_reason{};
                             const bool localclient_prune_ready =
                                 is_localclient_prune_ready(authority_source_resolved, &localclient_prune_ready_reason);
+                            if (localclient_authoritative)
+                            {
+                                mark_suspect_rebuild(
+                                    key,
+                                    found->second.stable_id,
+                                    found->second.world_id,
+                                    ptr_it->second,
+                                    actor_ptr,
+                                    now);
+                            }
                             if (destroy_confirmed_r5log)
                             {
                                 log_line("[save] prune_rebuilt_label key=" + key +
                                          " stableId=" + found->second.stable_id +
                                          " worldId=" + found->second.world_id +
                                          " reason=destroy_confirmed_r5log" +
+                                         " trustedDestroyConfirmed=true" +
                                          " missCount=" + std::to_string(miss_count));
+                                trace_behavior_sm("prune_commit",
+                                                  "path=restore_scan_rebuild key=" + key +
+                                                  " stableId=" + found->second.stable_id +
+                                                  " worldId=" + found->second.world_id +
+                                                  " reason=destroy_confirmed_r5log trustedDestroyConfirmed=true");
+                                if (m_sidecar_authoritative)
+                                {
+                                    broadcast_bridge_clear(found->second.stable_id, found->second.world_id, "prune_rebuilt_label");
+                                }
+                                m_labels.erase(found);
+                                m_rendered_text_cache.erase(key);
+                                m_component_name_cache.erase(key);
+                                m_phase4_next_retry.erase(key);
+                                m_missing_label_scan_counts.erase(key);
+                                if (m_text_buffer_bound_key == key)
+                                {
+                                    m_text_buffer.fill('\0');
+                                    m_text_buffer_bound_key.clear();
+                                }
+                                save_sidecar_json("prune_rebuilt_label", key, stable_id, world_id);
+                                m_suspect_rebuild_states.erase(key);
+                                pruned_rebuilt_label = true;
+                            }
+                            else if (localclient_authoritative &&
+                                     maybe_promote_suspect_rebuild_to_prune(
+                                         key,
+                                         found->second.stable_id,
+                                         found->second.world_id,
+                                         now))
+                            {
+                                log_line("[save] prune_rebuilt_label key=" + key +
+                                         " stableId=" + found->second.stable_id +
+                                         " worldId=" + found->second.world_id +
+                                         " reason=suspect_rebuild_confirmed" +
+                                         " trustedDestroyConfirmed=true" +
+                                         " missCount=" + std::to_string(miss_count));
+                                trace_behavior_sm("prune_commit",
+                                                  "path=restore_scan_rebuild key=" + key +
+                                                  " stableId=" + found->second.stable_id +
+                                                  " worldId=" + found->second.world_id +
+                                                  " reason=suspect_rebuild_confirmed trustedDestroyConfirmed=true");
                                 if (m_sidecar_authoritative)
                                 {
                                     broadcast_bridge_clear(found->second.stable_id, found->second.world_id, "prune_rebuilt_label");
@@ -11540,6 +12057,11 @@ namespace WindroseTextSigns
                                          " localClientReadyReason=" + localclient_prune_ready_reason +
                                          " seenLiveThisSession=" + std::string{seen_live_this_session ? "true" : "false"} +
                                          " missCount=" + std::to_string(miss_count));
+                                trace_behavior_sm("prune_deferred",
+                                                  "path=restore_scan_rebuild key=" + key +
+                                                  " stableId=" + found->second.stable_id +
+                                                  " worldId=" + found->second.world_id +
+                                                  " reason=localclient_readiness_guard trustedDestroyConfirmed=false");
                             }
                             else if (localclient_authoritative && !seen_live_this_session)
                             {
@@ -11550,6 +12072,11 @@ namespace WindroseTextSigns
                                          " localClientReadyReason=" + localclient_prune_ready_reason +
                                          " seenLiveThisSession=false" +
                                          " missCount=" + std::to_string(miss_count));
+                                trace_behavior_sm("prune_deferred",
+                                                  "path=restore_scan_rebuild key=" + key +
+                                                  " stableId=" + found->second.stable_id +
+                                                  " worldId=" + found->second.world_id +
+                                                  " reason=authoritative_seen_live_guard trustedDestroyConfirmed=false");
                             }
                             else if (miss_count < k_rebuild_prune_missing_scan_threshold)
                             {
@@ -11563,6 +12090,11 @@ namespace WindroseTextSigns
                                          " threshold=" + std::to_string(k_rebuild_prune_missing_scan_threshold) +
                                          " removedComponent=" + std::string{removed_component ? "true" : "false"} +
                                          " renderGuardSec=12");
+                                trace_behavior_sm("prune_deferred",
+                                                  "path=restore_scan_rebuild key=" + key +
+                                                  " stableId=" + found->second.stable_id +
+                                                  " worldId=" + found->second.world_id +
+                                                  " reason=insufficient_miss_count trustedDestroyConfirmed=false");
                                 m_component_name_cache.erase(key);
                             }
                             else if (remote_bridge_unsynced)
@@ -11576,6 +12108,11 @@ namespace WindroseTextSigns
                                          " reason=bridge_unsynced" +
                                          " removedComponent=" + std::string{removed_component ? "true" : "false"} +
                                          " renderGuardSec=12");
+                                trace_behavior_sm("prune_deferred",
+                                                  "path=restore_scan_rebuild key=" + key +
+                                                  " stableId=" + found->second.stable_id +
+                                                  " worldId=" + found->second.world_id +
+                                                  " reason=bridge_unsynced trustedDestroyConfirmed=false");
                                 m_component_name_cache.erase(key);
                             }
                             else if (localclient_authoritative)
@@ -11586,11 +12123,17 @@ namespace WindroseTextSigns
                                 log_line("[save] prune_rebuilt_label deferred key=" + key +
                                          " stableId=" + found->second.stable_id +
                                          " worldId=" + found->second.world_id +
-                                         " reason=destroy_unconfirmed" +
+                                         " reason=suspect_rebuild_soft_prune" +
+                                         " trustedDestroyConfirmed=false" +
                                          " missCount=" + std::to_string(miss_count) +
                                          " threshold=" + std::to_string(k_rebuild_prune_missing_scan_threshold) +
                                          " removedComponent=" + std::string{removed_component ? "true" : "false"} +
                                          " renderGuardSec=12");
+                                trace_behavior_sm("prune_deferred",
+                                                  "path=restore_scan_rebuild key=" + key +
+                                                  " stableId=" + found->second.stable_id +
+                                                  " worldId=" + found->second.world_id +
+                                                  " reason=suspect_rebuild_soft_prune trustedDestroyConfirmed=false");
                                 m_component_name_cache.erase(key);
                             }
                             else
@@ -11599,6 +12142,12 @@ namespace WindroseTextSigns
                                          " stableId=" + found->second.stable_id +
                                          " worldId=" + found->second.world_id +
                                          " reason=actor_instance_changed");
+                                trace_behavior_sm("prune_commit",
+                                                  "path=restore_scan_rebuild key=" + key +
+                                                  " stableId=" + found->second.stable_id +
+                                                  " worldId=" + found->second.world_id +
+                                                  " reason=actor_instance_changed trustedDestroyConfirmed=" +
+                                                      std::string{localclient_authoritative ? "false" : "n/a"});
                                 if (m_sidecar_authoritative)
                                 {
                                     broadcast_bridge_clear(found->second.stable_id, found->second.world_id, "prune_rebuilt_label");
@@ -11624,6 +12173,46 @@ namespace WindroseTextSigns
                 ++present_world_counts[world_id];
                 m_seen_live_label_keys.insert(key);
                 m_missing_label_scan_counts.erase(key);
+                if (!pruned_rebuilt_label)
+                {
+                    if (localclient_authoritative &&
+                        maybe_promote_suspect_rebuild_to_prune(
+                            key,
+                            stable_id,
+                            world_id,
+                            now))
+                    {
+                        if (const auto found = m_labels.find(key); found != m_labels.end())
+                        {
+                            log_line("[save] prune_rebuilt_label key=" + key +
+                                     " stableId=" + found->second.stable_id +
+                                     " worldId=" + found->second.world_id +
+                                     " reason=suspect_rebuild_confirmed" +
+                                     " trustedDestroyConfirmed=true" +
+                                     " missCount=0");
+                            trace_behavior_sm("prune_commit",
+                                              "path=restore_scan_rebuild key=" + key +
+                                              " stableId=" + found->second.stable_id +
+                                              " worldId=" + found->second.world_id +
+                                              " reason=suspect_rebuild_confirmed trustedDestroyConfirmed=true");
+                            if (m_sidecar_authoritative)
+                            {
+                                broadcast_bridge_clear(found->second.stable_id, found->second.world_id, "prune_rebuilt_label");
+                            }
+                            m_labels.erase(found);
+                            m_rendered_text_cache.erase(key);
+                            m_component_name_cache.erase(key);
+                            m_phase4_next_retry.erase(key);
+                            if (m_text_buffer_bound_key == key)
+                            {
+                                m_text_buffer.fill('\0');
+                                m_text_buffer_bound_key.clear();
+                            }
+                            save_sidecar_json("prune_rebuilt_label", key, stable_id, world_id);
+                            pruned_rebuilt_label = true;
+                        }
+                    }
+                }
                 if (!pruned_rebuilt_label)
                 {
                     restore_known_text_if_any(actor, stable_id);
@@ -11794,9 +12383,29 @@ namespace WindroseTextSigns
                     {
                         continue;
                     }
+                    if (localclient_authoritative && !has_recent_destroy_confirmation(found->second.stable_id))
+                    {
+                        log_line("[save] prune_destroyed_label deferred key=" + key +
+                                 " stableId=" + found->second.stable_id +
+                                 " worldId=" + found->second.world_id +
+                                 " reason=destroy_unconfirmed_localclient" +
+                                 " trustedDestroyConfirmed=false");
+                        trace_behavior_sm("prune_deferred",
+                                          "path=destroy_scan key=" + key +
+                                          " stableId=" + found->second.stable_id +
+                                          " worldId=" + found->second.world_id +
+                                          " reason=destroy_unconfirmed_localclient trustedDestroyConfirmed=false");
+                        continue;
+                    }
                     log_line("[save] prune_destroyed_label key=" + key +
                              " stableId=" + found->second.stable_id +
-                             " worldId=" + found->second.world_id);
+                             " worldId=" + found->second.world_id +
+                             " trustedDestroyConfirmed=" + std::string{localclient_authoritative ? "true" : "n/a"});
+                    trace_behavior_sm("prune_commit",
+                                      "path=destroy_scan key=" + key +
+                                      " stableId=" + found->second.stable_id +
+                                      " worldId=" + found->second.world_id +
+                                      " trustedDestroyConfirmed=" + std::string{localclient_authoritative ? "true" : "n/a"});
                     if (m_sidecar_authoritative)
                     {
                         broadcast_bridge_clear(found->second.stable_id, found->second.world_id, "prune_destroyed_label");

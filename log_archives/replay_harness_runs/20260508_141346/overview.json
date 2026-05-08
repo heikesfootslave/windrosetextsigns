@@ -1,0 +1,1513 @@
+﻿{
+    "run_created_utc":  "2026-05-08T14:13:59.4232132Z",
+    "run_dir":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\replay_harness_runs\\20260508_141346",
+    "roots":  [
+                  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives"
+              ],
+    "correlation_window_sec":  2,
+    "max_pair_gap_minutes":  240,
+    "ready_restore_max_sec":  45,
+    "perturbation_enabled":  true,
+    "discovered":  {
+                       "total_logs":  99,
+                       "wts_logs":  13,
+                       "r5_logs":  86
+                   },
+    "pairing":  {
+                    "session_count":  13,
+                    "unmatched_wts_count":  0,
+                    "unmatched_r5_count":  73,
+                    "unmatched_wts":  [
+
+                                      ],
+                    "unmatched_r5":  [
+                                         "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_133151_my_test\\files\\C\\Games\\WindowsServer\\R5\\Saved\\Logs\\R5-backup-2026.05.07-18.02.05.log",
+                                         "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_040938_baseline_policy_setup\\files\\C\\Games\\WindowsServer\\R5\\Saved\\Logs\\R5-backup-2026.05.07-18.02.05.log",
+                                         "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_135000_my_test\\files\\C\\Games\\WindowsServer\\R5\\Saved\\Logs\\R5-backup-2026.05.07-18.02.05.log",
+                                         "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_135005_my_test\\files\\C\\Games\\WindowsServer\\R5\\Saved\\Logs\\R5-backup-2026.05.07-18.02.05.log",
+                                         "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_040938_baseline_policy_setup\\files\\C\\Games\\WindowsServer\\R5\\Saved\\Logs\\R5-backup-2026.05.07-18.36.18.log",
+                                         "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_133151_my_test\\files\\C\\Games\\WindowsServer\\R5\\Saved\\Logs\\R5-backup-2026.05.07-18.36.18.log",
+                                         "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_135000_my_test\\files\\C\\Games\\WindowsServer\\R5\\Saved\\Logs\\R5-backup-2026.05.07-18.36.18.log",
+                                         "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_135005_my_test\\files\\C\\Games\\WindowsServer\\R5\\Saved\\Logs\\R5-backup-2026.05.07-18.36.18.log",
+                                         "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_040938_baseline_policy_setup\\files\\C\\Users\\User\\AppData\\Local\\R5\\Saved\\Logs\\R5-backup-2026.05.07-18.40.08.log",
+                                         "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_133151_my_test\\files\\C\\Games\\WindowsServer\\R5\\Saved\\Logs\\R5-backup-2026.05.07-18.42.59.log",
+                                         "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_135005_my_test\\files\\C\\Games\\WindowsServer\\R5\\Saved\\Logs\\R5-backup-2026.05.07-18.42.59.log",
+                                         "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_135000_my_test\\files\\C\\Games\\WindowsServer\\R5\\Saved\\Logs\\R5-backup-2026.05.07-18.42.59.log",
+                                         "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_040938_baseline_policy_setup\\files\\C\\Games\\WindowsServer\\R5\\Saved\\Logs\\R5-backup-2026.05.07-18.42.59.log",
+                                         "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_040938_baseline_policy_setup\\files\\C\\Users\\User\\AppData\\Local\\R5\\Saved\\Logs\\R5-backup-2026.05.07-19.11.10.log",
+                                         "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_133151_my_test\\files\\C\\Users\\User\\AppData\\Local\\R5\\Saved\\Logs\\R5-backup-2026.05.07-19.11.10.log",
+                                         "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_133151_my_test\\files\\C\\Games\\WindowsServer\\R5\\Saved\\Logs\\R5-backup-2026.05.07-19.16.02.log",
+                                         "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_040938_baseline_policy_setup\\files\\C\\Games\\WindowsServer\\R5\\Saved\\Logs\\R5-backup-2026.05.07-19.16.02.log",
+                                         "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_135005_my_test\\files\\C\\Games\\WindowsServer\\R5\\Saved\\Logs\\R5-backup-2026.05.07-19.16.02.log",
+                                         "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_135000_my_test\\files\\C\\Games\\WindowsServer\\R5\\Saved\\Logs\\R5-backup-2026.05.07-19.16.02.log",
+                                         "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_135000_my_test\\files\\C\\Games\\WindowsServer\\R5\\Saved\\Logs\\R5-backup-2026.05.07-19.33.17.log",
+                                         "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_040938_baseline_policy_setup\\files\\C\\Games\\WindowsServer\\R5\\Saved\\Logs\\R5-backup-2026.05.07-19.33.17.log",
+                                         "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_133151_my_test\\files\\C\\Games\\WindowsServer\\R5\\Saved\\Logs\\R5-backup-2026.05.07-19.33.17.log",
+                                         "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_135005_my_test\\files\\C\\Games\\WindowsServer\\R5\\Saved\\Logs\\R5-backup-2026.05.07-19.33.17.log",
+                                         "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_133151_my_test\\files\\C\\Users\\User\\AppData\\Local\\R5\\Saved\\Logs\\R5-backup-2026.05.07-19.41.33.log",
+                                         "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_040938_baseline_policy_setup\\files\\C\\Users\\User\\AppData\\Local\\R5\\Saved\\Logs\\R5-backup-2026.05.07-19.41.33.log",
+                                         "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_135005_my_test\\files\\C\\Users\\User\\AppData\\Local\\R5\\Saved\\Logs\\R5-backup-2026.05.07-19.41.33.log",
+                                         "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_133151_my_test\\files\\C\\Games\\WindowsServer\\R5\\Saved\\Logs\\R5-backup-2026.05.07-19.43.47.log",
+                                         "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_040938_baseline_policy_setup\\files\\C\\Games\\WindowsServer\\R5\\Saved\\Logs\\R5-backup-2026.05.07-19.43.47.log",
+                                         "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_135005_my_test\\files\\C\\Games\\WindowsServer\\R5\\Saved\\Logs\\R5-backup-2026.05.07-19.43.47.log",
+                                         "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_135000_my_test\\files\\C\\Games\\WindowsServer\\R5\\Saved\\Logs\\R5-backup-2026.05.07-19.43.47.log",
+                                         "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_133151_my_test\\files\\C\\Users\\User\\AppData\\Local\\R5\\Saved\\Logs\\R5-backup-2026.05.07-19.54.25.log",
+                                         "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_135005_my_test\\files\\C\\Users\\User\\AppData\\Local\\R5\\Saved\\Logs\\R5-backup-2026.05.07-19.54.25.log",
+                                         "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_040938_baseline_policy_setup\\files\\C\\Users\\User\\AppData\\Local\\R5\\Saved\\Logs\\R5-backup-2026.05.07-19.54.25.log",
+                                         "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_040938_baseline_policy_setup\\files\\C\\Users\\User\\AppData\\Local\\R5\\Saved\\Logs\\R5-backup-2026.05.07-20.17.49.log",
+                                         "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_135005_my_test\\files\\C\\Users\\User\\AppData\\Local\\R5\\Saved\\Logs\\R5-backup-2026.05.07-20.17.49.log",
+                                         "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_133151_my_test\\files\\C\\Users\\User\\AppData\\Local\\R5\\Saved\\Logs\\R5-backup-2026.05.07-20.17.49.log",
+                                         "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_040938_baseline_policy_setup\\files\\C\\Games\\WindowsServer\\R5\\Saved\\Logs\\R5-backup-2026.05.07-20.37.41.log",
+                                         "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_135000_my_test\\files\\C\\Games\\WindowsServer\\R5\\Saved\\Logs\\R5-backup-2026.05.07-20.37.41.log",
+                                         "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_133151_my_test\\files\\C\\Games\\WindowsServer\\R5\\Saved\\Logs\\R5-backup-2026.05.07-20.37.41.log",
+                                         "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_135005_my_test\\files\\C\\Games\\WindowsServer\\R5\\Saved\\Logs\\R5-backup-2026.05.07-20.37.41.log",
+                                         "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_133151_my_test\\files\\C\\Users\\User\\AppData\\Local\\R5\\Saved\\Logs\\R5-backup-2026.05.07-21.13.42.log",
+                                         "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_040938_baseline_policy_setup\\files\\C\\Users\\User\\AppData\\Local\\R5\\Saved\\Logs\\R5-backup-2026.05.07-21.13.42.log",
+                                         "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_135005_my_test\\files\\C\\Users\\User\\AppData\\Local\\R5\\Saved\\Logs\\R5-backup-2026.05.07-21.13.42.log",
+                                         "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_135005_my_test\\files\\C\\Games\\WindowsServer\\R5\\Saved\\Logs\\R5-backup-2026.05.07-21.13.50.log",
+                                         "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_040938_baseline_policy_setup\\files\\C\\Games\\WindowsServer\\R5\\Saved\\Logs\\R5-backup-2026.05.07-21.13.50.log",
+                                         "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_135000_my_test\\files\\C\\Games\\WindowsServer\\R5\\Saved\\Logs\\R5-backup-2026.05.07-21.13.50.log",
+                                         "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_133151_my_test\\files\\C\\Games\\WindowsServer\\R5\\Saved\\Logs\\R5-backup-2026.05.07-21.13.50.log",
+                                         "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_135005_my_test\\files\\C\\Users\\User\\AppData\\Local\\R5\\Saved\\Logs\\R5-backup-2026.05.07-21.56.38.log",
+                                         "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_040938_baseline_policy_setup\\files\\C\\Users\\User\\AppData\\Local\\R5\\Saved\\Logs\\R5-backup-2026.05.07-21.56.38.log",
+                                         "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_133151_my_test\\files\\C\\Users\\User\\AppData\\Local\\R5\\Saved\\Logs\\R5-backup-2026.05.07-21.56.38.log",
+                                         "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_040938_baseline_policy_setup\\files\\C\\Games\\WindowsServer\\R5\\Saved\\Logs\\R5-backup-2026.05.07-21.56.39.log",
+                                         "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_133151_my_test\\files\\C\\Games\\WindowsServer\\R5\\Saved\\Logs\\R5-backup-2026.05.07-21.56.39.log",
+                                         "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_135005_my_test\\files\\C\\Games\\WindowsServer\\R5\\Saved\\Logs\\R5-backup-2026.05.07-21.56.39.log",
+                                         "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_135000_my_test\\files\\C\\Games\\WindowsServer\\R5\\Saved\\Logs\\R5-backup-2026.05.07-21.56.39.log",
+                                         "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_135005_my_test\\files\\C\\Users\\User\\AppData\\Local\\R5\\Saved\\Logs\\R5-backup-2026.05.07-22.38.29.log",
+                                         "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_040938_baseline_policy_setup\\files\\C\\Users\\User\\AppData\\Local\\R5\\Saved\\Logs\\R5-backup-2026.05.07-22.38.29.log",
+                                         "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_133151_my_test\\files\\C\\Users\\User\\AppData\\Local\\R5\\Saved\\Logs\\R5-backup-2026.05.07-22.38.29.log",
+                                         "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_133151_my_test\\files\\C\\Games\\WindowsServer\\R5\\Saved\\Logs\\R5-backup-2026.05.07-22.38.37.log",
+                                         "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_135005_my_test\\files\\C\\Games\\WindowsServer\\R5\\Saved\\Logs\\R5-backup-2026.05.07-22.38.37.log",
+                                         "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_040938_baseline_policy_setup\\files\\C\\Games\\WindowsServer\\R5\\Saved\\Logs\\R5-backup-2026.05.07-22.38.37.log",
+                                         "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_135000_my_test\\files\\C\\Games\\WindowsServer\\R5\\Saved\\Logs\\R5-backup-2026.05.07-22.38.37.log",
+                                         "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_133151_my_test\\files\\C\\Games\\WindowsServer\\R5\\Saved\\Logs\\R5.log",
+                                         "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_040938_baseline_policy_setup\\files\\C\\Games\\WindowsServer\\R5\\Saved\\Logs\\R5.log",
+                                         "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_135000_my_test\\files\\C\\Games\\WindowsServer\\R5\\Saved\\Logs\\R5.log",
+                                         "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_135005_my_test\\files\\C\\Games\\WindowsServer\\R5\\Saved\\Logs\\R5.log",
+                                         "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_133151_my_test\\files\\C\\Users\\User\\AppData\\Local\\R5\\Saved\\Logs\\R5-backup-2026.05.08-01.19.18.log",
+                                         "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_135005_my_test\\files\\C\\Users\\User\\AppData\\Local\\R5\\Saved\\Logs\\R5-backup-2026.05.08-01.19.18.log",
+                                         "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_040938_baseline_policy_setup\\files\\C\\Users\\User\\AppData\\Local\\R5\\Saved\\Logs\\R5-backup-2026.05.08-01.19.18.log",
+                                         "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_135005_my_test\\files\\C\\Users\\User\\AppData\\Local\\R5\\Saved\\Logs\\R5-backup-2026.05.08-02.09.38.log",
+                                         "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_040938_baseline_policy_setup\\files\\C\\Users\\User\\AppData\\Local\\R5\\Saved\\Logs\\R5-backup-2026.05.08-02.09.38.log",
+                                         "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_133151_my_test\\files\\C\\Users\\User\\AppData\\Local\\R5\\Saved\\Logs\\R5-backup-2026.05.08-02.09.38.log",
+                                         "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_133151_my_test\\files\\C\\Users\\User\\AppData\\Local\\R5\\Saved\\Logs\\R5-backup-2026.05.08-02.37.05.log",
+                                         "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_040938_baseline_policy_setup\\files\\C\\Users\\User\\AppData\\Local\\R5\\Saved\\Logs\\R5.log"
+                                     ]
+                },
+    "results":  [
+                    {
+                        "session_name":  "20260506_194346_WindroseTextSigns",
+                        "status":  "FAIL",
+                        "wts_path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_041029_internet_client_logs_batch\\files\\E\\Windrose\\logs\\UPnP static ip\\WindroseTextSigns.log",
+                        "r5_path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_041029_internet_client_logs_batch\\files\\E\\Windrose\\logs\\UPnP static ip\\R5.log",
+                        "pair_gap_sec":  8,
+                        "correlation_window_sec":  2,
+                        "event_count":  96,
+                        "match_count":  0,
+                        "fixture":  {
+                                        "primary":  "unclassified",
+                                        "candidates":  [
+                                                           "unclassified"
+                                                       ],
+                                        "evidence":  [
+                                                         "no fixture heuristics matched"
+                                                     ]
+                                    },
+                        "phases":  {
+                                       "bootstrap_begin_utc":  "2026-05-06T19:38:59.0000000+00:00",
+                                       "bootstrap_end_utc":  "2026-05-06T19:38:59.0000000+00:00",
+                                       "player_ready_utc":  "2026-05-06T19:42:53.0000000+00:00",
+                                       "steady_state_begin_utc":  "2026-05-06T19:43:03.0000000+00:00",
+                                       "event_counts":  {
+                                                            "bootstrap":  7,
+                                                            "world_churn":  36,
+                                                            "player_ready":  2,
+                                                            "steady_state":  51
+                                                        }
+                                   },
+                        "summary":  {
+                                        "restore_attempts":  30,
+                                        "prune_commits":  0,
+                                        "prune_deferred":  2,
+                                        "destroy_correlations":  0,
+                                        "hosted_reconcile_calls":  0
+                                    },
+                        "key_state_summary":  {
+                                                  "tracked_key_count":  11,
+                                                  "deferred_never_restored_count":  0,
+                                                  "untrusted_pruned_key_count":  0,
+                                                  "deferred_never_restored_keys":  [
+
+                                                                                   ],
+                                                  "untrusted_pruned_keys":  [
+
+                                                                            ]
+                                              },
+                        "perturbation":  {
+                                             "enabled":  true,
+                                             "profiles":  [
+                                                              {
+                                                                  "profile":  "hosted_ready_delay_plus5s",
+                                                                  "finding_codes":  [
+                                                                                        "ROLE_LOCK_MISSING"
+                                                                                    ],
+                                                                  "finding_count":  1,
+                                                                  "drift":  false
+                                                              },
+                                                              {
+                                                                  "profile":  "snapshot_end_early_minus3s",
+                                                                  "finding_codes":  [
+                                                                                        "ROLE_LOCK_MISSING"
+                                                                                    ],
+                                                                  "finding_count":  1,
+                                                                  "drift":  false
+                                                              },
+                                                              {
+                                                                  "profile":  "snapshot_end_late_plus3s",
+                                                                  "finding_codes":  [
+                                                                                        "ROLE_LOCK_MISSING"
+                                                                                    ],
+                                                                  "finding_count":  1,
+                                                                  "drift":  false
+                                                              },
+                                                              {
+                                                                  "profile":  "scan_jitter_ms_700",
+                                                                  "finding_codes":  [
+                                                                                        "ROLE_LOCK_MISSING"
+                                                                                    ],
+                                                                  "finding_count":  1,
+                                                                  "drift":  false
+                                                              }
+                                                          ],
+                                             "drift_profile_count":  0,
+                                             "drift_profiles":  [
+
+                                                                ]
+                                         },
+                        "first_failure":  {
+                                              "code":  "ROLE_LOCK_MISSING",
+                                              "message":  "No [role] lock_acquired event observed.",
+                                              "path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_041029_internet_client_logs_batch\\files\\E\\Windrose\\logs\\UPnP static ip\\WindroseTextSigns.log",
+                                              "line":  3,
+                                              "token":  "role_change",
+                                              "timestamp_utc":  "2026-05-06T19:38:59.0000000+00:00"
+                                          },
+                        "findings":  {
+                                         "code":  "ROLE_LOCK_MISSING",
+                                         "message":  "No [role] lock_acquired event observed.",
+                                         "path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_041029_internet_client_logs_batch\\files\\E\\Windrose\\logs\\UPnP static ip\\WindroseTextSigns.log",
+                                         "line":  3,
+                                         "token":  "role_change",
+                                         "timestamp_utc":  "2026-05-06T19:38:59.0000000+00:00"
+                                     }
+                    },
+                    {
+                        "session_name":  "20260506_202200_WindroseTextSigns",
+                        "status":  "FAIL",
+                        "wts_path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_041029_internet_client_logs_batch\\files\\E\\Windrose\\logs\\UPnP auto ip\\WindroseTextSigns.log",
+                        "r5_path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_041029_internet_client_logs_batch\\files\\E\\Windrose\\logs\\UPnP auto ip\\R5.log",
+                        "pair_gap_sec":  0,
+                        "correlation_window_sec":  2,
+                        "event_count":  106,
+                        "match_count":  0,
+                        "fixture":  {
+                                        "primary":  "unclassified",
+                                        "candidates":  [
+                                                           "unclassified"
+                                                       ],
+                                        "evidence":  [
+                                                         "no fixture heuristics matched"
+                                                     ]
+                                    },
+                        "phases":  {
+                                       "bootstrap_begin_utc":  "2026-05-06T20:19:12.0000000+00:00",
+                                       "bootstrap_end_utc":  "2026-05-06T20:19:12.0000000+00:00",
+                                       "player_ready_utc":  "2026-05-06T20:20:46.0000000+00:00",
+                                       "steady_state_begin_utc":  "2026-05-06T20:20:56.0000000+00:00",
+                                       "event_counts":  {
+                                                            "bootstrap":  7,
+                                                            "world_churn":  34,
+                                                            "player_ready":  1,
+                                                            "steady_state":  64
+                                                        }
+                                   },
+                        "summary":  {
+                                        "restore_attempts":  44,
+                                        "prune_commits":  0,
+                                        "prune_deferred":  2,
+                                        "destroy_correlations":  0,
+                                        "hosted_reconcile_calls":  0
+                                    },
+                        "key_state_summary":  {
+                                                  "tracked_key_count":  12,
+                                                  "deferred_never_restored_count":  0,
+                                                  "untrusted_pruned_key_count":  0,
+                                                  "deferred_never_restored_keys":  [
+
+                                                                                   ],
+                                                  "untrusted_pruned_keys":  [
+
+                                                                            ]
+                                              },
+                        "perturbation":  {
+                                             "enabled":  true,
+                                             "profiles":  [
+                                                              {
+                                                                  "profile":  "hosted_ready_delay_plus5s",
+                                                                  "finding_codes":  [
+                                                                                        "ROLE_LOCK_MISSING"
+                                                                                    ],
+                                                                  "finding_count":  1,
+                                                                  "drift":  false
+                                                              },
+                                                              {
+                                                                  "profile":  "snapshot_end_early_minus3s",
+                                                                  "finding_codes":  [
+                                                                                        "ROLE_LOCK_MISSING"
+                                                                                    ],
+                                                                  "finding_count":  1,
+                                                                  "drift":  false
+                                                              },
+                                                              {
+                                                                  "profile":  "snapshot_end_late_plus3s",
+                                                                  "finding_codes":  [
+                                                                                        "ROLE_LOCK_MISSING"
+                                                                                    ],
+                                                                  "finding_count":  1,
+                                                                  "drift":  false
+                                                              },
+                                                              {
+                                                                  "profile":  "scan_jitter_ms_700",
+                                                                  "finding_codes":  [
+                                                                                        "ROLE_LOCK_MISSING"
+                                                                                    ],
+                                                                  "finding_count":  1,
+                                                                  "drift":  false
+                                                              }
+                                                          ],
+                                             "drift_profile_count":  0,
+                                             "drift_profiles":  [
+
+                                                                ]
+                                         },
+                        "first_failure":  {
+                                              "code":  "ROLE_LOCK_MISSING",
+                                              "message":  "No [role] lock_acquired event observed.",
+                                              "path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_041029_internet_client_logs_batch\\files\\E\\Windrose\\logs\\UPnP auto ip\\WindroseTextSigns.log",
+                                              "line":  3,
+                                              "token":  "role_change",
+                                              "timestamp_utc":  "2026-05-06T20:19:12.0000000+00:00"
+                                          },
+                        "findings":  {
+                                         "code":  "ROLE_LOCK_MISSING",
+                                         "message":  "No [role] lock_acquired event observed.",
+                                         "path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_041029_internet_client_logs_batch\\files\\E\\Windrose\\logs\\UPnP auto ip\\WindroseTextSigns.log",
+                                         "line":  3,
+                                         "token":  "role_change",
+                                         "timestamp_utc":  "2026-05-06T20:19:12.0000000+00:00"
+                                     }
+                    },
+                    {
+                        "session_name":  "20260506_211454_WindroseTextSigns",
+                        "status":  "FAIL",
+                        "wts_path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_041029_internet_client_logs_batch\\files\\E\\Windrose\\logs\\UPnP auto 3\\WindroseTextSigns.log",
+                        "r5_path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_041029_internet_client_logs_batch\\files\\E\\Windrose\\logs\\UPnP auto 3\\R5.log",
+                        "pair_gap_sec":  2,
+                        "correlation_window_sec":  2,
+                        "event_count":  133,
+                        "match_count":  0,
+                        "fixture":  {
+                                        "primary":  "unclassified",
+                                        "candidates":  [
+                                                           "unclassified"
+                                                       ],
+                                        "evidence":  [
+                                                         "no fixture heuristics matched"
+                                                     ]
+                                    },
+                        "phases":  {
+                                       "bootstrap_begin_utc":  "2026-05-06T21:11:25.0000000+00:00",
+                                       "bootstrap_end_utc":  "2026-05-06T21:11:25.0000000+00:00",
+                                       "player_ready_utc":  "2026-05-06T21:12:55.0000000+00:00",
+                                       "steady_state_begin_utc":  "2026-05-06T21:13:05.0000000+00:00",
+                                       "event_counts":  {
+                                                            "bootstrap":  7,
+                                                            "world_churn":  37,
+                                                            "player_ready":  2,
+                                                            "steady_state":  87
+                                                        }
+                                   },
+                        "summary":  {
+                                        "restore_attempts":  67,
+                                        "prune_commits":  0,
+                                        "prune_deferred":  2,
+                                        "destroy_correlations":  0,
+                                        "hosted_reconcile_calls":  0
+                                    },
+                        "key_state_summary":  {
+                                                  "tracked_key_count":  13,
+                                                  "deferred_never_restored_count":  0,
+                                                  "untrusted_pruned_key_count":  0,
+                                                  "deferred_never_restored_keys":  [
+
+                                                                                   ],
+                                                  "untrusted_pruned_keys":  [
+
+                                                                            ]
+                                              },
+                        "perturbation":  {
+                                             "enabled":  true,
+                                             "profiles":  [
+                                                              {
+                                                                  "profile":  "hosted_ready_delay_plus5s",
+                                                                  "finding_codes":  [
+                                                                                        "ROLE_LOCK_MISSING"
+                                                                                    ],
+                                                                  "finding_count":  1,
+                                                                  "drift":  false
+                                                              },
+                                                              {
+                                                                  "profile":  "snapshot_end_early_minus3s",
+                                                                  "finding_codes":  [
+                                                                                        "ROLE_LOCK_MISSING"
+                                                                                    ],
+                                                                  "finding_count":  1,
+                                                                  "drift":  false
+                                                              },
+                                                              {
+                                                                  "profile":  "snapshot_end_late_plus3s",
+                                                                  "finding_codes":  [
+                                                                                        "ROLE_LOCK_MISSING"
+                                                                                    ],
+                                                                  "finding_count":  1,
+                                                                  "drift":  false
+                                                              },
+                                                              {
+                                                                  "profile":  "scan_jitter_ms_700",
+                                                                  "finding_codes":  [
+                                                                                        "ROLE_LOCK_MISSING"
+                                                                                    ],
+                                                                  "finding_count":  1,
+                                                                  "drift":  false
+                                                              }
+                                                          ],
+                                             "drift_profile_count":  0,
+                                             "drift_profiles":  [
+
+                                                                ]
+                                         },
+                        "first_failure":  {
+                                              "code":  "ROLE_LOCK_MISSING",
+                                              "message":  "No [role] lock_acquired event observed.",
+                                              "path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_041029_internet_client_logs_batch\\files\\E\\Windrose\\logs\\UPnP auto 3\\WindroseTextSigns.log",
+                                              "line":  3,
+                                              "token":  "role_change",
+                                              "timestamp_utc":  "2026-05-06T21:11:25.0000000+00:00"
+                                          },
+                        "findings":  {
+                                         "code":  "ROLE_LOCK_MISSING",
+                                         "message":  "No [role] lock_acquired event observed.",
+                                         "path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_041029_internet_client_logs_batch\\files\\E\\Windrose\\logs\\UPnP auto 3\\WindroseTextSigns.log",
+                                         "line":  3,
+                                         "token":  "role_change",
+                                         "timestamp_utc":  "2026-05-06T21:11:25.0000000+00:00"
+                                     }
+                    },
+                    {
+                        "session_name":  "20260507_180216_WindroseTextSigns",
+                        "status":  "FAIL",
+                        "wts_path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_041029_internet_client_logs_batch\\files\\E\\Windrose\\logs\\0.1.2 auto fix\\WindroseTextSigns.log",
+                        "r5_path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_041029_internet_client_logs_batch\\files\\E\\Windrose\\logs\\0.1.2 auto fix\\R5.log",
+                        "pair_gap_sec":  0,
+                        "correlation_window_sec":  2,
+                        "event_count":  90,
+                        "match_count":  0,
+                        "fixture":  {
+                                        "primary":  "unclassified",
+                                        "candidates":  [
+                                                           "unclassified"
+                                                       ],
+                                        "evidence":  [
+                                                         "no fixture heuristics matched"
+                                                     ]
+                                    },
+                        "phases":  {
+                                       "bootstrap_begin_utc":  "2026-05-07T18:00:02.0000000+00:00",
+                                       "bootstrap_end_utc":  "2026-05-07T18:01:14.0000000+00:00",
+                                       "player_ready_utc":  "2026-05-07T18:01:42.0000000+00:00",
+                                       "steady_state_begin_utc":  "2026-05-07T18:01:52.0000000+00:00",
+                                       "event_counts":  {
+                                                            "bootstrap":  28,
+                                                            "world_churn":  20,
+                                                            "player_ready":  9,
+                                                            "steady_state":  33
+                                                        }
+                                   },
+                        "summary":  {
+                                        "restore_attempts":  30,
+                                        "prune_commits":  0,
+                                        "prune_deferred":  2,
+                                        "destroy_correlations":  0,
+                                        "hosted_reconcile_calls":  0
+                                    },
+                        "key_state_summary":  {
+                                                  "tracked_key_count":  13,
+                                                  "deferred_never_restored_count":  0,
+                                                  "untrusted_pruned_key_count":  0,
+                                                  "deferred_never_restored_keys":  [
+
+                                                                                   ],
+                                                  "untrusted_pruned_keys":  [
+
+                                                                            ]
+                                              },
+                        "perturbation":  {
+                                             "enabled":  true,
+                                             "profiles":  [
+                                                              {
+                                                                  "profile":  "hosted_ready_delay_plus5s",
+                                                                  "finding_codes":  [
+                                                                                        "ROLE_LOCK_MISSING"
+                                                                                    ],
+                                                                  "finding_count":  1,
+                                                                  "drift":  false
+                                                              },
+                                                              {
+                                                                  "profile":  "snapshot_end_early_minus3s",
+                                                                  "finding_codes":  [
+                                                                                        "ROLE_LOCK_MISSING"
+                                                                                    ],
+                                                                  "finding_count":  1,
+                                                                  "drift":  false
+                                                              },
+                                                              {
+                                                                  "profile":  "snapshot_end_late_plus3s",
+                                                                  "finding_codes":  [
+                                                                                        "ROLE_LOCK_MISSING"
+                                                                                    ],
+                                                                  "finding_count":  1,
+                                                                  "drift":  false
+                                                              },
+                                                              {
+                                                                  "profile":  "scan_jitter_ms_700",
+                                                                  "finding_codes":  [
+                                                                                        "ROLE_LOCK_MISSING"
+                                                                                    ],
+                                                                  "finding_count":  1,
+                                                                  "drift":  false
+                                                              }
+                                                          ],
+                                             "drift_profile_count":  0,
+                                             "drift_profiles":  [
+
+                                                                ]
+                                         },
+                        "first_failure":  {
+                                              "code":  "ROLE_LOCK_MISSING",
+                                              "message":  "No [role] lock_acquired event observed.",
+                                              "path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_041029_internet_client_logs_batch\\files\\E\\Windrose\\logs\\0.1.2 auto fix\\WindroseTextSigns.log",
+                                              "line":  1,
+                                              "token":  "bootstrap_begin",
+                                              "timestamp_utc":  "2026-05-07T18:00:02.0000000+00:00"
+                                          },
+                        "findings":  {
+                                         "code":  "ROLE_LOCK_MISSING",
+                                         "message":  "No [role] lock_acquired event observed.",
+                                         "path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_041029_internet_client_logs_batch\\files\\E\\Windrose\\logs\\0.1.2 auto fix\\WindroseTextSigns.log",
+                                         "line":  1,
+                                         "token":  "bootstrap_begin",
+                                         "timestamp_utc":  "2026-05-07T18:00:02.0000000+00:00"
+                                     }
+                    },
+                    {
+                        "session_name":  "20260507_184020_WindroseTextSigns",
+                        "status":  "FAIL",
+                        "wts_path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_041029_internet_client_logs_batch\\files\\E\\Windrose\\logs\\0.1.2 prune test\\WindroseTextSigns.log",
+                        "r5_path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_041029_internet_client_logs_batch\\files\\E\\Windrose\\logs\\0.1.2 prune test\\R5.log",
+                        "pair_gap_sec":  0,
+                        "correlation_window_sec":  2,
+                        "event_count":  439,
+                        "match_count":  0,
+                        "fixture":  {
+                                        "primary":  "solo_fast_destroy_rebuild",
+                                        "candidates":  [
+                                                           "solo_fast_destroy_rebuild"
+                                                       ],
+                                        "evidence":  [
+                                                         "prune/destroy-correlated markers"
+                                                     ]
+                                    },
+                        "phases":  {
+                                       "bootstrap_begin_utc":  "2026-05-07T18:27:22.0000000+00:00",
+                                       "bootstrap_end_utc":  "2026-05-07T18:29:52.0000000+00:00",
+                                       "player_ready_utc":  "2026-05-07T18:31:18.0000000+00:00",
+                                       "steady_state_begin_utc":  "2026-05-07T18:31:28.0000000+00:00",
+                                       "event_counts":  {
+                                                            "bootstrap":  28,
+                                                            "world_churn":  64,
+                                                            "player_ready":  6,
+                                                            "steady_state":  341
+                                                        }
+                                   },
+                        "summary":  {
+                                        "restore_attempts":  312,
+                                        "prune_commits":  4,
+                                        "prune_deferred":  11,
+                                        "destroy_correlations":  0,
+                                        "hosted_reconcile_calls":  0
+                                    },
+                        "key_state_summary":  {
+                                                  "tracked_key_count":  16,
+                                                  "deferred_never_restored_count":  0,
+                                                  "untrusted_pruned_key_count":  2,
+                                                  "deferred_never_restored_keys":  [
+
+                                                                                   ],
+                                                  "untrusted_pruned_keys":  [
+                                                                                "1556652C185649FE4F9908010CBF9860/BuildingBlock|788158CFF1FB49235F8DB857833B075F|13",
+                                                                                "batch:1"
+                                                                            ]
+                                              },
+                        "perturbation":  {
+                                             "enabled":  true,
+                                             "profiles":  [
+                                                              {
+                                                                  "profile":  "hosted_ready_delay_plus5s",
+                                                                  "finding_codes":  [
+                                                                                        "KEY_PRUNED_UNTRUSTED",
+                                                                                        "LOCALCLIENT_PRUNE_UNTRUSTED",
+                                                                                        "PRUNE_EARLY_PHASE",
+                                                                                        "ROLE_LOCK_MISSING"
+                                                                                    ],
+                                                                  "finding_count":  4,
+                                                                  "drift":  false
+                                                              },
+                                                              {
+                                                                  "profile":  "snapshot_end_early_minus3s",
+                                                                  "finding_codes":  [
+                                                                                        "KEY_PRUNED_UNTRUSTED",
+                                                                                        "LOCALCLIENT_PRUNE_UNTRUSTED",
+                                                                                        "PRUNE_EARLY_PHASE",
+                                                                                        "ROLE_LOCK_MISSING"
+                                                                                    ],
+                                                                  "finding_count":  4,
+                                                                  "drift":  false
+                                                              },
+                                                              {
+                                                                  "profile":  "snapshot_end_late_plus3s",
+                                                                  "finding_codes":  [
+                                                                                        "KEY_PRUNED_UNTRUSTED",
+                                                                                        "LOCALCLIENT_PRUNE_UNTRUSTED",
+                                                                                        "PRUNE_EARLY_PHASE",
+                                                                                        "ROLE_LOCK_MISSING"
+                                                                                    ],
+                                                                  "finding_count":  4,
+                                                                  "drift":  false
+                                                              },
+                                                              {
+                                                                  "profile":  "scan_jitter_ms_700",
+                                                                  "finding_codes":  [
+                                                                                        "KEY_PRUNED_UNTRUSTED",
+                                                                                        "LOCALCLIENT_PRUNE_UNTRUSTED",
+                                                                                        "PRUNE_EARLY_PHASE",
+                                                                                        "ROLE_LOCK_MISSING"
+                                                                                    ],
+                                                                  "finding_count":  4,
+                                                                  "drift":  false
+                                                              }
+                                                          ],
+                                             "drift_profile_count":  0,
+                                             "drift_profiles":  [
+
+                                                                ]
+                                         },
+                        "first_failure":  {
+                                              "code":  "ROLE_LOCK_MISSING",
+                                              "message":  "No [role] lock_acquired event observed.",
+                                              "path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_041029_internet_client_logs_batch\\files\\E\\Windrose\\logs\\0.1.2 prune test\\WindroseTextSigns.log",
+                                              "line":  1,
+                                              "token":  "bootstrap_begin",
+                                              "timestamp_utc":  "2026-05-07T18:27:22.0000000+00:00"
+                                          },
+                        "findings":  [
+                                         {
+                                             "code":  "ROLE_LOCK_MISSING",
+                                             "message":  "No [role] lock_acquired event observed.",
+                                             "path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_041029_internet_client_logs_batch\\files\\E\\Windrose\\logs\\0.1.2 prune test\\WindroseTextSigns.log",
+                                             "line":  1,
+                                             "token":  "bootstrap_begin",
+                                             "timestamp_utc":  "2026-05-07T18:27:22.0000000+00:00"
+                                         },
+                                         {
+                                             "code":  "LOCALCLIENT_PRUNE_UNTRUSTED",
+                                             "message":  "LocalClient prune committed without trusted destroy/construct correlation.",
+                                             "path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_041029_internet_client_logs_batch\\files\\E\\Windrose\\logs\\0.1.2 prune test\\WindroseTextSigns.log",
+                                             "line":  350,
+                                             "token":  "prune_commit",
+                                             "timestamp_utc":  "2026-05-07T18:31:14.0000000+00:00"
+                                         },
+                                         {
+                                             "code":  "PRUNE_EARLY_PHASE",
+                                             "message":  "Prune commit occurred before player-ready/steady-state.",
+                                             "path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_041029_internet_client_logs_batch\\files\\E\\Windrose\\logs\\0.1.2 prune test\\WindroseTextSigns.log",
+                                             "line":  350,
+                                             "token":  "prune_commit",
+                                             "timestamp_utc":  "2026-05-07T18:31:14.0000000+00:00"
+                                         },
+                                         {
+                                             "code":  "KEY_PRUNED_UNTRUSTED",
+                                             "message":  "Key pruned without destroy-confirmed reason: 1556652C185649FE4F9908010CBF9860/BuildingBlock|788158CFF1FB49235F8DB857833B075F|13",
+                                             "path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_041029_internet_client_logs_batch\\files\\E\\Windrose\\logs\\0.1.2 prune test\\WindroseTextSigns.log",
+                                             "line":  349,
+                                             "token":  "prune_commit",
+                                             "timestamp_utc":  "2026-05-07T18:31:14.0000000+00:00"
+                                         }
+                                     ]
+                    },
+                    {
+                        "session_name":  "20260507_200754_WindroseTextSigns",
+                        "status":  "FAIL",
+                        "wts_path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_041029_internet_client_logs_batch\\files\\E\\Windrose\\logs\\hosted_client\\WindroseTextSigns.log",
+                        "r5_path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_041029_internet_client_logs_batch\\files\\E\\Windrose\\logs\\hosted_client\\R5.log",
+                        "pair_gap_sec":  0,
+                        "correlation_window_sec":  2,
+                        "event_count":  46,
+                        "match_count":  0,
+                        "fixture":  {
+                                        "primary":  "unclassified",
+                                        "candidates":  [
+                                                           "unclassified"
+                                                       ],
+                                        "evidence":  [
+                                                         "no fixture heuristics matched"
+                                                     ]
+                                    },
+                        "phases":  {
+                                       "bootstrap_begin_utc":  "2026-05-07T19:58:59.0000000+00:00",
+                                       "bootstrap_end_utc":  "2026-05-07T20:00:12.0000000+00:00",
+                                       "player_ready_utc":  "2026-05-07T20:00:11.0000000+00:00",
+                                       "steady_state_begin_utc":  "2026-05-07T20:00:21.0000000+00:00",
+                                       "event_counts":  {
+                                                            "bootstrap":  22,
+                                                            "world_churn":  0,
+                                                            "player_ready":  1,
+                                                            "steady_state":  23
+                                                        }
+                                   },
+                        "summary":  {
+                                        "restore_attempts":  3,
+                                        "prune_commits":  0,
+                                        "prune_deferred":  3,
+                                        "destroy_correlations":  0,
+                                        "hosted_reconcile_calls":  0
+                                    },
+                        "key_state_summary":  {
+                                                  "tracked_key_count":  9,
+                                                  "deferred_never_restored_count":  0,
+                                                  "untrusted_pruned_key_count":  0,
+                                                  "deferred_never_restored_keys":  [
+
+                                                                                   ],
+                                                  "untrusted_pruned_keys":  [
+
+                                                                            ]
+                                              },
+                        "perturbation":  {
+                                             "enabled":  true,
+                                             "profiles":  [
+                                                              {
+                                                                  "profile":  "hosted_ready_delay_plus5s",
+                                                                  "finding_codes":  [
+                                                                                        "ROLE_LOCK_MISSING"
+                                                                                    ],
+                                                                  "finding_count":  1,
+                                                                  "drift":  false
+                                                              },
+                                                              {
+                                                                  "profile":  "snapshot_end_early_minus3s",
+                                                                  "finding_codes":  [
+                                                                                        "ROLE_LOCK_MISSING"
+                                                                                    ],
+                                                                  "finding_count":  1,
+                                                                  "drift":  false
+                                                              },
+                                                              {
+                                                                  "profile":  "snapshot_end_late_plus3s",
+                                                                  "finding_codes":  [
+                                                                                        "ROLE_LOCK_MISSING"
+                                                                                    ],
+                                                                  "finding_count":  1,
+                                                                  "drift":  false
+                                                              },
+                                                              {
+                                                                  "profile":  "scan_jitter_ms_700",
+                                                                  "finding_codes":  [
+                                                                                        "ROLE_LOCK_MISSING"
+                                                                                    ],
+                                                                  "finding_count":  1,
+                                                                  "drift":  false
+                                                              }
+                                                          ],
+                                             "drift_profile_count":  0,
+                                             "drift_profiles":  [
+
+                                                                ]
+                                         },
+                        "first_failure":  {
+                                              "code":  "ROLE_LOCK_MISSING",
+                                              "message":  "No [role] lock_acquired event observed.",
+                                              "path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_041029_internet_client_logs_batch\\files\\E\\Windrose\\logs\\hosted_client\\WindroseTextSigns.log",
+                                              "line":  1,
+                                              "token":  "bootstrap_begin",
+                                              "timestamp_utc":  "2026-05-07T19:58:59.0000000+00:00"
+                                          },
+                        "findings":  {
+                                         "code":  "ROLE_LOCK_MISSING",
+                                         "message":  "No [role] lock_acquired event observed.",
+                                         "path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_041029_internet_client_logs_batch\\files\\E\\Windrose\\logs\\hosted_client\\WindroseTextSigns.log",
+                                         "line":  1,
+                                         "token":  "bootstrap_begin",
+                                         "timestamp_utc":  "2026-05-07T19:58:59.0000000+00:00"
+                                     }
+                    },
+                    {
+                        "session_name":  "20260507_210322_WindroseTextSigns",
+                        "status":  "PASS",
+                        "wts_path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_041029_internet_client_logs_batch\\files\\E\\Windrose\\logs\\2pm\\WindroseTextSigns.log",
+                        "r5_path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_041029_internet_client_logs_batch\\files\\E\\Windrose\\logs\\2pm\\R5.log",
+                        "pair_gap_sec":  22,
+                        "correlation_window_sec":  2,
+                        "event_count":  196,
+                        "match_count":  0,
+                        "fixture":  {
+                                        "primary":  "solo_fast_destroy_rebuild",
+                                        "candidates":  [
+                                                           "solo_fast_destroy_rebuild"
+                                                       ],
+                                        "evidence":  [
+                                                         "prune/destroy-correlated markers"
+                                                     ]
+                                    },
+                        "phases":  {
+                                       "bootstrap_begin_utc":  "2026-05-07T20:46:46.0000000+00:00",
+                                       "bootstrap_end_utc":  "2026-05-07T20:47:50.0000000+00:00",
+                                       "player_ready_utc":  "2026-05-07T20:47:50.0000000+00:00",
+                                       "steady_state_begin_utc":  "2026-05-07T20:48:00.0000000+00:00",
+                                       "event_counts":  {
+                                                            "bootstrap":  26,
+                                                            "world_churn":  0,
+                                                            "player_ready":  0,
+                                                            "steady_state":  170
+                                                        }
+                                   },
+                        "summary":  {
+                                        "restore_attempts":  67,
+                                        "prune_commits":  0,
+                                        "prune_deferred":  7,
+                                        "destroy_correlations":  0,
+                                        "hosted_reconcile_calls":  0
+                                    },
+                        "key_state_summary":  {
+                                                  "tracked_key_count":  15,
+                                                  "deferred_never_restored_count":  0,
+                                                  "untrusted_pruned_key_count":  0,
+                                                  "deferred_never_restored_keys":  [
+
+                                                                                   ],
+                                                  "untrusted_pruned_keys":  [
+
+                                                                            ]
+                                              },
+                        "perturbation":  {
+                                             "enabled":  true,
+                                             "profiles":  [
+                                                              {
+                                                                  "profile":  "hosted_ready_delay_plus5s",
+                                                                  "finding_codes":  [
+
+                                                                                    ],
+                                                                  "finding_count":  0,
+                                                                  "drift":  false
+                                                              },
+                                                              {
+                                                                  "profile":  "snapshot_end_early_minus3s",
+                                                                  "finding_codes":  [
+
+                                                                                    ],
+                                                                  "finding_count":  0,
+                                                                  "drift":  false
+                                                              },
+                                                              {
+                                                                  "profile":  "snapshot_end_late_plus3s",
+                                                                  "finding_codes":  [
+
+                                                                                    ],
+                                                                  "finding_count":  0,
+                                                                  "drift":  false
+                                                              },
+                                                              {
+                                                                  "profile":  "scan_jitter_ms_700",
+                                                                  "finding_codes":  [
+
+                                                                                    ],
+                                                                  "finding_count":  0,
+                                                                  "drift":  false
+                                                              }
+                                                          ],
+                                             "drift_profile_count":  0,
+                                             "drift_profiles":  [
+
+                                                                ]
+                                         },
+                        "first_failure":  null,
+                        "findings":  {
+
+                                     }
+                    },
+                    {
+                        "session_name":  "20260507_215618_WindroseTextSigns",
+                        "status":  "PASS",
+                        "wts_path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_041029_internet_client_logs_batch\\files\\E\\Windrose\\logs\\2_55_pm\\WindroseTextSigns.log",
+                        "r5_path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_041029_internet_client_logs_batch\\files\\E\\Windrose\\logs\\2_55_pm\\R5.log",
+                        "pair_gap_sec":  6,
+                        "correlation_window_sec":  2,
+                        "event_count":  86,
+                        "match_count":  0,
+                        "fixture":  {
+                                        "primary":  "route_bootstrap_degraded",
+                                        "candidates":  [
+                                                           "route_bootstrap_degraded"
+                                                       ],
+                                        "evidence":  [
+                                                         "snapshot retry/degraded health markers"
+                                                     ]
+                                    },
+                        "phases":  {
+                                       "bootstrap_begin_utc":  "2026-05-07T21:33:17.0000000+00:00",
+                                       "bootstrap_end_utc":  "2026-05-07T21:43:48.0000000+00:00",
+                                       "player_ready_utc":  "2026-05-07T21:43:46.0000000+00:00",
+                                       "steady_state_begin_utc":  "2026-05-07T21:43:56.0000000+00:00",
+                                       "event_counts":  {
+                                                            "bootstrap":  21,
+                                                            "world_churn":  0,
+                                                            "player_ready":  0,
+                                                            "steady_state":  65
+                                                        }
+                                   },
+                        "summary":  {
+                                        "restore_attempts":  9,
+                                        "prune_commits":  0,
+                                        "prune_deferred":  3,
+                                        "destroy_correlations":  0,
+                                        "hosted_reconcile_calls":  0
+                                    },
+                        "key_state_summary":  {
+                                                  "tracked_key_count":  15,
+                                                  "deferred_never_restored_count":  0,
+                                                  "untrusted_pruned_key_count":  0,
+                                                  "deferred_never_restored_keys":  [
+
+                                                                                   ],
+                                                  "untrusted_pruned_keys":  [
+
+                                                                            ]
+                                              },
+                        "perturbation":  {
+                                             "enabled":  true,
+                                             "profiles":  [
+                                                              {
+                                                                  "profile":  "hosted_ready_delay_plus5s",
+                                                                  "finding_codes":  [
+
+                                                                                    ],
+                                                                  "finding_count":  0,
+                                                                  "drift":  false
+                                                              },
+                                                              {
+                                                                  "profile":  "snapshot_end_early_minus3s",
+                                                                  "finding_codes":  [
+
+                                                                                    ],
+                                                                  "finding_count":  0,
+                                                                  "drift":  false
+                                                              },
+                                                              {
+                                                                  "profile":  "snapshot_end_late_plus3s",
+                                                                  "finding_codes":  [
+
+                                                                                    ],
+                                                                  "finding_count":  0,
+                                                                  "drift":  false
+                                                              },
+                                                              {
+                                                                  "profile":  "scan_jitter_ms_700",
+                                                                  "finding_codes":  [
+
+                                                                                    ],
+                                                                  "finding_count":  0,
+                                                                  "drift":  false
+                                                              }
+                                                          ],
+                                             "drift_profile_count":  0,
+                                             "drift_profiles":  [
+
+                                                                ]
+                                         },
+                        "first_failure":  null,
+                        "findings":  {
+
+                                     }
+                    },
+                    {
+                        "session_name":  "20260507_224550_WindroseTextSigns",
+                        "status":  "PASS",
+                        "wts_path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_041029_internet_client_logs_batch\\files\\E\\Windrose\\logs\\3_33_pm\\WindroseTextSigns.log",
+                        "r5_path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_041029_internet_client_logs_batch\\files\\E\\Windrose\\logs\\3_33_pm\\R5.log",
+                        "pair_gap_sec":  12,
+                        "correlation_window_sec":  2,
+                        "event_count":  57,
+                        "match_count":  0,
+                        "fixture":  {
+                                        "primary":  "unclassified",
+                                        "candidates":  [
+                                                           "unclassified"
+                                                       ],
+                                        "evidence":  [
+                                                         "no fixture heuristics matched"
+                                                     ]
+                                    },
+                        "phases":  {
+                                       "bootstrap_begin_utc":  "2026-05-07T22:44:09.0000000+00:00",
+                                       "bootstrap_end_utc":  "2026-05-07T22:45:15.0000000+00:00",
+                                       "player_ready_utc":  "2026-05-07T22:45:13.0000000+00:00",
+                                       "steady_state_begin_utc":  "2026-05-07T22:45:23.0000000+00:00",
+                                       "event_counts":  {
+                                                            "bootstrap":  36,
+                                                            "world_churn":  0,
+                                                            "player_ready":  0,
+                                                            "steady_state":  21
+                                                        }
+                                   },
+                        "summary":  {
+                                        "restore_attempts":  14,
+                                        "prune_commits":  0,
+                                        "prune_deferred":  1,
+                                        "destroy_correlations":  0,
+                                        "hosted_reconcile_calls":  0
+                                    },
+                        "key_state_summary":  {
+                                                  "tracked_key_count":  14,
+                                                  "deferred_never_restored_count":  0,
+                                                  "untrusted_pruned_key_count":  0,
+                                                  "deferred_never_restored_keys":  [
+
+                                                                                   ],
+                                                  "untrusted_pruned_keys":  [
+
+                                                                            ]
+                                              },
+                        "perturbation":  {
+                                             "enabled":  true,
+                                             "profiles":  [
+                                                              {
+                                                                  "profile":  "hosted_ready_delay_plus5s",
+                                                                  "finding_codes":  [
+
+                                                                                    ],
+                                                                  "finding_count":  0,
+                                                                  "drift":  false
+                                                              },
+                                                              {
+                                                                  "profile":  "snapshot_end_early_minus3s",
+                                                                  "finding_codes":  [
+
+                                                                                    ],
+                                                                  "finding_count":  0,
+                                                                  "drift":  false
+                                                              },
+                                                              {
+                                                                  "profile":  "snapshot_end_late_plus3s",
+                                                                  "finding_codes":  [
+
+                                                                                    ],
+                                                                  "finding_count":  0,
+                                                                  "drift":  false
+                                                              },
+                                                              {
+                                                                  "profile":  "scan_jitter_ms_700",
+                                                                  "finding_codes":  [
+
+                                                                                    ],
+                                                                  "finding_count":  0,
+                                                                  "drift":  false
+                                                              }
+                                                          ],
+                                             "drift_profile_count":  0,
+                                             "drift_profiles":  [
+
+                                                                ]
+                                         },
+                        "first_failure":  null,
+                        "findings":  {
+
+                                     }
+                    },
+                    {
+                        "session_name":  "20260508_023655_WindroseTextSigns",
+                        "status":  "FAIL",
+                        "wts_path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_040938_baseline_policy_setup\\files\\C\\SteamLibrary\\steamapps\\common\\Windrose\\R5\\Binaries\\Win64\\ue4ss\\Mods\\WindroseTextSigns\\WindroseTextSigns.log",
+                        "r5_path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_135005_my_test\\files\\C\\Users\\User\\AppData\\Local\\R5\\Saved\\Logs\\R5-backup-2026.05.08-02.37.05.log",
+                        "pair_gap_sec":  9,
+                        "correlation_window_sec":  2,
+                        "event_count":  46,
+                        "match_count":  0,
+                        "fixture":  {
+                                        "primary":  "solo_relog_persistence",
+                                        "candidates":  [
+                                                           "solo_relog_persistence"
+                                                       ],
+                                        "evidence":  [
+                                                         "localclient + load_record"
+                                                     ]
+                                    },
+                        "phases":  {
+                                       "bootstrap_begin_utc":  "2026-05-08T02:35:15.0000000+00:00",
+                                       "bootstrap_end_utc":  "2026-05-08T02:35:15.0000000+00:00",
+                                       "player_ready_utc":  null,
+                                       "steady_state_begin_utc":  "2026-05-08T02:35:45.0000000+00:00",
+                                       "event_counts":  {
+                                                            "bootstrap":  8,
+                                                            "world_churn":  38,
+                                                            "player_ready":  0,
+                                                            "steady_state":  0
+                                                        }
+                                   },
+                        "summary":  {
+                                        "restore_attempts":  0,
+                                        "prune_commits":  0,
+                                        "prune_deferred":  3,
+                                        "destroy_correlations":  0,
+                                        "hosted_reconcile_calls":  0
+                                    },
+                        "key_state_summary":  {
+                                                  "tracked_key_count":  6,
+                                                  "deferred_never_restored_count":  0,
+                                                  "untrusted_pruned_key_count":  0,
+                                                  "deferred_never_restored_keys":  [
+
+                                                                                   ],
+                                                  "untrusted_pruned_keys":  [
+
+                                                                            ]
+                                              },
+                        "perturbation":  {
+                                             "enabled":  true,
+                                             "profiles":  [
+                                                              {
+                                                                  "profile":  "hosted_ready_delay_plus5s",
+                                                                  "finding_codes":  [
+                                                                                        "ROLE_LOCK_MISSING"
+                                                                                    ],
+                                                                  "finding_count":  1,
+                                                                  "drift":  false
+                                                              },
+                                                              {
+                                                                  "profile":  "snapshot_end_early_minus3s",
+                                                                  "finding_codes":  [
+                                                                                        "ROLE_LOCK_MISSING"
+                                                                                    ],
+                                                                  "finding_count":  1,
+                                                                  "drift":  false
+                                                              },
+                                                              {
+                                                                  "profile":  "snapshot_end_late_plus3s",
+                                                                  "finding_codes":  [
+                                                                                        "ROLE_LOCK_MISSING"
+                                                                                    ],
+                                                                  "finding_count":  1,
+                                                                  "drift":  false
+                                                              },
+                                                              {
+                                                                  "profile":  "scan_jitter_ms_700",
+                                                                  "finding_codes":  [
+                                                                                        "ROLE_LOCK_MISSING"
+                                                                                    ],
+                                                                  "finding_count":  1,
+                                                                  "drift":  false
+                                                              }
+                                                          ],
+                                             "drift_profile_count":  0,
+                                             "drift_profiles":  [
+
+                                                                ]
+                                         },
+                        "first_failure":  {
+                                              "code":  "ROLE_LOCK_MISSING",
+                                              "message":  "No [role] lock_acquired event observed.",
+                                              "path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_040938_baseline_policy_setup\\files\\C\\SteamLibrary\\steamapps\\common\\Windrose\\R5\\Binaries\\Win64\\ue4ss\\Mods\\WindroseTextSigns\\WindroseTextSigns.log",
+                                              "line":  1,
+                                              "token":  "bootstrap_begin",
+                                              "timestamp_utc":  "2026-05-08T02:35:15.0000000+00:00"
+                                          },
+                        "findings":  {
+                                         "code":  "ROLE_LOCK_MISSING",
+                                         "message":  "No [role] lock_acquired event observed.",
+                                         "path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_040938_baseline_policy_setup\\files\\C\\SteamLibrary\\steamapps\\common\\Windrose\\R5\\Binaries\\Win64\\ue4ss\\Mods\\WindroseTextSigns\\WindroseTextSigns.log",
+                                         "line":  1,
+                                         "token":  "bootstrap_begin",
+                                         "timestamp_utc":  "2026-05-08T02:35:15.0000000+00:00"
+                                     }
+                    },
+                    {
+                        "session_name":  "20260508_133138_WindroseTextSigns",
+                        "status":  "FAIL",
+                        "wts_path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_133151_my_test\\files\\C\\SteamLibrary\\steamapps\\common\\Windrose\\R5\\Binaries\\Win64\\ue4ss\\Mods\\WindroseTextSigns\\WindroseTextSigns.log",
+                        "r5_path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_135005_my_test\\files\\C\\Users\\User\\AppData\\Local\\R5\\Saved\\Logs\\R5-backup-2026.05.08-13.31.40.log",
+                        "pair_gap_sec":  1,
+                        "correlation_window_sec":  2,
+                        "event_count":  66,
+                        "match_count":  0,
+                        "fixture":  {
+                                        "primary":  "hosted_load_missing_local_render",
+                                        "candidates":  [
+                                                           "hosted_load_missing_local_render",
+                                                           "solo_relog_persistence",
+                                                           "solo_fast_destroy_rebuild"
+                                                       ],
+                                        "evidence":  [
+                                                         "listen-host + hosted_ready markers present",
+                                                         "localclient + load_record",
+                                                         "prune/destroy-correlated markers"
+                                                     ]
+                                    },
+                        "phases":  {
+                                       "bootstrap_begin_utc":  "2026-05-08T13:26:17.0000000+00:00",
+                                       "bootstrap_end_utc":  "2026-05-08T13:28:03.0000000+00:00",
+                                       "player_ready_utc":  "2026-05-08T13:31:27.0000000+00:00",
+                                       "steady_state_begin_utc":  "2026-05-08T13:31:37.0000000+00:00",
+                                       "event_counts":  {
+                                                            "bootstrap":  20,
+                                                            "world_churn":  14,
+                                                            "player_ready":  3,
+                                                            "steady_state":  29
+                                                        }
+                                   },
+                        "summary":  {
+                                        "restore_attempts":  6,
+                                        "prune_commits":  4,
+                                        "prune_deferred":  3,
+                                        "destroy_correlations":  0,
+                                        "hosted_reconcile_calls":  0
+                                    },
+                        "key_state_summary":  {
+                                                  "tracked_key_count":  13,
+                                                  "deferred_never_restored_count":  0,
+                                                  "untrusted_pruned_key_count":  2,
+                                                  "deferred_never_restored_keys":  [
+
+                                                                                   ],
+                                                  "untrusted_pruned_keys":  [
+                                                                                "batch:1",
+                                                                                "DAB86E3E0619440907AC25F54C6C7887/BuildingBlock|CFC1943F846A43410FAC99D7CD2FBAA3|4"
+                                                                            ]
+                                              },
+                        "perturbation":  {
+                                             "enabled":  true,
+                                             "profiles":  [
+                                                              {
+                                                                  "profile":  "hosted_ready_delay_plus5s",
+                                                                  "finding_codes":  [
+                                                                                        "KEY_PRUNED_UNTRUSTED",
+                                                                                        "LOCALCLIENT_PRUNE_UNTRUSTED",
+                                                                                        "PRUNE_EARLY_PHASE"
+                                                                                    ],
+                                                                  "finding_count":  3,
+                                                                  "drift":  false
+                                                              },
+                                                              {
+                                                                  "profile":  "snapshot_end_early_minus3s",
+                                                                  "finding_codes":  [
+                                                                                        "KEY_PRUNED_UNTRUSTED",
+                                                                                        "LOCALCLIENT_PRUNE_UNTRUSTED",
+                                                                                        "PRUNE_EARLY_PHASE"
+                                                                                    ],
+                                                                  "finding_count":  3,
+                                                                  "drift":  false
+                                                              },
+                                                              {
+                                                                  "profile":  "snapshot_end_late_plus3s",
+                                                                  "finding_codes":  [
+                                                                                        "KEY_PRUNED_UNTRUSTED",
+                                                                                        "LOCALCLIENT_PRUNE_UNTRUSTED",
+                                                                                        "PRUNE_EARLY_PHASE"
+                                                                                    ],
+                                                                  "finding_count":  3,
+                                                                  "drift":  false
+                                                              },
+                                                              {
+                                                                  "profile":  "scan_jitter_ms_700",
+                                                                  "finding_codes":  [
+                                                                                        "KEY_PRUNED_UNTRUSTED",
+                                                                                        "LOCALCLIENT_PRUNE_UNTRUSTED",
+                                                                                        "PRUNE_EARLY_PHASE"
+                                                                                    ],
+                                                                  "finding_count":  3,
+                                                                  "drift":  false
+                                                              }
+                                                          ],
+                                             "drift_profile_count":  0,
+                                             "drift_profiles":  [
+
+                                                                ]
+                                         },
+                        "first_failure":  {
+                                              "code":  "LOCALCLIENT_PRUNE_UNTRUSTED",
+                                              "message":  "LocalClient prune committed without trusted destroy/construct correlation.",
+                                              "path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_133151_my_test\\files\\C\\SteamLibrary\\steamapps\\common\\Windrose\\R5\\Binaries\\Win64\\ue4ss\\Mods\\WindroseTextSigns\\WindroseTextSigns.log",
+                                              "line":  86,
+                                              "token":  "prune_commit",
+                                              "timestamp_utc":  "2026-05-08T13:29:02.0000000+00:00"
+                                          },
+                        "findings":  [
+                                         {
+                                             "code":  "LOCALCLIENT_PRUNE_UNTRUSTED",
+                                             "message":  "LocalClient prune committed without trusted destroy/construct correlation.",
+                                             "path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_133151_my_test\\files\\C\\SteamLibrary\\steamapps\\common\\Windrose\\R5\\Binaries\\Win64\\ue4ss\\Mods\\WindroseTextSigns\\WindroseTextSigns.log",
+                                             "line":  86,
+                                             "token":  "prune_commit",
+                                             "timestamp_utc":  "2026-05-08T13:29:02.0000000+00:00"
+                                         },
+                                         {
+                                             "code":  "PRUNE_EARLY_PHASE",
+                                             "message":  "Prune commit occurred before player-ready/steady-state.",
+                                             "path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_133151_my_test\\files\\C\\SteamLibrary\\steamapps\\common\\Windrose\\R5\\Binaries\\Win64\\ue4ss\\Mods\\WindroseTextSigns\\WindroseTextSigns.log",
+                                             "line":  84,
+                                             "token":  "prune_commit",
+                                             "timestamp_utc":  "2026-05-08T13:29:02.0000000+00:00"
+                                         },
+                                         {
+                                             "code":  "KEY_PRUNED_UNTRUSTED",
+                                             "message":  "Key pruned without destroy-confirmed reason: batch:1",
+                                             "path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_133151_my_test\\files\\C\\SteamLibrary\\steamapps\\common\\Windrose\\R5\\Binaries\\Win64\\ue4ss\\Mods\\WindroseTextSigns\\WindroseTextSigns.log",
+                                             "line":  86,
+                                             "token":  "prune_commit",
+                                             "timestamp_utc":  "2026-05-08T13:29:02.0000000+00:00"
+                                         }
+                                     ]
+                    },
+                    {
+                        "session_name":  "20260508_134955_WindroseTextSigns",
+                        "status":  "FAIL",
+                        "wts_path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_135005_my_test\\files\\C\\SteamLibrary\\steamapps\\common\\Windrose\\R5\\Binaries\\Win64\\ue4ss\\Mods\\WindroseTextSigns\\WindroseTextSigns.log",
+                        "r5_path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_135005_my_test\\files\\C\\Users\\User\\AppData\\Local\\R5\\Saved\\Logs\\R5.log",
+                        "pair_gap_sec":  5,
+                        "correlation_window_sec":  2,
+                        "event_count":  34,
+                        "match_count":  0,
+                        "fixture":  {
+                                        "primary":  "solo_relog_persistence",
+                                        "candidates":  [
+                                                           "solo_relog_persistence"
+                                                       ],
+                                        "evidence":  [
+                                                         "localclient + load_record"
+                                                     ]
+                                    },
+                        "phases":  {
+                                       "bootstrap_begin_utc":  "2026-05-08T13:39:35.0000000+00:00",
+                                       "bootstrap_end_utc":  "2026-05-08T13:39:35.0000000+00:00",
+                                       "player_ready_utc":  null,
+                                       "steady_state_begin_utc":  "2026-05-08T13:40:05.0000000+00:00",
+                                       "event_counts":  {
+                                                            "bootstrap":  8,
+                                                            "world_churn":  26,
+                                                            "player_ready":  0,
+                                                            "steady_state":  0
+                                                        }
+                                   },
+                        "summary":  {
+                                        "restore_attempts":  0,
+                                        "prune_commits":  0,
+                                        "prune_deferred":  1,
+                                        "destroy_correlations":  0,
+                                        "hosted_reconcile_calls":  0
+                                    },
+                        "key_state_summary":  {
+                                                  "tracked_key_count":  6,
+                                                  "deferred_never_restored_count":  0,
+                                                  "untrusted_pruned_key_count":  0,
+                                                  "deferred_never_restored_keys":  [
+
+                                                                                   ],
+                                                  "untrusted_pruned_keys":  [
+
+                                                                            ]
+                                              },
+                        "perturbation":  {
+                                             "enabled":  true,
+                                             "profiles":  [
+                                                              {
+                                                                  "profile":  "hosted_ready_delay_plus5s",
+                                                                  "finding_codes":  [
+                                                                                        "ROLE_LOCK_MISSING"
+                                                                                    ],
+                                                                  "finding_count":  1,
+                                                                  "drift":  false
+                                                              },
+                                                              {
+                                                                  "profile":  "snapshot_end_early_minus3s",
+                                                                  "finding_codes":  [
+                                                                                        "ROLE_LOCK_MISSING"
+                                                                                    ],
+                                                                  "finding_count":  1,
+                                                                  "drift":  false
+                                                              },
+                                                              {
+                                                                  "profile":  "snapshot_end_late_plus3s",
+                                                                  "finding_codes":  [
+                                                                                        "ROLE_LOCK_MISSING"
+                                                                                    ],
+                                                                  "finding_count":  1,
+                                                                  "drift":  false
+                                                              },
+                                                              {
+                                                                  "profile":  "scan_jitter_ms_700",
+                                                                  "finding_codes":  [
+                                                                                        "ROLE_LOCK_MISSING"
+                                                                                    ],
+                                                                  "finding_count":  1,
+                                                                  "drift":  false
+                                                              }
+                                                          ],
+                                             "drift_profile_count":  0,
+                                             "drift_profiles":  [
+
+                                                                ]
+                                         },
+                        "first_failure":  {
+                                              "code":  "ROLE_LOCK_MISSING",
+                                              "message":  "No [role] lock_acquired event observed.",
+                                              "path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_135005_my_test\\files\\C\\SteamLibrary\\steamapps\\common\\Windrose\\R5\\Binaries\\Win64\\ue4ss\\Mods\\WindroseTextSigns\\WindroseTextSigns.log",
+                                              "line":  1,
+                                              "token":  "bootstrap_begin",
+                                              "timestamp_utc":  "2026-05-08T13:39:35.0000000+00:00"
+                                          },
+                        "findings":  {
+                                         "code":  "ROLE_LOCK_MISSING",
+                                         "message":  "No [role] lock_acquired event observed.",
+                                         "path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_135005_my_test\\files\\C\\SteamLibrary\\steamapps\\common\\Windrose\\R5\\Binaries\\Win64\\ue4ss\\Mods\\WindroseTextSigns\\WindroseTextSigns.log",
+                                         "line":  1,
+                                         "token":  "bootstrap_begin",
+                                         "timestamp_utc":  "2026-05-08T13:39:35.0000000+00:00"
+                                     }
+                    },
+                    {
+                        "session_name":  "20260508_134955_WindroseTextSigns",
+                        "status":  "FAIL",
+                        "wts_path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_135000_my_test\\files\\C\\SteamLibrary\\steamapps\\common\\Windrose\\R5\\Binaries\\Win64\\ue4ss\\Mods\\WindroseTextSigns\\WindroseTextSigns.log",
+                        "r5_path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_133151_my_test\\files\\C\\Users\\User\\AppData\\Local\\R5\\Saved\\Logs\\R5.log",
+                        "pair_gap_sec":  1095,
+                        "correlation_window_sec":  2,
+                        "event_count":  40,
+                        "match_count":  0,
+                        "fixture":  {
+                                        "primary":  "solo_relog_persistence",
+                                        "candidates":  [
+                                                           "solo_relog_persistence"
+                                                       ],
+                                        "evidence":  [
+                                                         "localclient + load_record"
+                                                     ]
+                                    },
+                        "phases":  {
+                                       "bootstrap_begin_utc":  "2026-05-08T13:39:35.0000000+00:00",
+                                       "bootstrap_end_utc":  "2026-05-08T13:39:35.0000000+00:00",
+                                       "player_ready_utc":  null,
+                                       "steady_state_begin_utc":  "2026-05-08T13:40:05.0000000+00:00",
+                                       "event_counts":  {
+                                                            "bootstrap":  8,
+                                                            "world_churn":  32,
+                                                            "player_ready":  0,
+                                                            "steady_state":  0
+                                                        }
+                                   },
+                        "summary":  {
+                                        "restore_attempts":  0,
+                                        "prune_commits":  0,
+                                        "prune_deferred":  1,
+                                        "destroy_correlations":  0,
+                                        "hosted_reconcile_calls":  0
+                                    },
+                        "key_state_summary":  {
+                                                  "tracked_key_count":  6,
+                                                  "deferred_never_restored_count":  0,
+                                                  "untrusted_pruned_key_count":  0,
+                                                  "deferred_never_restored_keys":  [
+
+                                                                                   ],
+                                                  "untrusted_pruned_keys":  [
+
+                                                                            ]
+                                              },
+                        "perturbation":  {
+                                             "enabled":  true,
+                                             "profiles":  [
+                                                              {
+                                                                  "profile":  "hosted_ready_delay_plus5s",
+                                                                  "finding_codes":  [
+                                                                                        "ROLE_LOCK_MISSING"
+                                                                                    ],
+                                                                  "finding_count":  1,
+                                                                  "drift":  false
+                                                              },
+                                                              {
+                                                                  "profile":  "snapshot_end_early_minus3s",
+                                                                  "finding_codes":  [
+                                                                                        "ROLE_LOCK_MISSING"
+                                                                                    ],
+                                                                  "finding_count":  1,
+                                                                  "drift":  false
+                                                              },
+                                                              {
+                                                                  "profile":  "snapshot_end_late_plus3s",
+                                                                  "finding_codes":  [
+                                                                                        "ROLE_LOCK_MISSING"
+                                                                                    ],
+                                                                  "finding_count":  1,
+                                                                  "drift":  false
+                                                              },
+                                                              {
+                                                                  "profile":  "scan_jitter_ms_700",
+                                                                  "finding_codes":  [
+                                                                                        "ROLE_LOCK_MISSING"
+                                                                                    ],
+                                                                  "finding_count":  1,
+                                                                  "drift":  false
+                                                              }
+                                                          ],
+                                             "drift_profile_count":  0,
+                                             "drift_profiles":  [
+
+                                                                ]
+                                         },
+                        "first_failure":  {
+                                              "code":  "ROLE_LOCK_MISSING",
+                                              "message":  "No [role] lock_acquired event observed.",
+                                              "path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_135000_my_test\\files\\C\\SteamLibrary\\steamapps\\common\\Windrose\\R5\\Binaries\\Win64\\ue4ss\\Mods\\WindroseTextSigns\\WindroseTextSigns.log",
+                                              "line":  1,
+                                              "token":  "bootstrap_begin",
+                                              "timestamp_utc":  "2026-05-08T13:39:35.0000000+00:00"
+                                          },
+                        "findings":  {
+                                         "code":  "ROLE_LOCK_MISSING",
+                                         "message":  "No [role] lock_acquired event observed.",
+                                         "path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_135000_my_test\\files\\C\\SteamLibrary\\steamapps\\common\\Windrose\\R5\\Binaries\\Win64\\ue4ss\\Mods\\WindroseTextSigns\\WindroseTextSigns.log",
+                                         "line":  1,
+                                         "token":  "bootstrap_begin",
+                                         "timestamp_utc":  "2026-05-08T13:39:35.0000000+00:00"
+                                     }
+                    }
+                ]
+}

@@ -1,0 +1,10 @@
+﻿Replay Harness Run
+RunDir: C:\Users\User\Documents\Windrose Addons\WindroseTextSigns\log_archives\replay_harness_runs\20260508_134006
+Discovered: total=23 wts=1 r5=22
+PairedSessions: 1
+Unmatched: wts=0 r5=21
+ReadyRestoreMaxSec: 45
+PerturbationEnabled: True
+
+Session Results:
+- [FAIL] 20260508_133138_WindroseTextSigns | fixture=hosted_load_missing_local_render | pairGapSec=1 | restore=6 pruneCommit=4 pruneDeferred=3 destroyCorr=0 hostedRecon=0 driftProfiles=0 | firstFailure=PRUNE_EARLY_PHASE @ C:\Users\User\Documents\Windrose Addons\WindroseTextSigns\log_archives\20260508_133151_my_test\files\C\SteamLibrary\steamapps\common\Windrose\R5\Binaries\Win64\ue4ss\Mods\WindroseTextSigns\WindroseTextSigns.log:84

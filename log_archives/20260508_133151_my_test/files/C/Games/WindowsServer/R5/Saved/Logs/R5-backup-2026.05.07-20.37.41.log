@@ -1,0 +1,1235 @@
+﻿Log file open, 05/07/26 13:36:29
+LogWindows: Enabling Tpause support
+LogWindows: Custom abort handler registered for crash reporting.
+LogPakFile: Initializing PakPlatformFile
+LogIoDispatcher: Display: Reading toc: ../../../R5/Content/Paks/global.utoc
+LogIoDispatcher: Display: Toc loaded : ../../../R5/Content/Paks/global.utoc, Id=ffffffffffffffff, Order=0, EntryCount=1, SignatureHash=0000000000000000000000000000000000000000
+LogIoDispatcher: Display: Mounting container '../../../R5/Content/Paks/global.utoc' in location slot 0
+LogPakFile: Display: Initialized I/O dispatcher file backend. Mounted the global container: ../../../R5/Content/Paks/global.utoc
+LogPakFile: Display: Found Pak file ../../../R5/Content/Paks/pakchunk3-release-coop.pak attempting to mount.
+LogPakFile: Display: Mounting pak file ../../../R5/Content/Paks/pakchunk3-release-coop.pak.
+LogPakFile: Display: Mounted Pak file '../../../R5/Content/Paks/pakchunk3-release-coop.pak', mount point: '../../../R5/Config/'
+LogPakFile: Display: Found Pak file ../../../R5/Content/Paks/pakchunk0-WindowsServer.pak attempting to mount.
+LogPakFile: Display: Mounting pak file ../../../R5/Content/Paks/pakchunk0-WindowsServer.pak.
+LogIoDispatcher: Display: Reading toc: ../../../R5/Content/Paks/pakchunk0-WindowsServer.utoc
+LogIoDispatcher: Display: Toc loaded : ../../../R5/Content/Paks/pakchunk0-WindowsServer.utoc, Id=191853698d5c314d, Order=3, EntryCount=41365, SignatureHash=0000000000000000000000000000000000000000
+LogIoDispatcher: Display: Mounting container '../../../R5/Content/Paks/pakchunk0-WindowsServer.utoc' in location slot 0
+LogPakFile: Display: Mounted IoStore container "../../../R5/Content/Paks/pakchunk0-WindowsServer.utoc"
+LogFilePackageStore: Mounting container: Id=191853698d5c314d, Order=3, NumPackages=41364
+LogPakFile: Display: Mounted Pak file '../../../R5/Content/Paks/pakchunk0-WindowsServer.pak', mount point: '../../../'
+LogICUInternationalization: ICU TimeZone Detection - Raw Offset: -8:00, Platform Override: ''
+LogInit: Session CrashGUID >====================================================
+         Session CrashGUID >   UECC-Windows-419ADDAD4A1D612D463CACA129B5793E
+         Session CrashGUID >====================================================
+LogAudio: Display: Audio Device Manager not initializing due to all audio being disabled. If this is not intentional, please check command line arguments for "-nosound".
+LogPluginManager: Mounting Project plugin AnimationBudgetAllocator
+LogPluginManager: Mounting Project plugin AsyncLoadingScreen
+LogPluginManager: Mounting Project plugin DLSSMoviePipelineSupport
+LogPluginManager: Mounting Project plugin DLSS
+LogPluginManager: Mounting Project plugin NIS
+LogPluginManager: Mounting Project plugin StreamlineCore
+LogPluginManager: Mounting Project plugin StreamlineDLSSG
+LogPluginManager: Mounting Project plugin StreamlineDeepDVC
+LogPluginManager: Mounting Project plugin StreamlineNGXCommon
+LogPluginManager: Mounting Project plugin StreamlineReflex
+LogPluginManager: Mounting Project plugin Streamline
+LogPluginManager: Mounting Project plugin UIWidgetsLib
+LogPluginManager: Mounting Project plugin FSRMovieRenderPipeline
+LogPluginManager: Mounting Project plugin FSR
+LogPluginManager: Mounting Project plugin GameSettings
+LogPluginManager: Mounting Project plugin GameplayMessageRouter
+LogPluginManager: Mounting Project plugin LiveLinkMvnPlugin
+LogPluginManager: Mounting Project plugin Mercuna
+LogPluginManager: Mounting Project plugin R5Thirdparty
+LogPluginManager: Mounting Project plugin Sentry
+LogPluginManager: Mounting Project plugin StoveSDKPlugin
+LogPluginManager: Mounting Project plugin VFExtra
+LogPluginManager: Mounting Project plugin AssetReferenceRestrictions
+LogPluginManager: Mounting Project plugin ContentInspector
+LogPluginManager: Mounting Project plugin R5DataValidation
+LogPluginManager: Mounting Project plugin R5DynamicItemCapture
+LogPluginManager: Mounting Project plugin R5InterchangePipeline
+LogPluginManager: Mounting Project plugin R5LandscapeRenderer
+LogPluginManager: Mounting Project plugin R5Morphing
+LogPluginManager: Mounting Project plugin R5PointLightBalancer
+LogPluginManager: Mounting Project plugin R5PotatoRender
+LogPluginManager: Mounting Project plugin R5Agones
+LogPluginManager: Mounting Project plugin R5Mercuna
+LogPluginManager: Mounting Project plugin R5WebSniffer
+LogPluginManager: Mounting Project plugin R5Algorithms
+LogPluginManager: Mounting Project plugin R5BusinessLogicCore
+LogPluginManager: Mounting Project plugin R5BusinessRules
+LogPluginManager: Mounting Project plugin R5CommonUtils
+LogPluginManager: Mounting Project plugin R5GameRules
+LogPluginManager: Mounting Project plugin R5Nature
+LogPluginManager: Mounting Project plugin R5PointOfInterest
+LogPluginManager: Mounting Project plugin R5Scenario
+LogPluginManager: Mounting Project plugin R5TerrainGeneratorAPI
+LogPluginManager: Mounting Project plugin R5TerrainGenerator
+LogPluginManager: Mounting Project plugin R5WidgetPool
+LogPluginManager: Mounting Project plugin R5AppMonitoring
+LogPluginManager: Mounting Project plugin R5JsonAssets
+LogPluginManager: Mounting Project plugin R5Requirement
+LogPluginManager: Mounting Project plugin R5SystemResourceMonitor
+LogPluginManager: Mounting Engine plugin Paper2D
+LogPluginManager: Mounting Engine plugin AISupport
+LogPluginManager: Mounting Engine plugin EnvironmentQueryEditor
+LogPluginManager: Mounting Engine plugin ACLPlugin
+LogPluginManager: Mounting Engine plugin AnimationData
+LogPluginManager: Mounting Engine plugin AnimationModifierLibrary
+LogPluginManager: Mounting Engine plugin AnimationWarping
+LogPluginManager: Mounting Engine plugin BlendStack
+LogPluginManager: Mounting Engine plugin ControlRigModules
+LogPluginManager: Mounting Engine plugin ControlRigSpline
+LogPluginManager: Mounting Engine plugin ControlRig
+LogPluginManager: Mounting Engine plugin DeformerGraph
+LogPluginManager: Mounting Engine plugin IKRig
+LogPluginManager: Mounting Engine plugin LiveLink
+LogPluginManager: Mounting Engine plugin MotionWarping
+LogPluginManager: Mounting Engine plugin PoseSearch
+LogPluginManager: Mounting Engine plugin RigLogic
+LogPluginManager: Mounting Engine plugin SkeletalMeshModelingTools
+LogAssetRegistry: Premade AssetRegistry loaded from '../../../R5/AssetRegistry.bin'
+LogPluginManager: Mounting Engine plugin TweeningUtils
+LogPluginManager: Mounting Engine plugin AudioGameplayVolume
+LogPluginManager: Mounting Engine plugin AudioGameplay
+LogPluginManager: Mounting Engine plugin AudioInsights
+LogPluginManager: Mounting Engine plugin Bridge
+LogPluginManager: Mounting Engine plugin CameraShakePreviewer
+LogPluginManager: Mounting Engine plugin EngineCameras
+LogPluginManager: Mounting Engine plugin GameplayCameras
+LogPluginManager: Mounting Engine plugin ChaosClothAsset
+LogPluginManager: Mounting Engine plugin ChaosCloth
+LogPluginManager: Mounting Engine plugin ChaosVD
+LogPluginManager: Mounting Engine plugin Chooser
+LogPluginManager: Mounting Engine plugin OpenColorIO
+LogPluginManager: Mounting Engine plugin OodleNetwork
+LogPluginManager: Mounting Engine plugin AnimationSharing
+LogPluginManager: Mounting Engine plugin ConcertMain
+LogPluginManager: Mounting Engine plugin ConcertSyncClient
+LogPluginManager: Mounting Engine plugin ConcertSyncCore
+LogPluginManager: Mounting Engine plugin ConcertSharedSlate
+LogPluginManager: Mounting Engine plugin NamingTokens
+LogPluginManager: Mounting Engine plugin PluginUtils
+LogPluginManager: Mounting Engine plugin UObjectPlugin
+LogPluginManager: Mounting Engine plugin AssetManagerEditor
+LogPluginManager: Mounting Engine plugin BlueprintHeaderView
+LogPluginManager: Mounting Engine plugin BlueprintMaterialTextureNodes
+LogPluginManager: Mounting Engine plugin ColorGrading
+LogPluginManager: Mounting Engine plugin ConsoleVariables
+LogPluginManager: Mounting Engine plugin ContentBrowserAssetDataSource
+LogPluginManager: Mounting Engine plugin CurveEditorTools
+LogPluginManager: Mounting Engine plugin DataValidation
+LogPluginManager: Mounting Engine plugin EditorScriptingUtilities
+LogPluginManager: Mounting Engine plugin EngineAssetDefinitions
+LogPluginManager: Mounting Engine plugin FacialAnimation
+LogPluginManager: Mounting Engine plugin GameplayTagsEditor
+LogPluginManager: Mounting Engine plugin GeometryMode
+LogPluginManager: Mounting Engine plugin LightMixer
+LogPluginManager: Mounting Engine plugin ObjectMixer
+LogPluginManager: Mounting Engine plugin ProxyLODPlugin
+LogPluginManager: Mounting Engine plugin SequencerAnimTools
+LogPluginManager: Mounting Engine plugin SpeedTreeImporter
+LogPluginManager: Mounting Engine plugin UMGWidgetPreview
+LogPluginManager: Mounting Engine plugin UVEditor
+LogPluginManager: Mounting Engine plugin WaveformEditor
+LogPluginManager: Mounting Engine plugin EnhancedInput
+LogPluginManager: Mounting Engine plugin DatasmithContent
+LogPluginManager: Mounting Engine plugin GLTFExporter
+LogPluginManager: Mounting Engine plugin VariantManagerContent
+LogPluginManager: Mounting Engine plugin VariantManager
+LogPluginManager: Mounting Engine plugin AnimToTexture
+LogPluginManager: Mounting Engine plugin AsyncMessageSystem
+LogPluginManager: Mounting Engine plugin AutomationUtils
+LogPluginManager: Mounting Engine plugin BackChannel
+LogPluginManager: Mounting Engine plugin ChaosCaching
+LogPluginManager: Mounting Engine plugin ChaosEditor
+LogPluginManager: Mounting Engine plugin ChaosNiagara
+LogPluginManager: Mounting Engine plugin ChaosSolverPlugin
+LogPluginManager: Mounting Engine plugin ChaosUserDataPT
+LogPluginManager: Mounting Engine plugin ChaosVehiclesPlugin
+LogPluginManager: Mounting Engine plugin CharacterAI
+LogPluginManager: Mounting Engine plugin CompositeCore
+LogPluginManager: Mounting Engine plugin Dataflow
+LogPluginManager: Mounting Engine plugin EditorDataStorageFeatures
+LogPluginManager: Mounting Engine plugin EditorDataStorage
+LogPluginManager: Mounting Engine plugin Fracture
+LogPluginManager: Mounting Engine plugin FullBodyIK
+LogPluginManager: Mounting Engine plugin Gauntlet
+LogPluginManager: Mounting Engine plugin GeometryCollectionPlugin
+LogPluginManager: Mounting Engine plugin GeometryDataflow
+LogPluginManager: Mounting Engine plugin Landmass
+LogPluginManager: Mounting Engine plugin LevelSequenceNavigatorBridge
+LogPluginManager: Mounting Engine plugin LocalizableMessage
+LogPluginManager: Mounting Engine plugin NFORDenoise
+LogPluginManager: Mounting Engine plugin PlanarCut
+LogPluginManager: Mounting Engine plugin PlatformCrypto
+LogPluginManager: Mounting Engine plugin PythonScriptPlugin
+LogPluginManager: Mounting Engine plugin RuntimeTelemetry
+LogPluginManager: Mounting Engine plugin StructUtils
+LogPluginManager: Display: The Plugin StructUtils has been marked deprecated for 5.5 and will be removed soon. Please update your dependencies.
+LogPluginManager: Mounting Engine plugin ToolPresets
+LogPluginManager: Mounting Engine plugin Water
+LogPluginManager: Mounting Engine plugin Cascade
+LogPluginManager: Mounting Engine plugin NiagaraFluids
+LogPluginManager: Mounting Engine plugin NiagaraSimCaching
+LogPluginManager: Mounting Engine plugin Niagara
+LogPluginManager: Mounting Engine plugin AlembicImporter
+LogPluginManager: Mounting Engine plugin InterchangeAssets
+LogPluginManager: Mounting Engine plugin InterchangeEditor
+LogPluginManager: Mounting Engine plugin Interchange
+LogPluginManager: Mounting Engine plugin Agones
+LogPluginManager: Mounting Engine plugin AnimationMatchingSuite
+LogPluginManager: Mounting Engine plugin AudioInspector
+LogPluginManager: Mounting Engine plugin BackgroundBlurWithMask
+LogPluginManager: Mounting Engine plugin DragonIKPlugin
+LogPluginManager: Mounting Engine plugin GCFSM
+LogPluginManager: Mounting Engine plugin MayaLiveLink
+LogPluginManager: Mounting Engine plugin AvfMedia
+LogPluginManager: Mounting Engine plugin BinkMedia
+LogPluginManager: Mounting Engine plugin ImgMedia
+LogPluginManager: Mounting Engine plugin MediaCompositing
+LogPluginManager: Mounting Engine plugin MediaPlate
+LogPluginManager: Mounting Engine plugin MeshPainting
+LogPluginManager: Mounting Engine plugin TcpMessaging
+LogPluginManager: Mounting Engine plugin UdpMessaging
+LogPluginManager: Mounting Engine plugin MetaHumanSDK
+LogPluginManager: Mounting Engine plugin ActorSequence
+LogPluginManager: Mounting Engine plugin LevelSequenceEditor
+LogPluginManager: Mounting Engine plugin MovieRenderPipeline
+LogPluginManager: Mounting Engine plugin SequencerScripting
+LogPluginManager: Mounting Engine plugin TemplateSequence
+LogPluginManager: Mounting Engine plugin NNEDenoiser
+LogPluginManager: Mounting Engine plugin NNERuntimeORT
+LogPluginManager: Mounting Engine plugin OnlineBase
+LogPluginManager: Mounting Engine plugin OnlineServices
+LogPluginManager: Mounting Engine plugin OnlineSubsystemNull
+LogPluginManager: Mounting Engine plugin OnlineSubsystemSteam
+LogPluginManager: Mounting Engine plugin OnlineSubsystemUtils
+LogPluginManager: Mounting Engine plugin OnlineSubsystem
+LogPluginManager: Mounting Engine plugin LauncherChunkInstaller
+LogPluginManager: Mounting Engine plugin ActorLayerUtilities
+LogPluginManager: Mounting Engine plugin AndroidFileServer
+LogPluginManager: Mounting Engine plugin AndroidPermission
+LogPluginManager: Mounting Engine plugin AppleImageUtils
+LogPluginManager: Mounting Engine plugin ArchVisCharacter
+LogPluginManager: Mounting Engine plugin AssetTags
+LogPluginManager: Mounting Engine plugin AudioCapture
+LogPluginManager: Mounting Engine plugin AudioModulation
+LogPluginManager: Mounting Engine plugin AudioSynesthesia
+LogPluginManager: Mounting Engine plugin AudioWidgets
+LogPluginManager: Mounting Engine plugin CableComponent
+LogPluginManager: Mounting Engine plugin ChunkDownloader
+LogPluginManager: Mounting Engine plugin ComputeFramework
+LogPluginManager: Mounting Engine plugin CustomMeshComponent
+LogPluginManager: Mounting Engine plugin DataRegistry
+LogPluginManager: Mounting Engine plugin SQLiteCore
+LogPluginManager: Mounting Engine plugin ExampleDeviceProfileSelector
+LogPluginManager: Mounting Engine plugin GameFeatures
+LogPluginManager: Mounting Engine plugin GameplayAbilities
+LogPluginManager: Mounting Engine plugin GameplayStateTree
+LogPluginManager: Mounting Engine plugin GeometryCache
+LogPluginManager: Mounting Engine plugin GeometryProcessing
+LogPluginManager: Mounting Engine plugin GeometryScripting
+LogPluginManager: Mounting Engine plugin GooglePAD
+LogPluginManager: Mounting Engine plugin HairStrands
+LogPluginManager: Mounting Engine plugin LocationServicesBPLibrary
+LogPluginManager: Mounting Engine plugin MeshModelingToolset
+LogPluginManager: Mounting Engine plugin Metasound
+LogPluginManager: Mounting Engine plugin MobilePatchingUtils
+LogPluginManager: Mounting Engine plugin ModelViewViewModel
+LogPluginManager: Mounting Engine plugin ModularGameplay
+LogPluginManager: Mounting Engine plugin MsQuic
+LogPluginManager: Mounting Engine plugin ProceduralMeshComponent
+LogPluginManager: Mounting Engine plugin PropertyAccessEditor
+LogPluginManager: Mounting Engine plugin PropertyBindingUtils
+LogPluginManager: Mounting Engine plugin ReplicationGraph
+LogPluginManager: Mounting Engine plugin ResonanceAudio
+LogPluginManager: Mounting Engine plugin RigVM
+LogPluginManager: Mounting Engine plugin SignificanceManager
+LogPluginManager: Mounting Engine plugin SoundFields
+LogPluginManager: Mounting Engine plugin SoundUtilities
+LogPluginManager: Mounting Engine plugin Soundscape
+LogPluginManager: Mounting Engine plugin StateTree
+LogPluginManager: Mounting Engine plugin SteamShared
+LogPluginManager: Mounting Engine plugin SteamSockets
+LogPluginManager: Mounting Engine plugin Synthesis
+LogPluginManager: Mounting Engine plugin WaveTable
+LogPluginManager: Mounting Engine plugin WindowsDeviceProfileSelector
+LogPluginManager: Mounting Engine plugin WindowsMoviePlayer
+LogPluginManager: Mounting Engine plugin XInputDevice
+LogPluginManager: Mounting Engine plugin AutomationDriverTests
+LogPluginManager: Mounting Engine plugin EditorTests
+LogPluginManager: Mounting Engine plugin FbxAutomationTestBuilder
+LogPluginManager: Mounting Engine plugin FunctionalTestingEditor
+LogPluginManager: Mounting Engine plugin InterchangeTests
+LogPluginManager: Mounting Engine plugin PythonAutomationTest
+LogPluginManager: Mounting Engine plugin RHITests
+LogPluginManager: Mounting Engine plugin RuntimeTests
+LogPluginManager: Mounting Engine plugin TestSamples
+LogPluginManager: Mounting Engine plugin TraceUtilities
+LogPluginManager: Mounting Engine plugin CameraCalibrationCore
+LogPluginManager: Mounting Engine plugin LensComponent
+LogPluginManager: Mounting Engine plugin LiveLinkCamera
+LogPluginManager: Mounting Engine plugin Takes
+LogPluginManager: Mounting Engine plugin WorldMetrics
+LogPluginManager: Mounting Project plugin SideFX_Labs
+LogConfig: Applying CVar settings from Section [/Script/FFXFSRSettings.FFXFSRSettings] File [Engine]
+LogHAL: Log category R5LogDataKeeper verbosity has been raised to Verbose.
+LogHAL: Log category R5LogSocketSubsystem verbosity has been raised to VeryVerbose.
+LogHAL: Log category R5LogWorldGeneratorSubsystem verbosity has been raised to Verbose.
+LogHAL: Log category R5LogCoopProxy verbosity has been raised to Verbose.
+LogHAL: Log category R5LogIceProtocol verbosity has been raised to Verbose.
+LogHAL: Log category R5LogAsioWrapper verbosity has been raised to Verbose.
+LogHAL: Log category R5LogP2pGate verbosity has been raised to Verbose.
+LogHAL: Log category R5LogNetCm verbosity has been raised to Verbose.
+LogDLSSBlueprint: Loaded DLSS-SR plugin version 8.4.0-NGX310.4.0
+LogDLSSNGXVulkanRHIPreInit: FNGXVulkanRHIPreInitModule::StartupModule Enter
+LogDLSSNGXVulkanRHIPreInit: This UE instance does not render; skipping of pregistering the required NGX DLSS Vulkan device and instance extensions via the VulkanRHIBridge
+LogDLSSNGXVulkanRHIPreInit: FNGXVulkanRHIPreInitModule::StartupModule Leave
+LogStreamlineShaders: Loaded Streamline plugin version 8.4.0-SL2.9.0
+LogFSR: FSR Temporal Upscaling Module Started
+LogFFXFI: FFX Frame Interpolation Module Started
+LogInit: WinSock: version 1.1 (2.2), MaxSocks=32767, MaxUdp=65467
+LogConfig: Applying CVar settings from Section [/Script/CompositeCore.CompositeCorePluginSettings] File [Engine]
+LogNFORDenoise: NFORDenoise function starting up
+LogInit: Using libcurl 8.12.1
+LogInit:  - built for Windows
+LogInit:  - supports SSL with OpenSSL/1.1.1t
+LogInit:  - supports HTTP deflate (compression) using libz 1.3
+LogInit:  - other features:
+LogInit:      CURL_VERSION_SSL
+LogInit:      CURL_VERSION_LIBZ
+LogInit:      CURL_VERSION_IPV6
+LogInit:      CURL_VERSION_ASYNCHDNS
+LogInit:      CURL_VERSION_LARGEFILE
+LogInit:      CURL_VERSION_TLSAUTH_SRP
+LogInit:      CURL_VERSION_HTTP2
+LogInit:  CurlRequestOptions (configurable via config and command line):
+LogInit:  - bVerifyPeer = false  - Libcurl will NOT verify peer certificate
+LogInit:  - bUseHttpProxy = false  - Libcurl will NOT use HTTP proxy
+LogInit:  - bDontReuseConnections = false  - Libcurl will reuse connections
+LogInit:  - MaxHostConnections = 16  - Libcurl will limit the number of connections to a host
+LogInit:  - LocalHostAddr = Default
+LogInit:  - BufferSize = 65536
+LogInit: CreateHttpThread using FCurlMultiPollEventLoopHttpThread
+LogInit: Creating http thread with maximum 256 concurrent requests
+LogOnline: OSS: Created online subsystem instance for: NULL
+LogOnline: OSS: TryLoadSubsystemAndSetDefault: Loaded subsystem for type [NULL]
+LogInit: ExecutableName: WindroseServer-Win64-Shipping.exe
+LogInit: Build: UE5-CL-0
+LogInit: Platform=WindowsServer
+LogInit: MachineId=a5a5df6848bc3380ca9721a895489e16
+LogInit: DeviceId=
+LogInit: Engine Version: 5.6.1-0+UE5
+LogInit: Compatible Engine Version: 5.6.0-0+UE5
+LogInit: Net CL: 0
+LogInit: OS: Windows 11 (25H2) [10.0.26200.8246] (), CPU: 13th Gen Intel(R) Core(TM) i9-13900K, GPU: NVIDIA GeForce RTX 4080
+LogInit: Compiled (64-bit): Mar 16 2026 23:58:59
+LogInit: Architecture: x64
+LogInit: Compiled with Visual C++: 19.38.33145.00
+LogInit: Build Configuration: Shipping
+LogInit: Branch Name: UE5
+LogInit: Command Line:  -log
+LogInit: Base Directory: C:/Games/WindowsServer/R5/Binaries/Win64/
+LogInit: Allocator: Binned2
+LogInit: Installed Engine Build: 0
+LogInit: This binary is optimized with LTO: no, PGO: no, instrumented for PGO data collection: no
+LogInit: Presizing for max 2097152 objects, including 1 objects not considered by GC.
+LogInit: Object subsystem initialized
+LogConfig: Set CVar [[r.setres:1280x720]]
+[2026.05.07-20.36.29:976][  0]LogConfig: Set CVar [[fx.NiagaraAllowRuntimeScalabilityChanges:1]]
+[2026.05.07-20.36.29:976][  0]LogConfig: Set CVar [[r.Nanite.Streaming.ReservedResources:1]]
+[2026.05.07-20.36.29:976][  0]LogConfig: Set CVar [[D3D12.Bindless.ResourceDescriptorHeapSize:32768]]
+[2026.05.07-20.36.29:976][  0]LogConfig: Set CVar [[D3D12.Bindless.SamplerDescriptorHeapSize:2048]]
+[2026.05.07-20.36.29:977][  0]LogConfig: Set CVar [[r.PSOPrecache.GlobalShaders:1]]
+[2026.05.07-20.36.29:977][  0]LogConfig: Set CVar [[r.VRS.EnableSoftware:1]]
+[2026.05.07-20.36.29:977][  0]LogConfig: Set CVar [[r.VRS.ContrastAdaptiveShading:1]]
+[2026.05.07-20.36.29:977][  0]LogConfig: Set CVar [[Automation.SkipStackWalk:1]]
+[2026.05.07-20.36.29:977][  0]LogConfig: Set CVar [[r.NGX.LogLevel:0 ; DLSS/FG logging is too verbose even with default settings.]]
+[2026.05.07-20.36.29:977][  0]LogConfig: Applying CVar settings from Section [/Script/Engine.RendererSettings] File [Engine]
+[2026.05.07-20.36.29:977][  0]LogConfig: Set CVar [[r.GPUCrashDebugging:0]]
+[2026.05.07-20.36.29:977][  0]LogConfig: Set CVar [[r.Shaders.RemoveUnusedInterpolators:1]]
+[2026.05.07-20.36.29:977][  0]LogConfig: Set CVar [[r.Shadow.DetectVertexShaderLayerAtRuntime:1]]
+[2026.05.07-20.36.29:977][  0]LogConfig: Set CVar [[r.ReflectionMethod:1]]
+[2026.05.07-20.36.29:977][  0]LogConfig: Set CVar [[r.GenerateMeshDistanceFields:1]]
+[2026.05.07-20.36.29:977][  0]LogConfig: Set CVar [[r.DynamicGlobalIlluminationMethod:1]]
+[2026.05.07-20.36.29:977][  0]LogConfig: Set CVar [[r.Lumen.TraceMeshSDFs:0]]
+[2026.05.07-20.36.29:977][  0]LogConfig: Set CVar [[r.Shadow.Virtual.Enable:1]]
+[2026.05.07-20.36.29:977][  0]LogConfig: Set CVar [[r.DefaultFeature.AutoExposure.ExtendDefaultLuminanceRange:1]]
+[2026.05.07-20.36.29:977][  0]LogConfig: Set CVar [[r.AllowStaticLighting:0]]
+[2026.05.07-20.36.29:977][  0]LogConfig: Set CVar [[r.AllowOcclusionQueries:0]]
+[2026.05.07-20.36.29:977][  0]LogConfig: Set CVar [[r.VirtualTextures:1]]
+[2026.05.07-20.36.29:977][  0]LogConfig: Set CVar [[r.VelocityOutputPass:1]]
+[2026.05.07-20.36.29:977][  0]LogConfig: Set CVar [[grass.GrassMap.UseRuntimeGeneration:0 ; We use custom grass generation.]]
+[2026.05.07-20.36.29:977][  0]LogConfig: Set CVar [[r.Water.SingleLayer.Reflection:3]]
+[2026.05.07-20.36.29:977][  0]LogConfig: Set CVar [[r.Nanite.MaxPixelsPerEdge:2.5]]
+[2026.05.07-20.36.29:977][  0]LogConfig: Set CVar [[r.Nanite.Streaming.StreamingPoolSize:256]]
+[2026.05.07-20.36.29:977][  0]LogConfig: Set CVar [[r.DistanceFields.SurfaceBiasExpand:0.5]]
+[2026.05.07-20.36.29:977][  0]LogConfig: Set CVar [[r.Water.SingleLayer.DepthPrepass:1]]
+[2026.05.07-20.36.29:977][  0]LogConfig: Set CVar [[r.Water.SingleLayer.ShadersSupportVSMFiltering:1]]
+[2026.05.07-20.36.29:977][  0]LogConfig: Set CVar [[r.Water.SingleLayer.VSMFiltering:1]]
+[2026.05.07-20.36.29:977][  0]LogConfig: Set CVar [[r.Water.SingleLayerWater.SupportCloudShadow:1]]
+[2026.05.07-20.36.29:977][  0]LogConfig: Set CVar [[r.LocalFogVolume.RenderDuringHeightFogPass:1]]
+[2026.05.07-20.36.29:977][  0]LogConfig: Set CVar [[r.LocalFogVolume.RenderIntoVolumetricFog:0]]
+[2026.05.07-20.36.29:977][  0]LogConfig: Set CVar [[r.LocalFogVolume.GlobalStartDistance:200]]
+[2026.05.07-20.36.29:977][  0]LogConfig: Set CVar [[r.Lumen.ScreenProbeGather.ShortRangeAO.ScreenSpace.SlopeCompareToleranceScale:1.0 ; More Intense Lumen AO]]
+[2026.05.07-20.36.29:977][  0]LogConfig: Set CVar [[r.Lumen.ScreenProbeGather.ShortRangeAO.ScreenSpace.FoliageOcclusionStrength:0.75 ; More intense Lumen AO on foliage]]
+[2026.05.07-20.36.29:977][  0]LogConfig: Set CVar [[r.AllowHDR:1]]
+[2026.05.07-20.36.29:977][  0]LogConfig: Set CVar [[r.VolumetricRenderTarget.Mode:2 ; 0 Produce VolCloud render artifacts on quick motion when overlaped by opaque objects]]
+[2026.05.07-20.36.29:977][  0]LogConfig: Set CVar [[r.VolumetricCloud.ApplyFogLate:1 ; Prevents black shadow artifact from moving obects on clouds in Mode2]]
+[2026.05.07-20.36.29:977][  0]LogConfig: Set CVar [[r.VolumetricRenderTarget.R5Mode2JitteredUpsampleOffset:0.8 ; Jittered upsample acts like a blur]]
+[2026.05.07-20.36.29:977][  0]LogConfig: Set CVar [[r.VolumetricRenderTarget.R5SendPixelOffsetsDirectlyToMode2:1 ; Fixes stripes/blocking artifacts on reconstructed Mode 2 clouds]]
+[2026.05.07-20.36.29:977][  0]LogConfig: Set CVar [[r.VolumetricCloud.R5Mode2MaxOccludedSamples:48 ; Reduces trace step count if a sample is behind depth buffer. Reduces cloud perf hit when something occludes clouds. If we discarded occluded samples completely, we'd see heavy ghosting.]]
+[2026.05.07-20.36.29:977][  0]LogConfig: Set CVar [[r.VolumetricCloud.ViewRaySampleMaxCount:128 ; Reduces max steps a ray can take when tracing clouds. Makes clouds "sandier" but improves render performance]]
+[2026.05.07-20.36.29:977][  0]LogConfig: Set CVar [[r.R5.PLB.Enable:1]]
+[2026.05.07-20.36.29:977][  0]LogConfig: Set CVar [[r.R5.Wetness.DownsamplingSampleOffset:2 ; Wetness mask blur intensity]]
+[2026.05.07-20.36.29:977][  0]LogConfig: Set CVar [[r.CustomDepth:0 ; Why was it enabled?]]
+[2026.05.07-20.36.29:977][  0]LogConfig: Set CVar [[r.Nanite.Tessellation:0 ; We don't use it, and it wastes CPU/GPU on related work.]]
+[2026.05.07-20.36.29:978][  0]LogConfig: Set CVar [[r.Nanite.ShadeBinningMode:1 ; Does not produce visible artifacts and is up to 10% faster. It seems, Nanite frequently can't prove our materials don't actually need 2x2 raster.]]
+[2026.05.07-20.36.29:978][  0]LogConfig: Set CVar [[r.Lumen.ScreenProbeGather.SimpleDiffuseEverywhereExceptHair:1 ; Why was is disabled?]]
+[2026.05.07-20.36.29:978][  0]LogConfig: Set CVar [[r.LumenScene.GlobalSDF.Resolution:256]]
+[2026.05.07-20.36.29:978][  0]LogConfig: Set CVar [[r.LumenScene.SurfaceCache.AtlasSize:2048 ; even with half the default size we consume only about 50% texture space]]
+[2026.05.07-20.36.29:978][  0]LogConfig: Set CVar [[r.SkyLight.RealTimeReflectionCapture.ResolutionOverride:64]]
+[2026.05.07-20.36.29:978][  0]LogConfig: Set CVar [[r.AOGlobalDFResolution:256; Depending on whether Lumen is enabled or not, one of these two is used. Keep them in sync so that visuals stay consistent. GDF shadows heavily depend on GDF resolution.]]
+[2026.05.07-20.36.29:978][  0]LogConfig: Set CVar [[r.Shadow.Virtual.AllowScreenOverflowMessages:0; People easily surpass light count for Single Pass Resolve. We've yet to see serious shadow artifacts, disable this message so that it does not annoy anyone.]]
+[2026.05.07-20.36.29:978][  0]LogConfig: Set CVar [[r.HeightFieldShadowing:0; Change along with r.R5LandscapeRenderer.UseDistanceFieldShadows. Otherwise you'll get double shadows from both VSM and DFS.]]
+[2026.05.07-20.36.29:978][  0]LogConfig: Set CVar [[r.HFShadowQuality:0 ; 1 uses less steps, but seems there's not much quality loss. More importantly, level 2 tries to trace holes for landscape holes, and we don't support/need them.]]
+[2026.05.07-20.36.29:978][  0]LogConfig: Set CVar [[r.R5LandscapeRenderer.UseDistanceFieldShadows:1]]
+[2026.05.07-20.36.29:978][  0]LogConfig: Set CVar [[r.HeightFields.AtlasDimInTiles:32 ; 52 islands on multi are too much for default 16. TODO: RRR-18886]]
+[2026.05.07-20.36.29:978][  0]LogConfig: Set CVar [[r.TranslucencyLightingVolume.Temporal:1 ; Small optimization for translucent lighting]]
+[2026.05.07-20.36.29:978][  0]LogConfig: Set CVar [[r.PSOPrecache.ProxyCreationDelayStrategy:1]]
+[2026.05.07-20.36.29:978][  0]LogConfig: Set CVar [[r.FidelityFX.FSR.Enabled:0 ; Start with upscalers disabled by default]]
+[2026.05.07-20.36.29:978][  0]LogConfig: Set CVar [[r.NGX.DLSS.Enable:0]]
+[2026.05.07-20.36.29:978][  0]LogConfig: Set CVar [[r.FidelityFX.FI.Enabled:0]]
+[2026.05.07-20.36.29:978][  0]LogConfig: Set CVar [[r.Streamline.DLSSG.Enable:0]]
+[2026.05.07-20.36.29:978][  0]LogConfig: Set CVar [[t.Streamline.Reflex.HandleMaxTickRate:false ; let engine always handle tickrate. Otherwise it may lead to Reflex gradually reducing frame rate when DLSS frame gen is disabled or frequently toggled between FSR FI and DLSS FG]]
+[2026.05.07-20.36.29:978][  0]LogConfig: Set CVar [[r.NIS.Upscaling:0]]
+[2026.05.07-20.36.29:978][  0]LogConfig: Set CVar [[r.NIS.Enable:0]]
+[2026.05.07-20.36.29:978][  0]LogConfig: Set CVar [[r.Reflections.Denoiser:0 ; Come to think of it, on low power platforms (looking at you, Steam Deck) even built-in denoiser is very expensive (2.5 ms GPU). The game is running on low already, some grain in the image is expected. TODO: make this a scalability CVar?]]
+[2026.05.07-20.36.29:978][  0]LogConfig: Set CVar [[R5.NegativeSpace.DisablePostProcessingForMainWorld:0 ; Should prevent reinitialization for upscalers/fg]]
+[2026.05.07-20.36.29:978][  0]LogConfig: Set CVar [[R5.NegativeSpace.CameraCutOnClose:1]]
+[2026.05.07-20.36.29:978][  0]LogConfig: Set CVar [[R5.NegativeSpace.FreeResourcesOnClose:1]]
+[2026.05.07-20.36.29:978][  0]LogConfig: Set CVar [[R5.NegativeSpace.ForceEnableWorldRenderingOnShutdown:1]]
+[2026.05.07-20.36.29:978][  0]LogConfig: Applying CVar settings from Section [/Script/Engine.RendererOverrideSettings] File [Engine]
+[2026.05.07-20.36.29:978][  0]LogConfig: Applying CVar settings from Section [/Script/Engine.StreamingSettings] File [Engine]
+[2026.05.07-20.36.29:979][  0]LogConfig: Set CVar [[s.MinBulkDataSizeForAsyncLoading:131072]]
+[2026.05.07-20.36.29:979][  0]LogConfig: Set CVar [[s.AsyncLoadingThreadEnabled:1]]
+[2026.05.07-20.36.29:979][  0]LogConfig: Set CVar [[s.EventDrivenLoaderEnabled:1]]
+[2026.05.07-20.36.29:979][  0]LogConfig: Set CVar [[s.WarnIfTimeLimitExceeded:0]]
+[2026.05.07-20.36.29:979][  0]LogConfig: Set CVar [[s.TimeLimitExceededMultiplier:1.5]]
+[2026.05.07-20.36.29:979][  0]LogConfig: Set CVar [[s.TimeLimitExceededMinTime:0.005]]
+[2026.05.07-20.36.29:979][  0]LogConfig: Set CVar [[s.UseBackgroundLevelStreaming:1]]
+[2026.05.07-20.36.29:979][  0]LogConfig: Set CVar [[s.PriorityAsyncLoadingExtraTime:15.0]]
+[2026.05.07-20.36.29:979][  0]LogConfig: Set CVar [[s.LevelStreamingActorsUpdateTimeLimit:5.0]]
+[2026.05.07-20.36.29:979][  0]LogConfig: Set CVar [[s.PriorityLevelStreamingActorsUpdateExtraTime:5.0]]
+[2026.05.07-20.36.29:979][  0]LogConfig: Set CVar [[s.LevelStreamingComponentsRegistrationGranularity:10]]
+[2026.05.07-20.36.29:979][  0]LogConfig: Set CVar [[s.UnregisterComponentsTimeLimit:1.0]]
+[2026.05.07-20.36.29:979][  0]LogConfig: Set CVar [[s.LevelStreamingComponentsUnregistrationGranularity:5]]
+[2026.05.07-20.36.29:979][  0]LogConfig: Set CVar [[s.FlushStreamingOnExit:1]]
+[2026.05.07-20.36.29:979][  0]LogConfig: Applying CVar settings from Section [/Script/Engine.GarbageCollectionSettings] File [Engine]
+[2026.05.07-20.36.29:979][  0]LogConfig: Set CVar [[gc.MaxObjectsNotConsideredByGC:1]]
+[2026.05.07-20.36.29:979][  0]LogConfig: Set CVar [[gc.FlushStreamingOnGC:0]]
+[2026.05.07-20.36.29:979][  0]LogConfig: Set CVar [[gc.NumRetriesBeforeForcingGC:10]]
+[2026.05.07-20.36.29:979][  0]LogConfig: Set CVar [[gc.AllowParallelGC:1]]
+[2026.05.07-20.36.29:979][  0]LogConfig: Set CVar [[gc.TimeBetweenPurgingPendingKillObjects:61.1]]
+[2026.05.07-20.36.29:979][  0]LogConfig: Set CVar [[gc.MaxObjectsInEditor:25165824]]
+[2026.05.07-20.36.29:979][  0]LogConfig: Set CVar [[gc.IncrementalBeginDestroyEnabled:1]]
+[2026.05.07-20.36.29:979][  0]LogConfig: Set CVar [[gc.CreateGCClusters:1]]
+[2026.05.07-20.36.29:979][  0]LogConfig: Set CVar [[gc.MinGCClusterSize:5]]
+[2026.05.07-20.36.29:979][  0]LogConfig: Set CVar [[gc.AssetClustreringEnabled:0]]
+[2026.05.07-20.36.29:979][  0]LogConfig: Set CVar [[gc.ActorClusteringEnabled:0]]
+[2026.05.07-20.36.29:979][  0]LogConfig: Set CVar [[gc.VerifyUObjectsAreNotFGCObjects:0]]
+[2026.05.07-20.36.29:979][  0]LogConfig: Set CVar [[gc.GarbageEliminationEnabled:1]]
+[2026.05.07-20.36.29:979][  0]LogConfig: Applying CVar settings from Section [/Script/Engine.NetworkSettings] File [Engine]
+[2026.05.07-20.36.29:979][  0]LogConfig: Set CVar [[n.VerifyPeer:0]]
+[2026.05.07-20.36.29:979][  0]LogConfig: Applying CVar settings from Section [ViewDistanceQuality@3] File [Scalability]
+[2026.05.07-20.36.29:979][  0]LogConfig: Set CVar [[r.SkeletalMeshLODBias:0]]
+[2026.05.07-20.36.29:979][  0]LogConfig: Set CVar [[r.ViewDistanceScale:1.0]]
+[2026.05.07-20.36.29:979][  0]LogConfig: Applying CVar settings from Section [AntiAliasingQuality@3] File [Scalability]
+[2026.05.07-20.36.29:980][  0]LogConfig: Set CVar [[r.FXAA.Quality:4]]
+[2026.05.07-20.36.29:980][  0]LogConfig: Set CVar [[r.TemporalAA.Quality:2]]
+[2026.05.07-20.36.29:980][  0]LogConfig: Set CVar [[r.TSR.History.R11G11B10:1]]
+[2026.05.07-20.36.29:980][  0]LogConfig: Set CVar [[r.TSR.History.ScreenPercentage:100]]
+[2026.05.07-20.36.29:980][  0]LogConfig: Set CVar [[r.TSR.History.UpdateQuality:3]]
+[2026.05.07-20.36.29:980][  0]LogConfig: Set CVar [[r.TSR.ShadingRejection.Flickering:1]]
+[2026.05.07-20.36.29:980][  0]LogConfig: Set CVar [[r.TSR.RejectionAntiAliasingQuality:2]]
+[2026.05.07-20.36.29:980][  0]LogConfig: Set CVar [[r.TSR.ReprojectionField:1]]
+[2026.05.07-20.36.29:980][  0]LogConfig: Set CVar [[r.TSR.Resurrection:1]]
+[2026.05.07-20.36.29:980][  0]LogConfig: Applying CVar settings from Section [ShadowQuality@3] File [Scalability]
+[2026.05.07-20.36.29:980][  0]LogConfig: Set CVar [[r.LightFunctionQuality:1]]
+[2026.05.07-20.36.29:980][  0]LogConfig: Set CVar [[r.ShadowQuality:5]]
+[2026.05.07-20.36.29:980][  0]LogConfig: Set CVar [[r.Shadow.CSM.MaxCascades:10]]
+[2026.05.07-20.36.29:980][  0]LogConfig: Set CVar [[r.Shadow.MaxResolution:2048]]
+[2026.05.07-20.36.29:980][  0]LogConfig: Set CVar [[r.Shadow.MaxCSMResolution:2048]]
+[2026.05.07-20.36.29:980][  0]LogConfig: Set CVar [[r.Shadow.RadiusThreshold:0.01]]
+[2026.05.07-20.36.29:980][  0]LogConfig: Set CVar [[r.Shadow.DistanceScale:1.0]]
+[2026.05.07-20.36.29:980][  0]LogConfig: Set CVar [[r.Shadow.CSM.TransitionScale:1.0]]
+[2026.05.07-20.36.29:980][  0]LogConfig: Set CVar [[r.Shadow.PreShadowResolutionFactor:1.0]]
+[2026.05.07-20.36.29:980][  0]LogConfig: Set CVar [[r.DistanceFieldShadowing:1]]
+[2026.05.07-20.36.29:980][  0]LogConfig: Set CVar [[r.VolumetricFog:1]]
+[2026.05.07-20.36.29:980][  0]LogConfig: Set CVar [[r.VolumetricFog.GridPixelSize:16]]
+[2026.05.07-20.36.29:980][  0]LogConfig: Set CVar [[r.VolumetricFog.GridSizeZ:128]]
+[2026.05.07-20.36.29:980][  0]LogConfig: Set CVar [[r.VolumetricFog.HistoryMissSupersampleCount:16]]
+[2026.05.07-20.36.29:980][  0]LogConfig: Set CVar [[r.LightMaxDrawDistanceScale:1.0]]
+[2026.05.07-20.36.29:980][  0]LogConfig: Set CVar [[r.CapsuleShadows:1]]
+[2026.05.07-20.36.29:980][  0]LogConfig: Set CVar [[r.Shadow.Virtual.MaxPhysicalPages:4096]]
+[2026.05.07-20.36.29:980][  0]LogConfig: Set CVar [[r.Shadow.Virtual.ResolutionLodBiasDirectional:-0.5  ; R5: From -1.5. Lower shadow resolution to decrease peak page count.]]
+[2026.05.07-20.36.29:980][  0]LogConfig: Set CVar [[r.Shadow.Virtual.ResolutionLodBiasDirectionalMoving:-1.5]]
+[2026.05.07-20.36.29:980][  0]LogConfig: Set CVar [[r.Shadow.Virtual.ResolutionLodBiasLocal:0]]
+[2026.05.07-20.36.29:980][  0]LogConfig: Set CVar [[r.Shadow.Virtual.ResolutionLodBiasLocalMoving:1.0]]
+[2026.05.07-20.36.29:980][  0]LogConfig: Set CVar [[r.Shadow.Virtual.SMRT.RayCountDirectional:8]]
+[2026.05.07-20.36.29:980][  0]LogConfig: Set CVar [[r.Shadow.Virtual.SMRT.SamplesPerRayDirectional:4]]
+[2026.05.07-20.36.29:980][  0]LogConfig: Set CVar [[r.Shadow.Virtual.SMRT.RayCountLocal:8]]
+[2026.05.07-20.36.29:980][  0]LogConfig: Set CVar [[r.Shadow.Virtual.SMRT.SamplesPerRayLocal:4]]
+[2026.05.07-20.36.29:980][  0]LogConfig: Set CVar [[r.Shadow.Virtual.SMRT.TexelDitherScaleDirectional:2]]
+[2026.05.07-20.36.29:980][  0]LogConfig: Set CVar [[r.Shadow.Virtual.SMRT.TexelDitherScaleLocal:2]]
+[2026.05.07-20.36.29:980][  0]LogConfig: Set CVar [[r.Shadow.Virtual.Clipmap.EnableAmortizedDirectionalShadows:1]]
+[2026.05.07-20.36.29:980][  0]LogConfig: Set CVar [[r.Shadow.Virtual.Clipmap.LastLevel:16]]
+[2026.05.07-20.36.29:980][  0]LogConfig: Set CVar [[r.DFShadowQuality:3]]
+[2026.05.07-20.36.29:980][  0]LogConfig: Set CVar [[r.VolumetricFog.ConservativeDepth:1]]
+[2026.05.07-20.36.29:980][  0]LogConfig: Set CVar [[r.VolumetricFog.DepthDistributionScale:8]]
+[2026.05.07-20.36.29:980][  0]LogConfig: Set CVar [[r.VolumetricFog.HistoryWeight:0.9]]
+[2026.05.07-20.36.29:980][  0]LogConfig: Set CVar [[r.VolumetricFog.UpsampleJitterMultiplier:0]]
+[2026.05.07-20.36.29:980][  0]LogConfig: Set CVar [[r.VolumetricFog.LightFunction:0]]
+[2026.05.07-20.36.29:980][  0]LogConfig: Set CVar [[r.VolumetricRenderTarget.Scale:1.0]]
+[2026.05.07-20.36.29:980][  0]LogConfig: Applying CVar settings from Section [GlobalIlluminationQuality@3] File [Scalability]
+[2026.05.07-20.36.29:980][  0]LogConfig: Set CVar [[r.DistanceFieldAO:1]]
+[2026.05.07-20.36.29:980][  0]LogConfig: Set CVar [[r.SkylightIntensityMultiplier:1]]
+[2026.05.07-20.36.29:980][  0]LogConfig: Set CVar [[r.AOQuality:2]]
+[2026.05.07-20.36.29:980][  0]LogConfig: Set CVar [[r.Lumen.DiffuseIndirect.Allow:1]]
+[2026.05.07-20.36.29:980][  0]LogConfig: Set CVar [[r.LumenScene.DirectLighting.MaxLightsPerTile:8]]
+[2026.05.07-20.36.29:980][  0]LogConfig: Set CVar [[r.LumenScene.DirectLighting.UpdateFactor:32]]
+[2026.05.07-20.36.29:981][  0]LogConfig: Set CVar [[r.LumenScene.Radiosity.UpdateFactor:64]]
+[2026.05.07-20.36.29:981][  0]LogConfig: Set CVar [[r.LumenScene.Radiosity.ProbeSpacing:8]]
+[2026.05.07-20.36.29:981][  0]LogConfig: Set CVar [[r.LumenScene.Radiosity.HemisphereProbeResolution:4]]
+[2026.05.07-20.36.29:981][  0]LogConfig: Set CVar [[r.Lumen.TraceMeshSDFs.Allow:1]]
+[2026.05.07-20.36.29:981][  0]LogConfig: Set CVar [[r.Lumen.ScreenProbeGather.RadianceCache.ProbeResolution:16]]
+[2026.05.07-20.36.29:981][  0]LogConfig: Set CVar [[r.Lumen.ScreenProbeGather.RadianceCache.NumProbesToTraceBudget:300]]
+[2026.05.07-20.36.29:981][  0]LogConfig: Set CVar [[r.Lumen.ScreenProbeGather.DownsampleFactor:16]]
+[2026.05.07-20.36.29:981][  0]LogConfig: Set CVar [[r.Lumen.ScreenProbeGather.NumAdaptiveProbes:8]]
+[2026.05.07-20.36.29:981][  0]LogConfig: Set CVar [[r.Lumen.ScreenProbeGather.TracingOctahedronResolution:8]]
+[2026.05.07-20.36.29:981][  0]LogConfig: Set CVar [[r.Lumen.ScreenProbeGather.IrradianceFormat:0]]
+[2026.05.07-20.36.29:981][  0]LogConfig: Set CVar [[r.Lumen.ScreenProbeGather.StochasticInterpolation:1]]
+[2026.05.07-20.36.29:981][  0]LogConfig: Set CVar [[r.Lumen.ScreenProbeGather.FullResolutionJitterWidth:1]]
+[2026.05.07-20.36.29:981][  0]LogConfig: Set CVar [[r.Lumen.ScreenProbeGather.TwoSidedFoliageBackfaceDiffuse:1]]
+[2026.05.07-20.36.29:981][  0]LogConfig: Set CVar [[r.Lumen.ScreenProbeGather.ScreenTraces.HZBTraversal.FullResDepth:1]]
+[2026.05.07-20.36.29:981][  0]LogConfig: Set CVar [[r.Lumen.ScreenProbeGather.ShortRangeAO.HardwareRayTracing:0]]
+[2026.05.07-20.36.29:981][  0]LogConfig: Set CVar [[r.Lumen.ScreenProbeGather.ShortRangeAO.BentNormal:1]]
+[2026.05.07-20.36.29:981][  0]LogConfig: Set CVar [[r.Lumen.TranslucencyVolume.GridPixelSize:64]]
+[2026.05.07-20.36.29:981][  0]LogConfig: Set CVar [[r.Lumen.TranslucencyVolume.TraceFromVolume:0]]
+[2026.05.07-20.36.29:981][  0]LogConfig: Set CVar [[r.Lumen.TranslucencyVolume.TracingOctahedronResolution:4]]
+[2026.05.07-20.36.29:981][  0]LogConfig: Set CVar [[r.Lumen.TranslucencyVolume.RadianceCache.ProbeResolution:8]]
+[2026.05.07-20.36.29:981][  0]LogConfig: Set CVar [[r.Lumen.TranslucencyVolume.RadianceCache.NumProbesToTraceBudget:200]]
+[2026.05.07-20.36.29:981][  0]LogConfig: Set CVar [[r.Lumen.ScreenProbeGather.IntegrateDownsampleFactor:1]]
+[2026.05.07-20.36.29:981][  0]LogConfig: Set CVar [[r.Lumen.TranslucencyVolume.RadianceCache:1]]
+[2026.05.07-20.36.29:981][  0]LogConfig: Set CVar [[r.LumenScene.GlobalSDF.SimpleCoverageBasedExpand:1; Fixes overly dark DFAO for complex geometry like ferns]]
+[2026.05.07-20.36.29:981][  0]LogConfig: Set CVar [[r.LumenScene.DirectLighting:1]]
+[2026.05.07-20.36.29:981][  0]LogConfig: Set CVar [[r.LumenScene.SurfaceCache.CardCaptureRefreshFraction:0]]
+[2026.05.07-20.36.29:981][  0]LogConfig: Set CVar [[r.AOApplyToStaticIndirect:0]]
+[2026.05.07-20.36.29:981][  0]LogConfig: Set CVar [[r.Lumen.ScreenProbeGather.ScreenTraces:1]]
+[2026.05.07-20.36.29:981][  0]LogConfig: Applying CVar settings from Section [ReflectionQuality@3] File [Scalability]
+[2026.05.07-20.36.29:981][  0]LogConfig: Set CVar [[r.SSR.Quality:3]]
+[2026.05.07-20.36.29:981][  0]LogConfig: Set CVar [[r.SSR.HalfResSceneColor:1]]
+[2026.05.07-20.36.29:981][  0]LogConfig: Set CVar [[r.Lumen.Reflections.Allow:1]]
+[2026.05.07-20.36.29:981][  0]LogConfig: Set CVar [[r.Lumen.Reflections.DownsampleFactor:2]]
+[2026.05.07-20.36.29:981][  0]LogConfig: Set CVar [[r.Lumen.Reflections.MaxRoughnessToTraceForFoliage:0.2]]
+[2026.05.07-20.36.29:981][  0]LogConfig: Set CVar [[r.Lumen.ScreenProbeGather.MaxRoughnessToEvaluateRoughSpecularForFoliage:0.8]]
+[2026.05.07-20.36.29:981][  0]LogConfig: Set CVar [[r.Lumen.Reflections.ScreenSpaceReconstruction.NumSamples:5]]
+[2026.05.07-20.36.29:981][  0]LogConfig: Set CVar [[r.Lumen.Reflections.ScreenSpaceReconstruction.MinWeight:0]]
+[2026.05.07-20.36.29:981][  0]LogConfig: Set CVar [[r.Lumen.TranslucencyReflections.FrontLayer.Allow:1]]
+[2026.05.07-20.36.29:981][  0]LogConfig: Set CVar [[r.Lumen.TranslucencyReflections.FrontLayer.Enable:0]]
+[2026.05.07-20.36.29:981][  0]LogConfig: Set CVar [[r.Lumen.Reflections.MaxRoughnessToTrace:0.4]]
+[2026.05.07-20.36.29:981][  0]LogConfig: Applying CVar settings from Section [PostProcessQuality@3] File [Scalability]
+[2026.05.07-20.36.29:981][  0]LogConfig: Set CVar [[r.MotionBlurQuality:4]]
+[2026.05.07-20.36.29:981][  0]LogConfig: Set CVar [[r.MotionBlur.HalfResGather:1]]
+[2026.05.07-20.36.29:981][  0]LogConfig: Set CVar [[r.AmbientOcclusionMipLevelFactor:0.4]]
+[2026.05.07-20.36.29:981][  0]LogConfig: Set CVar [[r.AmbientOcclusionMaxQuality:100]]
+[2026.05.07-20.36.29:981][  0]LogConfig: Set CVar [[r.AmbientOcclusionLevels:-1]]
+[2026.05.07-20.36.29:981][  0]LogConfig: Set CVar [[r.AmbientOcclusionRadiusScale:1.0]]
+[2026.05.07-20.36.29:981][  0]LogConfig: Set CVar [[r.DepthOfFieldQuality:2]]
+[2026.05.07-20.36.29:981][  0]LogConfig: Set CVar [[r.RenderTargetPoolMin:400]]
+[2026.05.07-20.36.29:981][  0]LogConfig: Set CVar [[r.LensFlareQuality:0]]
+[2026.05.07-20.36.29:981][  0]LogConfig: Set CVar [[r.SceneColorFringeQuality:1]]
+[2026.05.07-20.36.29:981][  0]LogConfig: Set CVar [[r.EyeAdaptationQuality:2]]
+[2026.05.07-20.36.29:981][  0]LogConfig: Set CVar [[r.BloomQuality:4]]
+[2026.05.07-20.36.29:981][  0]LogConfig: Set CVar [[r.Bloom.ScreenPercentage:70.711]]
+[2026.05.07-20.36.29:981][  0]LogConfig: Set CVar [[r.FastBlurThreshold:3]]
+[2026.05.07-20.36.29:981][  0]LogConfig: Set CVar [[r.Upscale.Quality:3]]
+[2026.05.07-20.36.29:981][  0]LogConfig: Set CVar [[r.LightShaftQuality:1]]
+[2026.05.07-20.36.29:982][  0]LogConfig: Set CVar [[r.Filter.SizeScale:1]]
+[2026.05.07-20.36.29:982][  0]LogConfig: Set CVar [[r.Tonemapper.Quality:5]]
+[2026.05.07-20.36.29:982][  0]LogConfig: Set CVar [[r.DOF.Gather.ResolutionDivisor:2         ; lower gathering resolution]]
+[2026.05.07-20.36.29:982][  0]LogConfig: Set CVar [[r.DOF.Gather.AccumulatorQuality:1        ; higher gathering accumulator quality]]
+[2026.05.07-20.36.29:982][  0]LogConfig: Set CVar [[r.DOF.Gather.PostfilterMethod:2          ; Median3x3 postfilering method]]
+[2026.05.07-20.36.29:982][  0]LogConfig: Set CVar [[r.DOF.Gather.EnableBokehSettings:0       ; no bokeh simulation when gathering]]
+[2026.05.07-20.36.29:982][  0]LogConfig: Set CVar [[r.DOF.Gather.RingCount:4                 ; medium number of samples when gathering]]
+[2026.05.07-20.36.29:982][  0]LogConfig: Set CVar [[r.DOF.Scatter.ForegroundCompositing:1    ; additive foreground scattering]]
+[2026.05.07-20.36.29:982][  0]LogConfig: Set CVar [[r.DOF.Scatter.BackgroundCompositing:1    ; additive background scattering]]
+[2026.05.07-20.36.29:982][  0]LogConfig: Set CVar [[r.DOF.Scatter.EnableBokehSettings:1      ; bokeh simulation when scattering]]
+[2026.05.07-20.36.29:982][  0]LogConfig: Set CVar [[r.DOF.Scatter.MaxSpriteRatio:0.1         ; only a maximum of 10% of scattered bokeh]]
+[2026.05.07-20.36.29:982][  0]LogConfig: Set CVar [[r.DOF.Recombine.Quality:1                ; cheap slight out of focus]]
+[2026.05.07-20.36.29:982][  0]LogConfig: Set CVar [[r.DOF.Recombine.EnableBokehSettings:0    ; no bokeh simulation on slight out of focus]]
+[2026.05.07-20.36.29:982][  0]LogConfig: Set CVar [[r.DOF.TemporalAAQuality:1                ; more stable temporal accumulation]]
+[2026.05.07-20.36.29:982][  0]LogConfig: Set CVar [[r.DOF.Kernel.MaxForegroundRadius:0.025]]
+[2026.05.07-20.36.29:982][  0]LogConfig: Set CVar [[r.DOF.Kernel.MaxBackgroundRadius:0.025]]
+[2026.05.07-20.36.29:982][  0]LogConfig: Applying CVar settings from Section [TextureQuality@3] File [Scalability]
+[2026.05.07-20.36.29:982][  0]LogConfig: Set CVar [[r.Streaming.MipBias:0]]
+[2026.05.07-20.36.29:982][  0]LogConfig: Set CVar [[r.Streaming.AmortizeCPUToGPUCopy:0]]
+[2026.05.07-20.36.29:982][  0]LogConfig: Set CVar [[r.Streaming.MaxNumTexturesToStreamPerFrame:0]]
+[2026.05.07-20.36.29:982][  0]LogConfig: Set CVar [[r.Streaming.Boost:1]]
+[2026.05.07-20.36.29:982][  0]LogConfig: Set CVar [[r.MaxAnisotropy:8]]
+[2026.05.07-20.36.29:982][  0]LogConfig: Set CVar [[r.VT.MaxAnisotropy:8]]
+[2026.05.07-20.36.29:982][  0]LogConfig: Set CVar [[r.Streaming.LimitPoolSizeToVRAM:1]]
+[2026.05.07-20.36.29:982][  0]LogConfig: Set CVar [[r.Streaming.PoolSize:1000]]
+[2026.05.07-20.36.29:982][  0]LogConfig: Set CVar [[r.Streaming.MaxEffectiveScreenSize:0]]
+[2026.05.07-20.36.29:982][  0]LogConfig: Set CVar [[R5.Volumization.HeightsDownsampleFactor:1]]
+[2026.05.07-20.36.29:982][  0]LogConfig: Set CVar [[R5.Volumization.BiomeWeightsDownsampleFactor:1]]
+[2026.05.07-20.36.29:982][  0]LogConfig: Applying CVar settings from Section [EffectsQuality@3] File [Scalability]
+[2026.05.07-20.36.29:982][  0]LogConfig: Set CVar [[r.TranslucencyLightingVolumeDim:64]]
+[2026.05.07-20.36.29:982][  0]LogConfig: Set CVar [[r.RefractionQuality:2]]
+[2026.05.07-20.36.29:982][  0]LogConfig: Set CVar [[r.SceneColorFormat:3]]
+[2026.05.07-20.36.29:982][  0]LogConfig: Set CVar [[r.DetailMode:2]]
+[2026.05.07-20.36.29:982][  0]LogConfig: Set CVar [[r.TranslucencyVolumeBlur:1]]
+[2026.05.07-20.36.29:982][  0]LogConfig: Set CVar [[r.SSS.Scale:0.75]]
+[2026.05.07-20.36.29:982][  0]LogConfig: Set CVar [[r.SSS.SampleSet:1]]
+[2026.05.07-20.36.29:982][  0]LogConfig: Set CVar [[r.SSS.Quality:1]]
+[2026.05.07-20.36.29:982][  0]LogConfig: Set CVar [[r.SSS.HalfRes:1]]
+[2026.05.07-20.36.29:982][  0]LogConfig: Set CVar [[r.SSGI.Quality:2]]
+[2026.05.07-20.36.29:982][  0]LogConfig: Set CVar [[r.EmitterSpawnRateScale:1.0]]
+[2026.05.07-20.36.29:982][  0]LogConfig: Set CVar [[r.ParticleLightQuality:1]]
+[2026.05.07-20.36.29:982][  0]LogConfig: Set CVar [[r.SkyAtmosphere.AerialPerspectiveLUT.FastApplyOnOpaque:1 ; Always have FastSkyLUT 1 in this case to avoid wrong sky]]
+[2026.05.07-20.36.29:983][  0]LogConfig: Set CVar [[r.SkyAtmosphere.AerialPerspectiveLUT.SampleCountMaxPerSlice:4]]
+[2026.05.07-20.36.29:983][  0]LogConfig: Set CVar [[r.SkyAtmosphere.AerialPerspectiveLUT.DepthResolution:16.0]]
+[2026.05.07-20.36.29:984][  0]LogConfig: Set CVar [[r.SkyAtmosphere.FastSkyLUT:1]]
+[2026.05.07-20.36.29:984][  0]LogConfig: Set CVar [[r.SkyAtmosphere.FastSkyLUT.SampleCountMin:4.0]]
+[2026.05.07-20.36.29:984][  0]LogConfig: Set CVar [[r.SkyAtmosphere.FastSkyLUT.SampleCountMax:64.0]]
+[2026.05.07-20.36.29:984][  0]LogConfig: Set CVar [[r.SkyAtmosphere.SampleCountMin:4.0]]
+[2026.05.07-20.36.29:984][  0]LogConfig: Set CVar [[r.SkyAtmosphere.SampleCountMax:64.0]]
+[2026.05.07-20.36.29:984][  0]LogConfig: Set CVar [[r.SkyAtmosphere.TransmittanceLUT.UseSmallFormat:0]]
+[2026.05.07-20.36.29:984][  0]LogConfig: Set CVar [[r.SkyAtmosphere.TransmittanceLUT.SampleCount:10.0]]
+[2026.05.07-20.36.29:984][  0]LogConfig: Set CVar [[r.SkyAtmosphere.MultiScatteringLUT.SampleCount:15.0]]
+[2026.05.07-20.36.29:984][  0]LogConfig: Set CVar [[fx.Niagara.QualityLevel:3]]
+[2026.05.07-20.36.29:984][  0]LogConfig: Set CVar [[r.Refraction.OffsetQuality:1]]
+[2026.05.07-20.36.29:984][  0]LogConfig: Set CVar [[r.HeterogeneousVolumes.DownsampleFactor:2]]
+[2026.05.07-20.36.29:984][  0]LogConfig: Set CVar [[r.HeterogeneousVolumes.MaxStepCount:256]]
+[2026.05.07-20.36.29:984][  0]LogConfig: Set CVar [[r.HeterogeneousVolumes.Shadows.Resolution:256]]
+[2026.05.07-20.36.29:984][  0]LogConfig: Set CVar [[r.HeterogeneousVolumes.Shadows.MaxSampleCount:8]]
+[2026.05.07-20.36.29:984][  0]LogConfig: Set CVar [[r.HeterogeneousVolumes.UseExistenceMask:0]]
+[2026.05.07-20.36.29:984][  0]LogConfig: Set CVar [[r.SkyLight.RealTimeReflectionCapture:1]]
+[2026.05.07-20.36.29:984][  0]LogConfig: Applying CVar settings from Section [FoliageQuality@3] File [Scalability]
+[2026.05.07-20.36.29:984][  0]LogConfig: Set CVar [[foliage.DensityScale:0.8]]
+[2026.05.07-20.36.29:984][  0]LogConfig: Set CVar [[grass.DensityScale:0.8]]
+[2026.05.07-20.36.29:984][  0]LogConfig: Applying CVar settings from Section [ShadingQuality@3] File [Scalability]
+[2026.05.07-20.36.29:984][  0]LogConfig: Set CVar [[r.HairStrands.SkyLighting.IntegrationType:2]]
+[2026.05.07-20.36.29:984][  0]LogConfig: Set CVar [[r.HairStrands.SkyAO.SampleCount:4]]
+[2026.05.07-20.36.29:984][  0]LogConfig: Set CVar [[r.HairStrands.Visibility.MSAA.SamplePerPixel:4]]
+[2026.05.07-20.36.29:984][  0]LogConfig: Set CVar [[r.AnisotropicMaterials:1]]
+[2026.05.07-20.36.29:984][  0]LogConfig: Set CVar [[r.MaterialQualityLevel:1]]
+[2026.05.07-20.36.29:984][  0]LogConfig: Set CVar [[R5.Water.RenderQuality:2]]
+[2026.05.07-20.36.29:984][  0]LogConfig: Set CVar [[R5.Water.GeometryQuality:2]]
+[2026.05.07-20.36.29:984][  0]LogConfig: Set CVar [[R5.Water.MaxVisibleDistanceToCoastlineMeters:1000]]
+[2026.05.07-20.36.29:984][  0]LogConfig: Set CVar [[R5.Water.FFTResolutionSmall:256]]
+[2026.05.07-20.36.29:985][  0]LogConfig: Applying CVar settings from Section [LandscapeQuality@3] File [Scalability]
+[2026.05.07-20.36.29:985][  0]LogInit: Selected Device Profile: [WindowsServer]
+[2026.05.07-20.36.29:985][  0]LogHAL: Display: Platform has ~ 32 GB [33905704960 / 34359738368 / 32], which maps to Largest [LargestMinGB=32, LargerMinGB=12, DefaultMinGB=8, SmallerMinGB=6, SmallestMinGB=0)
+[2026.05.07-20.36.29:985][  0]LogDeviceProfileManager: Going up to parent DeviceProfile [Windows]
+[2026.05.07-20.36.29:985][  0]LogDeviceProfileManager: Going up to parent DeviceProfile []
+[2026.05.07-20.36.29:985][  0]LogDeviceProfileManager: Pushing Device Profile CVar: [[AsyncTraceDelegateHitchThresholdMS:-1 -> 7.0]]
+[2026.05.07-20.36.29:985][  0]LogDeviceProfileManager: Pushing Device Profile CVar: [[UI.SlateSDFText.RasterizationMode:Bitmap -> Msdf]]
+[2026.05.07-20.36.29:985][  0]LogDeviceProfileManager: Pushing Device Profile CVar: [[UI.SlateSDFText.ResolutionLevel:2 -> 2]]
+[2026.05.07-20.36.29:985][  0]LogConfig: Applying CVar settings from Section [ConsoleVariables] File [Engine]
+[2026.05.07-20.36.29:985][  0]LogConfig: Set CVar [[p.Chaos.VelocityField.MaxVelocity:10.0]]
+[2026.05.07-20.36.29:985][  0]LogConfig: Set CVar [[p.Chaos.PBDEvolution.UseNestedParallelFor:0]]
+[2026.05.07-20.36.29:985][  0]LogConfig: Set CVar [[r.R5MercunaEnableBackfaceCulling:0]]
+[2026.05.07-20.36.29:985][  0]LogConfig: Set CVar [[r.Visibility.TaskSchedule:0 ; Do not gather dynamic meshes using background threads. Otherwise, render thread stalls on low core count.]]
+[2026.05.07-20.36.29:985][  0]LogConfig: Set CVar [[r.R5LandscapeRenderer.LandscapeLOD0DistributionScale:0.6 ; Fixed coefficients for lower landscape geometry density in the distance. Mostly to massively speed up prepass/basepass for faraway landscapes.]]
+[2026.05.07-20.36.29:985][  0]LogConfig: Set CVar [[r.R5LandscapeRenderer.LandscapeLODDistributionScale:0.55]]
+[2026.05.07-20.36.29:985][  0]LogConfig: Set CVar [[r.R5LandscapeRenderer.LandscapeComponentEnableRadiusM:6500 ; Distances to enable and disable landscape components. This should reduce the load on landscape render-related activities: less components to calculate LOD for or check view relevance.]]
+[2026.05.07-20.36.29:985][  0]LogConfig: Set CVar [[r.R5LandscapeRenderer.LandscapeComponentDisableRadiusM:7000]]
+[2026.05.07-20.36.29:985][  0]LogConfig: Set CVar [[r.R5LandscapeRenderer.LODUpdateStartingCost:1.5 ; As we increase component count/decrease component size, we can increase streaming budget.]]
+[2026.05.07-20.36.29:985][  0]LogConfig: Set CVar [[a.Budget.Enabled:1]]
+[2026.05.07-20.36.29:985][  0]LogConfig: Set CVar [[a.Budget.BudgetMs:1.0]]
+[2026.05.07-20.36.29:985][  0]LogConfig: Set CVar [[a.Budget.MinQuality:0.0]]
+[2026.05.07-20.36.29:985][  0]LogConfig: Set CVar [[a.Budget.MaxTickRate:20]]
+[2026.05.07-20.36.29:985][  0]LogConfig: Set CVar [[a.Budget.WorkUnitSmoothingSpeed:0.1]]
+[2026.05.07-20.36.29:985][  0]LogConfig: Set CVar [[a.Budget.AlwaysTickFalloffAggression:0.8]]
+[2026.05.07-20.36.29:985][  0]LogConfig: Set CVar [[a.Budget.InterpolationMaxRate:2]]
+[2026.05.07-20.36.29:985][  0]LogConfig: Set CVar [[a.Budget.MaxInterpolatedComponents:32]]
+[2026.05.07-20.36.29:985][  0]LogConfig: Set CVar [[a.Budget.InterpolateThrottle:1]]
+[2026.05.07-20.36.29:985][  0]LogConfig: Set CVar [[a.Budget.InterpolationTickMultiplier:0.75]]
+[2026.05.07-20.36.29:985][  0]LogConfig: Set CVar [[a.Budget.InitialEstimatedWorkUnitTime:0.08]]
+[2026.05.07-20.36.29:985][  0]LogConfig: Set CVar [[a.Budget.MaxTickedOffsreen:4]]
+[2026.05.07-20.36.29:985][  0]LogConfig: Set CVar [[a.Budget.BudgetFactorBeforeReducedWork:1.5]]
+[2026.05.07-20.36.29:985][  0]LogConfig: Set CVar [[a.Budget.BudgetFactorBeforeReducedWorkEpsilon:0.25]]
+[2026.05.07-20.36.29:985][  0]LogConfig: Set CVar [[a.Budget.BudgetPressureSmoothingSpeed:9.0]]
+[2026.05.07-20.36.29:985][  0]LogConfig: Set CVar [[a.Budget.BudgetFactorBeforeAggressiveReducedWork:3.0]]
+[2026.05.07-20.36.29:985][  0]LogConfig: Set CVar [[a.Budget.ReducedWorkThrottleMaxPerFrame:4]]
+[2026.05.07-20.36.29:985][  0]LogConfig: Set CVar [[a.Budget.GBudgetPressureBeforeEmergencyReducedWork:5.0]]
+[2026.05.07-20.36.29:985][  0]LogConfig: Set CVar [[a.Budget.InterpolationFalloffAggression:0.1]]
+[2026.05.07-20.36.29:985][  0]LogConfig: Set CVar [[a.Budget.AutoCalculatedSignificanceMaxDistance:30000]]
+[2026.05.07-20.36.29:985][  0]LogConfig: Set CVar [[a.Budget.StateChangeThrottleInFrames:30]]
+[2026.05.07-20.36.29:985][  0]LogConfig: Set CVar [[a.Budget.ReducedWorkThrottleMinInFrames:30]]
+[2026.05.07-20.36.29:985][  0]LogConfig: Set CVar [[a.Budget.ReducedWorkThrottleMaxInFrames:60]]
+[2026.05.07-20.36.29:986][  0]LogConfig: Set CVar [[p.Chaos.BroadPhase.MidPhaseRedistributionEnabled:True ; Used to be True by default before 5.6. Improves collision resolve performance on server.]]
+[2026.05.07-20.36.29:986][  0]LogConfig: Set CVar [[AudioThread.BatchCommands:False ; RRR-18125; In 5.6 they introduced Audio thread command queue. In Development Game it registers its ticks to a wrong level and it never ticks, just endlessly accumulates commands.]]
+[2026.05.07-20.36.29:986][  0]LogConfig: Set CVar [[R5.LoadQualityLevelsMask:3]]
+[2026.05.07-20.36.29:986][  0]LogInit: Computer: NILEO
+[2026.05.07-20.36.29:986][  0]LogInit: User: User
+[2026.05.07-20.36.29:986][  0]LogInit: CPU Page size=4096, Cores=24
+[2026.05.07-20.36.29:986][  0]LogInit: High frequency timer resolution =10.000000 MHz
+[2026.05.07-20.36.29:986][  0]LogMemory: Memory total: Physical=31.6GB (32GB approx) Virtual=63.6GB
+[2026.05.07-20.36.29:986][  0]LogMemory: Platform Memory Stats for WindowsServer
+[2026.05.07-20.36.29:986][  0]LogMemory: Process Physical Memory: 393.01 MB used, 395.49 MB peak
+[2026.05.07-20.36.29:986][  0]LogMemory: Process Virtual Memory: 162.30 MB used, 162.30 MB peak
+[2026.05.07-20.36.29:986][  0]LogMemory: Physical Memory: 13781.89 MB used,  18553.11 MB free, 32335.00 MB total
+[2026.05.07-20.36.29:986][  0]LogMemory: Virtual Memory: 22336.52 MB used,  42766.48 MB free, 65103.00 MB total
+[2026.05.07-20.36.29:986][  0]LogWindows: WindowsPlatformFeatures disabled or dedicated server build
+[2026.05.07-20.36.29:986][  0]LogInit: Physics initialised using underlying interface: Chaos
+[2026.05.07-20.36.29:986][  0]LogInit: Overriding language with engine language configuration option (en).
+[2026.05.07-20.36.29:986][  0]LogInit: Overriding language with engine locale configuration option (en).
+[2026.05.07-20.36.29:986][  0]LogInit: Setting process to per monitor DPI aware
+[2026.05.07-20.36.29:990][  0]LogInit: Initializing FReadOnlyCVARCache
+[2026.05.07-20.36.29:994][  0]LogRendererCore: Ray tracing is disabled. Reason: disabled through project setting (r.RayTracing=0).
+[2026.05.07-20.36.30:001][  0]LogInit: Overriding language with engine language configuration option (en).
+[2026.05.07-20.36.30:001][  0]LogInit: Overriding language with engine locale configuration option (en).
+[2026.05.07-20.36.30:002][  0]LogAssetRegistry: FAssetRegistry took 0.0000 seconds to start up
+[2026.05.07-20.36.30:089][  0]LogStreaming: Display: FlushAsyncLoading(1): 1 QueuedPackages, 0 AsyncPackages
+[2026.05.07-20.36.30:091][  0]LogFilePackageStore: Updated: NewPackages=41364, OldPackages=0, TotalPackages=41364
+[2026.05.07-20.36.30:093][  0]LogDeviceProfileManager: Active device profile: [00007FF49D990DB0][000001A5E9B50010 66] WindowsServer
+[2026.05.07-20.36.30:144][  0]LogStats: UGameplayTagsManager::InitializeManager -  0.043 s
+[2026.05.07-20.36.30:154][  0]LogConfig: Branch 'GameplayTags' had been unloaded. Reloading on-demand took 3.31ms
+[2026.05.07-20.36.30:163][  0]LogStreaming: Warning: LoadPackage: SkipPackage: /Engine/EngineFonts/Roboto (0x6DC6E590848F5708) - The package to load does not exist on disk or in the loader
+[2026.05.07-20.36.30:163][  0]LogStreaming: Warning: LoadPackage: SkipPackage: /Game/UI/System/Fonts/F_PTSans (0x931F9EA0BEB2E806) - The package to load does not exist on disk or in the loader
+[2026.05.07-20.36.30:164][  0]LogStringTable: Warning: Failed to find string table entry for 'LobbyUI' 'LoadingScreen_Text_Loading'. Did you forget to add a string table redirector?
+[2026.05.07-20.36.30:164][  0]LogStreaming: Warning: LoadPackage: SkipPackage: /Game/UI/System/Fonts/F_CWindSerif (0x25D06F1B790156EC) - The package to load does not exist on disk or in the loader
+[2026.05.07-20.36.30:165][  0]LogStringTable: Warning: Failed to find string table entry for 'LoadingHints' 'LoadingHint_1'. Did you forget to add a string table redirector?
+[2026.05.07-20.36.30:165][  0]LogStringTable: Warning: Failed to find string table entry for 'LoadingHints' 'LoadingHint_2'. Did you forget to add a string table redirector?
+[2026.05.07-20.36.30:165][  0]LogStringTable: Warning: Failed to find string table entry for 'LoadingHints' 'LoadingHint_3'. Did you forget to add a string table redirector?
+[2026.05.07-20.36.30:165][  0]LogStringTable: Warning: Failed to find string table entry for 'LoadingHints' 'LoadingHint_4'. Did you forget to add a string table redirector?
+[2026.05.07-20.36.30:166][  0]LogStringTable: Warning: Failed to find string table entry for 'LoadingHints' 'LoadingHint_5'. Did you forget to add a string table redirector?
+[2026.05.07-20.36.30:166][  0]LogStringTable: Warning: Failed to find string table entry for 'LoadingHints' 'LoadingHint_6'. Did you forget to add a string table redirector?
+[2026.05.07-20.36.30:166][  0]LogStringTable: Warning: Failed to find string table entry for 'LoadingHints' 'LoadingHint_7'. Did you forget to add a string table redirector?
+[2026.05.07-20.36.30:166][  0]LogStringTable: Warning: Failed to find string table entry for 'LoadingHints' 'LoadingHint_8'. Did you forget to add a string table redirector?
+[2026.05.07-20.36.30:166][  0]LogStringTable: Warning: Failed to find string table entry for 'LoadingHints' 'LoadingHint_9'. Did you forget to add a string table redirector?
+[2026.05.07-20.36.30:166][  0]LogStringTable: Warning: Failed to find string table entry for 'LoadingHints' 'LoadingHint_10'. Did you forget to add a string table redirector?
+[2026.05.07-20.36.30:166][  0]LogStringTable: Warning: Failed to find string table entry for 'LoadingHints' 'LoadingHint_11'. Did you forget to add a string table redirector?
+[2026.05.07-20.36.30:166][  0]LogStringTable: Warning: Failed to find string table entry for 'LoadingHints' 'LoadingHint_12'. Did you forget to add a string table redirector?
+[2026.05.07-20.36.30:166][  0]LogStringTable: Warning: Failed to find string table entry for 'LoadingHints' 'LoadingHint_13'. Did you forget to add a string table redirector?
+[2026.05.07-20.36.30:166][  0]LogStringTable: Warning: Failed to find string table entry for 'LoadingHints' 'LoadingHint_14'. Did you forget to add a string table redirector?
+[2026.05.07-20.36.30:170][  0]LogStringTable: Warning: Failed to find string table entry for 'LobbyUI' 'Lobby_ConnectionService_Name_EU'. Did you forget to add a string table redirector?
+[2026.05.07-20.36.30:170][  0]LogStringTable: Warning: Failed to find string table entry for 'LobbyUI' 'Lobby_ConnectionService_Name_SEA'. Did you forget to add a string table redirector?
+[2026.05.07-20.36.30:170][  0]LogStringTable: Warning: Failed to find string table entry for 'LobbyUI' 'Lobby_ConnectionService_Name_CIS'. Did you forget to add a string table redirector?
+[2026.05.07-20.36.30:188][  0]LogMetaSound: Display: MetaSound Page Target Initialized to 'Default'
+[2026.05.07-20.36.30:204][  0]LogAudioCaptureCore: Display: No Audio Capture implementations found. Audio input will be silent.
+[2026.05.07-20.36.30:219][  0]LogConfig: Applying CVar settings from Section [/Script/NNEDenoiser.NNEDenoiserSettings] File [Engine]
+[2026.05.07-20.36.30:223][  0]LogAudioCaptureCore: Display: No Audio Capture implementations found. Audio input will be silent.
+[2026.05.07-20.36.30:227][  0]LogIris: FNetObjectFactoryRegistry::UnregisterFactory is unregistering factory: NetActorFactory name: NetActorFactory id: 0
+[2026.05.07-20.36.30:227][  0]LogIris: FNetObjectFactoryRegistry::UnregisterFactory is unregistering factory: NetSubObjectFactory name: NetSubObjectFactory id: 1
+[2026.05.07-20.36.30:227][  0]LogPackageLocalizationCache: Processed 120 localized package path(s) for 1 prioritized culture(s) in 0.000110 seconds
+[2026.05.07-20.36.30:229][  0]LogMercuna: Display: Mercuna build type: Release
+[2026.05.07-20.36.30:229][  0]LogMercuna: Display: Mercuna compiled with flags: MER_NO_ASSERT MER_USE_SSE MER_USE_SSE4
+[2026.05.07-20.36.30:229][  0]LogMercuna: Display: Mercuna version: 3.3.5
+[2026.05.07-20.36.30:229][  0]LogMercuna: Display: Unreal Engine version: 5.6.1
+[2026.05.07-20.36.30:230][  0]LogGauntlet: Display: Gauntlet Initialized
+[2026.05.07-20.36.30:315][  0]LogNNERuntimeORT: Available graphics and compute adapters:
+[2026.05.07-20.36.30:315][  0]LogNNERuntimeORT: Selecting NPU adapter: Intel(R) UHD Graphics 770
+[2026.05.07-20.36.30:341][  0]LogNNERuntimeORT: MakeRuntimeORTDml:
+[2026.05.07-20.36.30:341][  0]LogNNERuntimeORT:   DirectML:  yes
+[2026.05.07-20.36.30:341][  0]LogNNERuntimeORT:   RHI D3D12: no
+[2026.05.07-20.36.30:341][  0]LogNNERuntimeORT:   D3D12:     yes
+[2026.05.07-20.36.30:341][  0]LogNNERuntimeORT:   NPU:       yes
+[2026.05.07-20.36.30:341][  0]LogNNERuntimeORT: Interface availability:
+[2026.05.07-20.36.30:341][  0]LogNNERuntimeORT:   GPU: yes
+[2026.05.07-20.36.30:341][  0]LogNNERuntimeORT:   RDG: no
+[2026.05.07-20.36.30:341][  0]LogNNERuntimeORT:   NPU: yes
+[2026.05.07-20.36.30:371][  0]LogNNERuntimeORT: Available graphics and compute adapters:
+[2026.05.07-20.36.30:371][  0]LogNNERuntimeORT: Selecting NPU adapter: Intel(R) UHD Graphics 770
+[2026.05.07-20.36.30:395][  0]LogAudioModulation: Display: Initialized Audio Modulation Parameter 'BitDepth'
+[2026.05.07-20.36.30:396][  0]LogAudioModulation: Display: Initialized Audio Modulation Parameter 'HPFCutoffFrequency'
+[2026.05.07-20.36.30:396][  0]LogAudioModulation: Display: Initialized Audio Modulation Parameter 'LowRateFrequency'
+[2026.05.07-20.36.30:396][  0]LogAudioModulation: Display: Initialized Audio Modulation Parameter 'LPFCutoffFrequency'
+[2026.05.07-20.36.30:396][  0]LogAudioModulation: Display: Initialized Audio Modulation Parameter 'Pan'
+[2026.05.07-20.36.30:397][  0]LogAudioModulation: Display: Initialized Audio Modulation Parameter 'Pitch'
+[2026.05.07-20.36.30:397][  0]LogAudioModulation: Display: Initialized Audio Modulation Parameter 'SampleRate'
+[2026.05.07-20.36.30:397][  0]LogAudioModulation: Display: Initialized Audio Modulation Parameter 'TimeOfDay'
+[2026.05.07-20.36.30:397][  0]LogAudioModulation: Display: Initialized Audio Modulation Parameter 'Volume'
+[2026.05.07-20.36.30:397][  0]LogAudioModulation: Registering Modulation MetaSound Nodes...
+[2026.05.07-20.36.30:406][  0]LogAudio: Display: Registering Engine Module Parameter Interfaces...
+[2026.05.07-20.36.30:406][  0]LogMetaSound: MetaSound Engine Initialized
+[2026.05.07-20.36.30:406][  0]LogAudioModulation: Audio Modulation Initialized
+[2026.05.07-20.36.30:406][  0]LogSteamShared: Display: Loading Steam SDK 1.57
+[2026.05.07-20.36.30:408][  0]LogSteamShared: Steam SDK Loaded!
+[2026.05.07-20.36.30:457][  0]R5LogBLKeeper:                [000000] R5BLKeeper::InitBLSingletons                       Init version. NetNode R5NetNode_Gs. GameVersion 0.10.0.5.120-073042fb. ShaVersion 073042fb338d004c3e94d18ef0745fb210fa9fdf. ReleaseVersion 0.10.0. DeploymentVersion 073042fb. DeploymentId 0.10.0.5.120-073042fb. LocalRegionId  [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5BusinessLogicCore\Source\R5BusinessLogicCore\Cpp\R5BLKeeper.cpp:72]
+[2026.05.07-20.36.30:458][  0]R5LogBLVersionator:           [000000] ...DocumentVersionator::R5BLDocumentVersionator    
+DocumentReleaseVersion 0.10.0. VersionHeritageNum 23. VersionedDocumentsNum 69
+	R5BLAccount -> R5BLAccount_V0_9_0 -> R5BLAccount_V0_8_0
+	R5BLActorScenarioSave -> R5BLActorScenarioSave_V0_9_0 -> R5BLActorScenarioSave_V0_8_0
+	R5BLActor_MineralNode -> R5BLActor_MineralNode_V0_9_0 -> R5BLActor_MineralNode_V0_8_0
+	R5BLIsland -> R5BLIsland_V0_9_0 -> R5BLIsland_V0_8_0
+	R5BLPlayer -> R5BLPlayer_V0_9_0 -> R5BLPlayer_V0_8_0
+	R5BLActor_BuildingBlock -> R5BLActor_BuildingBlock_V0_9_0 -> R5BLActor_BuildingBlock_V0_8_0
+	R5BLActor_DamageableFoliage -> R5BLActor_DamageableFoliage_V0_9_0 -> R5BLActor_DamageableFoliage_V0_8_0
+	R5BLStaticGenericActor -> R5BLStaticGenericActor_V0_9_0 -> R5BLStaticGenericActor_V0_8_0
+	R5BLActor_DialogueActor -> R5BLActor_DialogueActor_V0_9_0 -> R5BLActor_DialogueActor_V0_8_0
+	R5BLIslandChest -> R5BLIslandChest_V0_9_0 -> R5BLIslandChest_V0_8_0
+	R5BLActor_DigNode -> R5BLActor_DigNode_V0_9_0 -> R5BLActor_DigNode_V0_8_0
+	R5BLBuilding -> R5BLBuilding_V0_9_0 -> R5BLBuilding_V0_8_0
+	R5BLShip -> R5BLShip_V0_9_0 -> R5BLShip_V0_8_0
+	R5BLActor_DigVolume -> R5BLActor_DigVolume_V0_9_0 -> R5BLActor_DigVolume_V0_8_0
+	R5BLPlayerInWorld -> R5BLPlayerInWorld_V0_9_0 -> R5BLPlayerInWorld_V0_8_0
+	R5BLActor_Drop -> R5BLActor_Drop_V0_9_0 -> R5BLActor_Drop_V0_8_0
+	R5BLActor_ExplodingBarrel -> R5BLActor_ExplodingBarrel_V0_9_0 -> R5BLActor_ExplodingBarrel_V0_8_0
+	R5BLActor_PickupResource -> R5BLActor_PickupResource_V0_9_0 -> R5BLActor_PickupResource_V0_8_0
+	R5BLCrop -> R5BLCrop_V0_9_0 -> R5BLCrop_V0_8_0
+	R5BLDynamicGenericActor -> R5BLDynamicGenericActor_V0_9_0 -> R5BLDynamicGenericActor_V0_8_0
+	R5BLGameplaySpawner -> R5BLGameplaySpawner_V0_9_0 -> R5BLGameplaySpawner_V0_8_0
+	R5BLIslandShipDock -> R5BLIslandShipDock_V0_9_0 -> R5BLIslandShipDock_V0_8_0
+	R5BLResourceSpawnPoint -> R5BLResourceSpawnPoint_V0_9_0 -> R5BLResourceSpawnPoint_V0_8_0
+Lost documents. Num 0
+ [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5BusinessLogicCore\Source\R5BLCommon\Cpp\Documents\Versionator\R5BLDocumentVersionator.cpp:92]
+[2026.05.07-20.36.30:458][  0]R5LogNet: Warning:            [000000] FR5NetModule::StartupModule                        gRPC sets env variable 'GRPC_TRACE=api,http,tcp'                                                    [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5BusinessLogicCore\Source\R5Net\Private\R5NetModule.cpp:42]
+[2026.05.07-20.36.30:458][  0]R5LogNet: Warning:            [000000] FR5NetModule::StartupModule                        gRPC sets env variable 'GRPC_VERBOSITY=ERROR'                                                       [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5BusinessLogicCore\Source\R5Net\Private\R5NetModule.cpp:42]
+[2026.05.07-20.36.30:458][  0]R5LogP2pGate:                 [000000] ...ketSubsystem::R5P2pUeProxyForSocketSubsystem    [[0x1a5f45bae88]] UeProxyForSocketSubsystem created                                                 [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5BusinessLogicCore\Source\R5P2pGate\Cpp\Proxies\R5P2pUeProxyForSocketSubsystem.cpp:12]
+[2026.05.07-20.36.30:458][  0]AudioGameplayLog: FAudioGameplayModule::StartupModule
+[2026.05.07-20.36.30:458][  0]R5LogP2pGate:                 [000000] R5P2p::R5AsioContextKeeper::Worker                 [tcp] Asio io context worker sleeping...                                                            [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5BusinessLogicCore\Source\R5P2pGate\Cpp\AsioWrappers\R5AsioContextKeeper.cpp:71]
+[2026.05.07-20.36.30:458][  0]R5LogP2pGate:                 [000000] R5P2p::R5AsioContextKeeper::Worker                 [udp] Asio io context worker sleeping...                                                            [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5BusinessLogicCore\Source\R5P2pGate\Cpp\AsioWrappers\R5AsioContextKeeper.cpp:71]
+[2026.05.07-20.36.30:461][  0]LogAndroidPermission: UAndroidPermissionCallbackProxy::GetInstance
+[2026.05.07-20.36.30:461][  0]LogSockets: SteamSockets: Disabled due to no Steam OSS running.
+[2026.05.07-20.36.30:465][  0]LogUObjectArray: 45375 objects as part of root set at end of initial load.
+[2026.05.07-20.36.30:466][  0]LogUObjectArray: 29 objects are not in the root set, but can never be destroyed because they are in the DisregardForGC set.
+[2026.05.07-20.36.30:466][  0]LogUObjectArray: CloseDisregardForGC: 45375/45375 objects in disregard for GC pool
+[2026.05.07-20.36.30:466][  0]LogEngine: Initializing Engine...
+[2026.05.07-20.36.30:466][  0]LogSentrySdk: Sentry plugin auto initialization: true
+[2026.05.07-20.36.30:466][  0]LogSentrySdk: Using current project name and version as Sentry release.
+[2026.05.07-20.36.30:466][  0]LogSentrySdk: Using current build configuration as Sentry environment.
+[2026.05.07-20.36.30:505][  0]LogSentrySdk: Sentry initialization completed with result 0 (0 on success).
+[2026.05.07-20.36.30:505][  0]LogWindows: Attached monitors:
+[2026.05.07-20.36.30:506][  0]LogWindows:     resolution: 2560x1440, work area: (0, 0) -> (2560, 1392), device: '\\.\DISPLAY2' [PRIMARY]
+[2026.05.07-20.36.30:506][  0]LogWindows:     resolution: 2560x1440, work area: (2560, 0) -> (5120, 1380), device: '\\.\DISPLAY1'
+[2026.05.07-20.36.30:506][  0]LogWindows: Found 2 attached monitors.
+[2026.05.07-20.36.30:506][  0]LogWindows: Gathering driver information using Windows Setup API
+[2026.05.07-20.36.30:518][  0]R5LogNetBusinessRuleOuters:   [000000] UR5NetBusinessRuleOuterFactory::Initialize         
+Outer rules
+    001: R5BLOuterExampleRule
+    002: R5BLShip_StoreRule
+Total count 2
+               [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5BusinessLogicCore\Source\R5Net\Private\R5NetBusinessRuleOuterFactory.cpp:43]
+[2026.05.07-20.36.30:518][  0]R5LogPreloader:               [000000] UR5Preloader::Initialize                           Initialize                                                                                          [D:\Source\Build\work\gameRepoCheckoutDir\Source\R5Preloader\Private\R5Preloader.cpp:12]
+[2026.05.07-20.36.30:518][  0]LogAbilitySystem: Display: Processing InitializeRuntimeObjectLibrary.
+[2026.05.07-20.36.30:523][  0]LogGameFeatures: Initializing game features subsystem
+[2026.05.07-20.36.30:539][  0]LogGameFeatures: Scanning for built-in game feature plugins
+[2026.05.07-20.36.30:539][  0]LogGameFeatures: Loading 250 builtins. Not Amortized
+[2026.05.07-20.36.30:540][  0]LogStats: BuiltInGameFeaturePlugins loaded. -  0.000 s
+[2026.05.07-20.36.30:540][  0]LogNetVersion: Set ProjectVersion to 0.10.0. Version Checksum will be recalculated on next use.
+[2026.05.07-20.36.30:540][  0]LogInit: Texture streaming: Disabled
+[2026.05.07-20.36.31:324][  0]LogNiagara: UAV Float16 is not supported, compressed GPU emitters will be disabled.
+[2026.05.07-20.36.31:325][  0]R5LogBL:                      [000000] R5BLResourceMonitor::RegisterResource              Add Source 'ServiceManager'                                                                         [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5BusinessLogicCore\Source\R5BLCommon\Cpp\R5BLCommon\R5BLResourceMonitor.cpp:84]
+[2026.05.07-20.36.31:326][  0]R5LogAuthProxy:               [000000] UR5AuthProxyForClient::ShouldCreateSubsystem       ShouldCreate false                                                                                  [D:\Source\Build\work\gameRepoCheckoutDir\Source\BackendProxy\R5AuthProxy\Private\Client\R5AuthProxyForClient.cpp:192]
+[2026.05.07-20.36.33:043][  0]R5LogDataKeeper:              [000000] ...taKeeperForServerCoop::ShouldCreateSubsystem    Should start data keeper for Coop Server. ApplicationType Build                                     [D:\Source\Build\work\gameRepoCheckoutDir\Source\R5DataKeepers\Private\R5DataKeeperForServerCoop.cpp:52]
+[2026.05.07-20.36.33:043][  0]R5LogDataKeeper:              [000000] UR5DataKeeperForServerCoop::Initialize             Coop. Initialize                                                                                    [D:\Source\Build\work\gameRepoCheckoutDir\Source\R5DataKeepers\Private\R5DataKeeperForServerCoop.cpp:60]
+[2026.05.07-20.36.33:044][  0]R5LogBLService:               [000000] R5BLServiceManager::RegisterService                Register service. Name IR5BLKeeper. this 0x1a5f5080ac0                                              [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5BusinessLogicCore\Source\R5BLCommon\Cpp\R5BLCommon\Services\R5BLServiceManager.inl:13]
+[2026.05.07-20.36.33:044][  0]R5LogBLKeeper:                [000000] R5BLKeeper::R5BLKeeper                             NetLogId 379A5A                                                                                     [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5BusinessLogicCore\Source\R5BusinessLogicCore\Cpp\R5BLKeeper.cpp:44]
+[2026.05.07-20.36.33:044][  0]R5LogBLKeeper:                [000000] R5BLKeeper::InitBLSession                          Init BL session. ServiceManager 0x1a5f5080ac0. HasPersistentStorage false                           [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5BusinessLogicCore\Source\R5BusinessLogicCore\Cpp\R5BLKeeper.cpp:177]
+[2026.05.07-20.36.33:044][  0]R5LogBLService:               [000000] R5BLServiceManager::RegisterService                Register service. Name R5BLDataGatherer. this 0x1a5f5080ac0                                         [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5BusinessLogicCore\Source\R5BLCommon\Cpp\R5BLCommon\Services\R5BLServiceManager.inl:13]
+[2026.05.07-20.36.33:044][  0]R5LogBLService:               [000000] R5BLServiceManager::RegisterService                Register service. Name R5BLDataCache. this 0x1a5f5080ac0                                            [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5BusinessLogicCore\Source\R5BLCommon\Cpp\R5BLCommon\Services\R5BLServiceManager.inl:13]
+[2026.05.07-20.36.33:044][  0]R5LogBLService:               [000000] R5BLServiceManager::RegisterService                Register service. Name R5BLVCRFactory. this 0x1a5f5080ac0                                           [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5BusinessLogicCore\Source\R5BLCommon\Cpp\R5BLCommon\Services\R5BLServiceManager.inl:13]
+[2026.05.07-20.36.33:044][  0]R5LogBLService:               [000000] R5BLServiceManager::RegisterService                Register service. Name R5BLDocumentManager. this 0x1a5f5080ac0                                      [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5BusinessLogicCore\Source\R5BLCommon\Cpp\R5BLCommon\Services\R5BLServiceManager.inl:13]
+[2026.05.07-20.36.33:044][  0]R5LogCoopProxy:               [000000] UR5CoopRootDocumentsCollection::Init               Initialized root collection. Type 'R5BLIsland'. StoragePath 'C:/Games/WindowsServer/R5/Saved/SaveProfiles/Default/RocksDB_v2'. Records
+	Id '1556652C185649FE4F9908010CBF9860'. Save is not checked. Inconsistent version. Versions: 
+ [D:\Source\Build\work\gameRepoCheckoutDir\Source\BackendProxy\R5CoopProxy\Private\Data\R5CoopRootDocumentsCollection.cpp:29]
+[2026.05.07-20.36.33:048][  0]R5LogCoopProxy: Verbose:      [000000] UR5CoopIslandCollection::Init                      Inited island collection. CurrentIslandId 1556652C185649FE4F9908010CBF9860. SavesFolder 'C:/Games/WindowsServer/R5/Saved/SaveProfiles/Default/RocksDB_v2'. Worlds count: 0
+ [D:\Source\Build\work\gameRepoCheckoutDir\Source\BackendProxy\R5CoopProxy\Private\Data\R5CoopIslandCollection.cpp:32]
+[2026.05.07-20.36.33:048][  0]R5LogCoopProxy: Verbose:      [000000] UR5CoopProxy::InitUeSocketSubsystem                Initializing Coop proxy socket subsystem                                                            [D:\Source\Build\work\gameRepoCheckoutDir\Source\BackendProxy\R5CoopProxy\Private\R5CoopProxy.cpp:219]
+[2026.05.07-20.36.33:048][  0]R5LogCoopProxy: Verbose:      [000000] UR5CoopRootDocumentBackup::RestoreBackup           R5BLIsland[1556652C185649FE4F9908010CBF9860]. Restore backup 1556652C185649FE4F9908010CBF9860_0.10.0_Latest requested ... [D:\Source\Build\work\gameRepoCheckoutDir\Source\BackendProxy\R5CoopProxy\Private\Data\R5CoopRootDocumentBackup.cpp:208]
+[2026.05.07-20.36.33:048][  0]R5LogBLDalAQ:                 [000000] R5BLDalAsyncQueue::Init                            [?:  -1:    0: unknown] Started worker thread 41464                                                 [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5BusinessLogicCore\Source\R5BLCommon\Cpp\R5DataAbstractionLayer\R5BLDalAsyncQueue.cpp:47]
+[2026.05.07-20.36.33:048][  0]R5LogBLDalAQ:                 [000000] R5BLDalAsyncQueue::Init                            [M:  -1:   -1: con2srv] Connecting to DB server. Uri 'C:/Games/WindowsServer/R5/Saved/SaveProfiles/Default/RocksDB_v2' [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5BusinessLogicCore\Source\R5BLCommon\Cpp\R5DataAbstractionLayer\R5BLDalAsyncQueue.cpp:59]
+[2026.05.07-20.36.33:048][  0]R5LogBLDalAQ:                 [000000] R5BLDalAsyncQueue::Worker                          [s:  -1:    1: unknown] Worker started                                                              [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5BusinessLogicCore\Source\R5BLCommon\Cpp\R5DataAbstractionLayer\R5BLDalAsyncQueue.cpp:1041]
+[2026.05.07-20.36.33:203][  0]R5LogBLDalAQ:                 [000000] R5BLDalAsyncQueue::LoadDb                          [M:  -1:    2:  loadDB] Successfully loaded DB 0.10.0/Worlds/1556652C185649FE4F9908010CBF9860. IdentifierId  [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5BusinessLogicCore\Source\R5BLCommon\Cpp\R5DataAbstractionLayer\R5BLDalAsyncQueue.cpp:107]
+[2026.05.07-20.36.33:203][  0]R5LogBLDalAQ:                 [000000] R5BLRocksAsyncQueue::DoJob                         [s:  -1:    2:  loadDB] Successfully created DB 0.10.0/Worlds/1556652C185649FE4F9908010CBF9860. IdentifierId  [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5BusinessLogicCore\Source\R5RocksDAL\Cpp\R5BLRocksAsyncQueue.cpp:888]
+[2026.05.07-20.36.33:203][  0]R5LogCoopProxy: Verbose:      [000000] UR5CoopRootDocumentBackup::RestoreRecord           R5BLIsland[1556652C185649FE4F9908010CBF9860]. Restore backup has finished successfully              [D:\Source\Build\work\gameRepoCheckoutDir\Source\BackendProxy\R5CoopProxy\Private\Data\R5CoopRootDocumentBackup.cpp:380]
+[2026.05.07-20.36.33:203][  0]R5LogCoopProxy:               [000000] UR5CoopRootDocument::LoadRecordToDataCache         Loading record 'R5BLIsland[1556652C185649FE4F9908010CBF9860]' to data cache. Up to date             [D:\Source\Build\work\gameRepoCheckoutDir\Source\BackendProxy\R5CoopProxy\Private\Data\R5CoopRootDocument.cpp:147]
+[2026.05.07-20.36.33:205][  0]R5LogCoopProxy:               [000000] UR5CoopRootDocument::LoadRecordToDataCache         Record 'R5BLIsland[1556652C185649FE4F9908010CBF9860]' loaded to data cache                          [D:\Source\Build\work\gameRepoCheckoutDir\Source\BackendProxy\R5CoopProxy\Private\Data\R5CoopRootDocument.cpp:169]
+[2026.05.07-20.36.33:205][  0]R5LogCoopProxy: Verbose:      [000000] UR5CoopRootDocument::RestoreDocument               R5BLIsland[1556652C185649FE4F9908010CBF9860]. Restore document completed. backup 1556652C185649FE4F9908010CBF9860_0.10.0_Latest; bIsOk true; message ; action ER5CoopDocumentRestoreAction::Ok [D:\Source\Build\work\gameRepoCheckoutDir\Source\BackendProxy\R5CoopProxy\Private\Data\R5CoopRootDocument.cpp:539]
+[2026.05.07-20.36.33:210][  0]R5LogCoopProxy: Verbose:      [000000] UR5CoopIslandCollection::UpdateWorldDescription    Create/update World description. IslandId 1556652C185649FE4F9908010CBF9860. Path 'C:/Games/WindowsServer/R5/Saved/SaveProfiles/Default/RocksDB_v2/0.10.0/Worlds/1556652C185649FE4F9908010CBF9860/WorldDescription.json' [D:\Source\Build\work\gameRepoCheckoutDir\Source\BackendProxy\R5CoopProxy\Private\Data\R5CoopIslandCollection.cpp:458]
+[2026.05.07-20.36.33:210][  0]R5LogBLDalAQ:                 [000000] R5BLDalAsyncQueue::Synchronize                     [M:  -1:   96:    sync] Successfully synchronized                                                   [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5BusinessLogicCore\Source\R5BLCommon\Cpp\R5DataAbstractionLayer\R5BLDalAsyncQueue.cpp:91]
+[2026.05.07-20.36.33:210][  0]R5LogBLDalAQ:                 [000000] R5BLDalAsyncQueue::StopThread                      [M:  -1:   97: unknown] Request to stop worker thread 41464                                         [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5BusinessLogicCore\Source\R5BLCommon\Cpp\R5DataAbstractionLayer\R5BLDalAsyncQueue.cpp:1268]
+[2026.05.07-20.36.33:210][  0]R5LogBLDalAQ:                 [000000] R5BLDalAsyncQueue::Worker                          [s:  -1:   97: unknown] Polite stop request. Queue is empty and thread can stop                     [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5BusinessLogicCore\Source\R5BLCommon\Cpp\R5DataAbstractionLayer\R5BLDalAsyncQueue.cpp:1070]
+[2026.05.07-20.36.33:210][  0]R5LogBLDalAQ:                 [000000] R5BLDalAsyncQueue::Worker                          [s:  -1:   97: unknown] Worker stopped                                                              [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5BusinessLogicCore\Source\R5BLCommon\Cpp\R5DataAbstractionLayer\R5BLDalAsyncQueue.cpp:1088]
+[2026.05.07-20.36.33:211][  0]R5LogBLDalAQ:                 [000000] R5BLRocksAsyncQueue::~R5BLRocksAsyncQueue          [M:  -1:   97: unknown] Close RocksDB instance. Uri C:/Games/WindowsServer/R5/Saved/SaveProfiles/Default/RocksDB_v2\0.10.0/Worlds/1556652C185649FE4F9908010CBF9860 [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5BusinessLogicCore\Source\R5RocksDAL\Cpp\R5BLRocksAsyncQueue.cpp:32]
+[2026.05.07-20.36.33:221][  0]R5LogCoopProxy:               [000000] UR5CoopProxy::CheckDocuments                       Data verification finished successfully. Start auto backups. AutoBackupRate 60 s                    [D:\Source\Build\work\gameRepoCheckoutDir\Source\BackendProxy\R5CoopProxy\Private\R5CoopProxy.cpp:104]
+[2026.05.07-20.36.33:221][  0]R5LogCoopProxy: Verbose:      [000000] UR5CoopIslandCollection::SetCurrentIslandId        Set CurrentIslandId 1556652C185649FE4F9908010CBF9860                                                [D:\Source\Build\work\gameRepoCheckoutDir\Source\BackendProxy\R5CoopProxy\Private\Data\R5CoopIslandCollection.cpp:144]
+[2026.05.07-20.36.33:221][  0]R5LogCoopProxy: Verbose:      [000000] ...verDescriptionManager::SaveServerDescription    Saved server description. FilePath 'C:/Games/WindowsServer/R5/ServerDescription.json'. Description
+{
+	"Version": 1,
+	"DeploymentId": "0.10.0.5.120-073042fb",
+	"ServerDescription_Persistent":
+	{
+		"PersistentServerId": "1609BAD841B57FF776D6CDABDD02A0EB",
+		"InviteCode": "b0777216",
+		"IsPasswordProtected": false,
+		"Password": "",
+		"ServerName": "DevServer",
+		"WorldIslandId": "1556652C185649FE4F9908010CBF9860",
+		"MaxPlayerCount": 2,
+		"UserSelectedRegion": "",
+		"P2pProxyAddress": "127.0.0.1",
+		"UseDirectConnection": false,
+		"DirectConnectionServerAddress": "",
+		"DirectConnectionServerPort": -1,
+		"DirectConnectionProxyAddress": "0.0.0.0",
+		"AutoLoadLatestBackupIfHasBroken": true
+	}
+} [D:\Source\Build\work\gameRepoCheckoutDir\Source\BackendProxy\R5CoopProxy\Private\Data\R5CoopServerDescriptionManager.cpp:77]
+[2026.05.07-20.36.33:226][  0]R5LogCoopProxy:               [000000] UR5CoopRootDocument::LoadRecordToDataCache         Loading record 'R5BLIsland[1556652C185649FE4F9908010CBF9860]' to data cache. Up to date             [D:\Source\Build\work\gameRepoCheckoutDir\Source\BackendProxy\R5CoopProxy\Private\Data\R5CoopRootDocument.cpp:147]
+[2026.05.07-20.36.33:227][  0]R5LogBLDalAQ:                 [000000] R5BLDalAsyncQueue::Init                            [?:  -1:    0: unknown] Started worker thread 37444                                                 [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5BusinessLogicCore\Source\R5BLCommon\Cpp\R5DataAbstractionLayer\R5BLDalAsyncQueue.cpp:47]
+[2026.05.07-20.36.33:227][  0]R5LogBLDalAQ:                 [000000] R5BLDalAsyncQueue::Init                            [M:  -1:   -1: con2srv] Connecting to DB server. Uri 'C:/Games/WindowsServer/R5/Saved/SaveProfiles/Default/RocksDB_v2' [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5BusinessLogicCore\Source\R5BLCommon\Cpp\R5DataAbstractionLayer\R5BLDalAsyncQueue.cpp:59]
+[2026.05.07-20.36.33:227][  0]R5LogBLDalAQ:                 [000000] R5BLDalAsyncQueue::Worker                          [s:  -1:    1: unknown] Worker started                                                              [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5BusinessLogicCore\Source\R5BLCommon\Cpp\R5DataAbstractionLayer\R5BLDalAsyncQueue.cpp:1041]
+[2026.05.07-20.36.33:309][  0]R5LogBLDalAQ:                 [000000] R5BLDalAsyncQueue::LoadDb                          [M:  -1:    1:  loadDB] Successfully loaded DB 0.10.0/Worlds/1556652C185649FE4F9908010CBF9860. IdentifierId  [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5BusinessLogicCore\Source\R5BLCommon\Cpp\R5DataAbstractionLayer\R5BLDalAsyncQueue.cpp:107]
+[2026.05.07-20.36.33:309][  0]R5LogBLDalAQ:                 [000000] R5BLRocksAsyncQueue::DoJob                         [s:  -1:    1:  loadDB] Successfully created DB 0.10.0/Worlds/1556652C185649FE4F9908010CBF9860. IdentifierId  [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5BusinessLogicCore\Source\R5RocksDAL\Cpp\R5BLRocksAsyncQueue.cpp:888]
+[2026.05.07-20.36.33:312][  0]R5LogCoopProxy:               [000000] UR5CoopRootDocument::LoadRecordToDataCache         Record 'R5BLIsland[1556652C185649FE4F9908010CBF9860]' loaded to data cache                          [D:\Source\Build\work\gameRepoCheckoutDir\Source\BackendProxy\R5CoopProxy\Private\Data\R5CoopRootDocument.cpp:169]
+[2026.05.07-20.36.33:312][  0]R5LogCoopProxy:               [000000] UR5CoopProxyServer::Init                           Server initialized. CurrentIslandId 1556652C185649FE4F9908010CBF9860
+	OwnerAccountId 
+	OwnerPlayerNickname 
+	HostingType ER5NetCm_HostingType::Dedicated
+	RootPath C:/Games/WindowsServer/R5/
+ [D:\Source\Build\work\gameRepoCheckoutDir\Source\BackendProxy\R5CoopProxy\Private\R5CoopProxyServer.cpp:115]
+[2026.05.07-20.36.33:313][  0]R5LogCoopProxy:               [000000] UR5CoopProxyServer::CreateP2pNetServer             RegisterServer process begins. Start Login process ...                                              [D:\Source\Build\work\gameRepoCheckoutDir\Source\BackendProxy\R5CoopProxy\Private\R5CoopProxyServer.cpp:305]
+[2026.05.07-20.36.33:313][  0]R5LogCoopProxy: Verbose:      [000000] UR5CoopProxyServer::SetState                       CoopProxy. Change state. Init => WaitingForAuthorization                                            [D:\Source\Build\work\gameRepoCheckoutDir\Source\BackendProxy\R5CoopProxy\Private\R5CoopProxyServer.cpp:277]
+[2026.05.07-20.36.33:314][  0]R5LogPinger:                  [000000] UR5CoopPinger::InitPingerAsync::<lambda>           Pinger initialized. bSuccess: true. Count Active Servers 3                                          [D:\Source\Build\work\gameRepoCheckoutDir\Source\BackendProxy\R5CaProxy\Private\R5CoopPinger.cpp:110]
+[2026.05.07-20.36.33:316][  0]R5LogDataKeeper:              [000000] UR5DataKeeperForServer::InitializeBLClient         Register R5NetClient service                                                                        [D:\Source\Build\work\gameRepoCheckoutDir\Source\R5DataKeepers\Private\R5DataKeeperForServer.cpp:618]
+[2026.05.07-20.36.33:316][  0]R5LogBLService:               [000000] R5BLServiceManager::RegisterService                Register service. Name R5NetClient. this 0x1a5f5080ac0                                              [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5BusinessLogicCore\Source\R5BLCommon\Cpp\R5BLCommon\Services\R5BLServiceManager.inl:13]
+[2026.05.07-20.36.33:316][  0]R5LogNet:                     [000000] R5NetClient::R5NetClient                           [0x1a5f7b4fd10- 41444] Create R5NetClient                                                           [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5BusinessLogicCore\Source\R5Net\Cpp\R5NetClient.cpp:10]
+[2026.05.07-20.36.33:316][  0]R5LogBL:                      [000000] R5BLResourceMonitor::RegisterResource              Add Source 'gRPC'                                                                                   [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5BusinessLogicCore\Source\R5BLCommon\Cpp\R5BLCommon\R5BLResourceMonitor.cpp:84]
+[2026.05.07-20.36.33:316][  0]R5LogGameInstance:            [000000] UR5GameInstance::Init                              
+>= GameInstance Data ======================================================================================================================================
+> Version            = 0.10.0.5.120-073042fb
+> ShaVersion         = 073042fb338d004c3e94d18ef0745fb210fa9fdf
+> ReleaseVersion     = 0.10.0
+> DeploymentVersion  = 073042fb
+> DeploymentId       = 0.10.0.5.120-073042fb
+> ProjectDateTime    = 2026.05.03-09.31.28 UTC
+> EngineVersion      = 5.6.1
+> ComputerName       = NILEO
+> UserName           = User
+> LogDir             = C:/Games/WindowsServer/R5/Saved/Logs
+> BuildTargetType    = Server
+> BuildConfiguration = Shipping
+> DataKeeper         = R5DataKeeperForServerCoop
+> ApplicationType    = Build
+> BackendType        = ER5DataKeeper_BackendType::Coop
+> NetNode            = R5NetNode_Gs
+> DBType             = RocksDB
+> DBUri              = 
+> CommandLine        = ' -log'
+>==========================================================================================================================================================
+ [D:\Source\Build\work\gameRepoCheckoutDir\Source\R5\R5GameInstance.cpp:69]
+[2026.05.07-20.36.33:316][  0]R5LogDataKeeper:              [000000] UR5DataKeeperForServerCoop::PostInitialize         Coop. PostInitialize. UseDirectConnection false. DirectConnectionServerPort -1                      [D:\Source\Build\work\gameRepoCheckoutDir\Source\R5DataKeepers\Private\R5DataKeeperForServerCoop.cpp:84]
+[2026.05.07-20.36.33:316][  0]LogInit: Display: Game Engine Initialized.
+[2026.05.07-20.36.33:316][  0]R5LogHttp:                    [000000] UR5BaseHttpClient::HttpRequest                     Sent request. Route https://r5coopapigateway-eu-release.windrose.support:443/ping. IsOk true        [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5CommonUtils\Source\R5CommonUtils\Public\Network\Http\R5BaseHttpClient.h:157]
+[2026.05.07-20.36.33:316][  0]R5LogHttp:                    [000000] UR5BaseHttpClient::HttpRequest                     Sent request. Route https://r5coopapigateway-kr-release.windrose.support:443/ping. IsOk true        [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5CommonUtils\Source\R5CommonUtils\Public\Network\Http\R5BaseHttpClient.h:157]
+[2026.05.07-20.36.33:316][  0]R5LogHttp:                    [000000] UR5BaseHttpClient::HttpRequest                     Sent request. Route https://r5coopapigateway-ru-release.windrose.support:443/ping. IsOk true        [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5CommonUtils\Source\R5CommonUtils\Public\Network\Http\R5BaseHttpClient.h:157]
+[2026.05.07-20.36.33:321][  0]LogDLSS: FDLSSModule::StartupModule Enter
+[2026.05.07-20.36.33:322][  0]LogDLSS: PluginBaseDir ../../../R5/Plugins/3rdParty/DLSS/Plugins/DLSS
+[2026.05.07-20.36.33:322][  0]LogDLSS: NGXBinariesDir ../../../R5/Plugins/3rdParty/DLSS/Plugins/DLSS/Binaries/ThirdParty/Win64/
+[2026.05.07-20.36.33:322][  0]LogDLSS: GDynamicRHIName Unknown Null
+[2026.05.07-20.36.33:322][  0]LogDLSS: NVIDIA NGX DLSS requires an NVIDIA RTX series graphics card
+[2026.05.07-20.36.33:322][  0]LogDLSS: NVIDIA NGX DLSS supported DLSS-SR=0 DLSS-RR=0
+[2026.05.07-20.36.33:322][  0]LogDLSS: FDLSSModule::StartupModule Leave
+[2026.05.07-20.36.33:322][  0]LogDLSSNGXRHI: FNGXRHIModule::StartupModule Enter
+[2026.05.07-20.36.33:322][  0]LogDLSSNGXRHI: FNGXRHIModule::StartupModule Leave
+[2026.05.07-20.36.33:322][  0]LogNIS: FNISCoreModule::StartupModule Enter
+[2026.05.07-20.36.33:322][  0]LogNIS: FNISCoreModule::StartupModule Leave
+[2026.05.07-20.36.33:322][  0]LogStreamline: FStreamlineCoreModule::StartupModule Enter
+[2026.05.07-20.36.33:322][  0]LogStreamline: NVIDIA Streamline supported 0
+[2026.05.07-20.36.33:322][  0]LogStreamline: FStreamlineCoreModule::StartupModule Leave
+[2026.05.07-20.36.33:322][  0]LogInit: Display: Starting Game.
+[2026.05.07-20.36.33:322][  0]LogGlobalStatus: UEngine::Browse Started Browse: "/Game/Maps/Lobby/R5ServerLobby?Name=Player"
+[2026.05.07-20.36.33:322][  0]LogNet: Browse: /Game/Maps/Lobby/R5ServerLobby?Name=Player
+[2026.05.07-20.36.33:333][  0]LogLoad: LoadMap: /Game/Maps/Lobby/R5ServerLobby?Name=Player
+[2026.05.07-20.36.33:333][  0]LogWorld: BeginTearingDown for /Temp/Untitled_0
+[2026.05.07-20.36.33:333][  0]LogWorld: UWorld::CleanupWorld for Untitled, bSessionEnded=true, bCleanupResources=true
+[2026.05.07-20.36.33:333][  0]R5LogSystemResources:         [000000] ...emResourcesSubsystem::OnWorldEndPlayCallback    Memory Leak Detector is DISABLED. World <none>. WorldCounter -1                                     [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\Tools\R5SystemResourceMonitor\Source\R5SystemResourceMonitor\Private\R5SystemResourcesSubsystem.cpp:154]
+[2026.05.07-20.36.33:333][  0]R5LogAmAppStats:              [000000] UR5AmAppStatsSubsystem::Deinitialize               Stop                                                                                                [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\Tools\R5AppMonitoring\Source\R5AppMonitoring\Private\R5AmAppStatsSubsystem.cpp:86]
+[2026.05.07-20.36.33:338][  0]LogUObjectHash: Compacting FUObjectHashTables data took   1.23ms
+[2026.05.07-20.36.33:359][  0]LogLoad: Game class is 'BP_R5GameMode_C'
+[2026.05.07-20.36.33:359][  0]R5LogSocketSubsystem: Verbose: [000000] UR5NetDriver::InitListen                          Init as R5NetDriver listen server. LocalURL = (/Game/Maps/Lobby/R5ServerLobby?Name=Player)          [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5CommonUtils\Source\R5SocketSubsystem\Private\R5NetDriver.cpp:142]
+[2026.05.07-20.36.33:360][  0]LogNetCore: DDoS detection status: detection enabled: 0 analytics enabled: 0
+[2026.05.07-20.36.33:360][  0]LogNet: InitBase GameNetDriver (NetDriverDefinition GameNetDriver) using replication model R5ReplicationGraph
+[2026.05.07-20.36.33:360][  0]R5LogSocketSubsystem:         [000000] FR5Socket::FR5Socket                               Create socket bIsListening false                                                                    [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5CommonUtils\Source\R5SocketSubsystem\Private\R5Socket.cpp:17]
+[2026.05.07-20.36.33:360][  0]R5LogSocketSubsystem:         [000000] FR5SocketSubsystem::CreateSocket                   Created Socket                                                                                      [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5CommonUtils\Source\R5SocketSubsystem\Private\R5SocketSubsystem.cpp:69]
+[2026.05.07-20.36.33:360][  0]PacketHandlerLog: Loaded PacketHandler component: Engine.EngineHandlerComponentFactory (StatelessConnectHandlerComponent)
+[2026.05.07-20.36.33:360][  0]R5LogSocketSubsystem: Verbose: [000000] UR5NetDriver::InitListen                          Initialized as an R5P2P listen server                                                               [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5CommonUtils\Source\R5SocketSubsystem\Private\R5NetDriver.cpp:176]
+[2026.05.07-20.36.33:360][  0]LogWorld: Bringing World /Game/Maps/Lobby/R5ServerLobby.R5ServerLobby up for play (max tick rate 30) at 2026.05.07-13.36.33
+[2026.05.07-20.36.33:360][  0]R5LogReplicationGraph:        [000000] UR5ReplicationGraph::InitializeForWorld            World: R5ServerLobby                                                                                [D:\Source\Build\work\gameRepoCheckoutDir\Source\R5\ReplicationGraph\R5ReplicationGraph.cpp:17]
+[2026.05.07-20.36.33:361][  0]LogWorld: Bringing up level for play took: 0.000353
+[2026.05.07-20.36.33:361][  0]R5LogDataKeeper:              [000000] UR5DataKeeperForServerCoop::OnWorldBeginPlay       Coop. Do nothing on start of server lobby. IsNetServerInitialized false                             [D:\Source\Build\work\gameRepoCheckoutDir\Source\R5DataKeepers\Private\R5DataKeeperForServerCoop.cpp:110]
+[2026.05.07-20.36.33:361][  0]R5LogDataKeeper:              [000000] IR5DataKeeperStateLogger::LogSetState              Server. Change state JustStarted => OpenedServerLobby in 0.000 ms                                   [D:\Source\Build\work\gameRepoCheckoutDir\Source\R5DataKeepers\Private\R5DataKeeperStateLogger.cpp:23]
+[2026.05.07-20.36.33:361][  0]R5LogWDSSystem:               [000000] ...dDescriptionSettingsSystem::OnWorldBeginPlay    Initializing World Description Settings in world: R5ServerLobby                                     [D:\Source\Build\work\gameRepoCheckoutDir\Source\GameFeature\R5WorldDescriptionSettings\R5WDSSystem\Private\R5WorldDescriptionSettingsSystem.cpp:36]
+[2026.05.07-20.36.33:362][  0]R5LogWDSSystem:               [000000] ...iptionSettingsSystem::InitSettingsFromConfig    Init WDS Parameters from Config with preset: ER5CmNet_WorldPresetType::Medium                       [D:\Source\Build\work\gameRepoCheckoutDir\Source\GameFeature\R5WorldDescriptionSettings\R5WDSSystem\Private\R5WorldDescriptionSettingsSystem.cpp:91]
+[2026.05.07-20.36.33:362][  0]R5LogWDSSystem:               [000000] ...tionSettingsSystem::UpdateSettingsFromPreset    WDSInstancedTag: DA_WDSParameter_Tag_CombatDifficulty; Value: WDS.Parameter.CombatDifficulty.Normal [D:\Source\Build\work\gameRepoCheckoutDir\Source\GameFeature\R5WorldDescriptionSettings\R5WDSSystem\Private\R5WorldDescriptionSettingsSystem.cpp:138]
+[2026.05.07-20.36.33:362][  0]R5LogWDSSystem:               [000000] ...tionSettingsSystem::UpdateSettingsFromPreset    WDSInstancedFloat: DA_WDSParameter_Float_MobsHealthMultiplier; Value: 1                             [D:\Source\Build\work\gameRepoCheckoutDir\Source\GameFeature\R5WorldDescriptionSettings\R5WDSSystem\Private\R5WorldDescriptionSettingsSystem.cpp:138]
+[2026.05.07-20.36.33:362][  0]R5LogWDSSystem:               [000000] ...tionSettingsSystem::UpdateSettingsFromPreset    WDSInstancedFloat: DA_WDSParameter_Float_MobsDamageMultiplier; Value: 1                             [D:\Source\Build\work\gameRepoCheckoutDir\Source\GameFeature\R5WorldDescriptionSettings\R5WDSSystem\Private\R5WorldDescriptionSettingsSystem.cpp:138]
+[2026.05.07-20.36.33:362][  0]R5LogWDSSystem:               [000000] ...tionSettingsSystem::UpdateSettingsFromPreset    WDSInstancedFloat: DA_WDSParameter_Float_ShipsHealthMultiplier; Value: 1                            [D:\Source\Build\work\gameRepoCheckoutDir\Source\GameFeature\R5WorldDescriptionSettings\R5WDSSystem\Private\R5WorldDescriptionSettingsSystem.cpp:138]
+[2026.05.07-20.36.33:362][  0]R5LogWDSSystem:               [000000] ...tionSettingsSystem::UpdateSettingsFromPreset    WDSInstancedFloat: DA_WDSParameter_Float_ShipsDamageMultiplier; Value: 1                            [D:\Source\Build\work\gameRepoCheckoutDir\Source\GameFeature\R5WorldDescriptionSettings\R5WDSSystem\Private\R5WorldDescriptionSettingsSystem.cpp:138]
+[2026.05.07-20.36.33:362][  0]R5LogWDSSystem:               [000000] ...tionSettingsSystem::UpdateSettingsFromPreset    WDSInstancedFloat: DA_WDSParameter_Float_BoardingDifficultyMultiplier; Value: 1                     [D:\Source\Build\work\gameRepoCheckoutDir\Source\GameFeature\R5WorldDescriptionSettings\R5WDSSystem\Private\R5WorldDescriptionSettingsSystem.cpp:138]
+[2026.05.07-20.36.33:363][  0]R5LogWDSSystem:               [000000] ...tionSettingsSystem::UpdateSettingsFromPreset    WDSInstancedBool: DA_WDSParameter_Bool_Coop_SharedQuests; Value: true                               [D:\Source\Build\work\gameRepoCheckoutDir\Source\GameFeature\R5WorldDescriptionSettings\R5WDSSystem\Private\R5WorldDescriptionSettingsSystem.cpp:138]
+[2026.05.07-20.36.33:363][  0]R5LogWDSSystem:               [000000] ...tionSettingsSystem::UpdateSettingsFromPreset    WDSInstancedFloat: DA_WDSParameter_Float_Coop_StatsCorrectionModifier; Value: 1                     [D:\Source\Build\work\gameRepoCheckoutDir\Source\GameFeature\R5WorldDescriptionSettings\R5WDSSystem\Private\R5WorldDescriptionSettingsSystem.cpp:138]
+[2026.05.07-20.36.33:363][  0]R5LogWDSSystem:               [000000] ...tionSettingsSystem::UpdateSettingsFromPreset    WDSInstancedFloat: DA_WDSParameter_Float_Coop_ShipStatsCorrectionModifier; Value: 0                 [D:\Source\Build\work\gameRepoCheckoutDir\Source\GameFeature\R5WorldDescriptionSettings\R5WDSSystem\Private\R5WorldDescriptionSettingsSystem.cpp:138]
+[2026.05.07-20.36.33:363][  0]R5LogWDSSystem:               [000000] ...tionSettingsSystem::UpdateSettingsFromPreset    WDSInstancedBool: DA_WDSParameter_Bool_EasyExplore; Value: false                                    [D:\Source\Build\work\gameRepoCheckoutDir\Source\GameFeature\R5WorldDescriptionSettings\R5WDSSystem\Private\R5WorldDescriptionSettingsSystem.cpp:138]
+[2026.05.07-20.36.33:363][  0]R5LogSystemResources:         [000000] ...ResourcesSubsystem::OnWorldBeginPlayCallback    Memory Leak Detector is ENABLED. World R5ServerLobby. WorldCounter 0                                [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\Tools\R5SystemResourceMonitor\Source\R5SystemResourceMonitor\Private\R5SystemResourcesSubsystem.cpp:144]
+[2026.05.07-20.36.33:363][  0]R5LogAmAppStats:              [000000] UR5AmAppStatsSubsystem::OnWorldBeginPlay           Start                                                                                               [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\Tools\R5AppMonitoring\Source\R5AppMonitoring\Private\R5AmAppStatsSubsystem.cpp:15]
+[2026.05.07-20.36.33:373][  0]R5LogDataKeeper: Verbose:     [000000] UR5DataKeeper::CallWhenStartTerrainGeneration      Initialize callback for Terrain generation                                                          [D:\Source\Build\work\gameRepoCheckoutDir\Source\R5DataKeepers\Private\R5DataKeeper.cpp:468]
+[2026.05.07-20.36.33:373][  0]R5LogGameInitTracker:         [000000] AR5GameInitializationTracker::BeginPlay            World 'R5ServerLobby'. GameTracker 'R5GameInitializationTracker_2147481108'                         [D:\Source\Build\work\gameRepoCheckoutDir\Source\R5\Utility\Trackers\R5GameInitializationTracker.cpp:100]
+[2026.05.07-20.36.33:385][  0]R5LogGameMode:                [000000] AR5GameMode::BeginPlay                             GameMode BP_R5GameMode_C_2147481132                                                                 [D:\Source\Build\work\gameRepoCheckoutDir\Source\R5\Game\GameModes\R5GameMode.cpp:175]
+[2026.05.07-20.36.33:386][  0]R5LogPreloader: Display:      [000000] UR5Preloader::Load                                 Start preloading R5ServerLobby                                                                      [D:\Source\Build\work\gameRepoCheckoutDir\Source\R5Preloader\Private\R5Preloader.cpp:39]
+[2026.05.07-20.36.33:386][  0]R5LogPreloader:               [000000] UR5Preloader::Load                                 Finish preloading R5ServerLobby                                                                     [D:\Source\Build\work\gameRepoCheckoutDir\Source\R5Preloader\Private\R5Preloader.cpp:59]
+[2026.05.07-20.36.33:386][  0]R5LogPreloader:               [000000] UR5Preloader::Load                                   cached objects 0:                                                                                 [D:\Source\Build\work\gameRepoCheckoutDir\Source\R5Preloader\Private\R5Preloader.cpp:60]
+[2026.05.07-20.36.33:386][  0]R5LogPreloader:               [000000] UR5Preloader::Load                                   total refs 0                                                                                      [D:\Source\Build\work\gameRepoCheckoutDir\Source\R5Preloader\Private\R5Preloader.cpp:67]
+[2026.05.07-20.36.33:386][  0]LogLoad: Took 0.052081 seconds to LoadMap(/Game/Maps/Lobby/R5ServerLobby)
+[2026.05.07-20.36.33:386][  0]LogGlobalStatus: UEngine::LoadMap Load map complete /Game/Maps/Lobby/R5ServerLobby
+[2026.05.07-20.36.33:425][  0]LogInit: Display: Engine is initialized. Leaving FEngineLoop::Init()
+[2026.05.07-20.36.33:425][  0]LogLoad: (Engine Initialization) Total time: 3.92 seconds
+[2026.05.07-20.36.33:823][ 11]R5LogHttp:                    [000011] UR5BaseHttpClient::ProcessReply                    Reply received. Route https://r5coopapigateway-eu-release.windrose.support:443/ping. IsOk true      [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5CommonUtils\Source\R5CommonUtils\Public\Network\Http\R5BaseHttpClient.h:190]
+[2026.05.07-20.36.33:823][ 11]R5LogHttp:                    [000011] UR5BaseHttpClient::HttpRequest                     Sent request. Route https://r5coopapigateway-eu-release.windrose.support:443/ping. IsOk true        [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5CommonUtils\Source\R5CommonUtils\Public\Network\Http\R5BaseHttpClient.h:157]
+[2026.05.07-20.36.33:856][ 12]R5LogHttp:                    [000012] UR5BaseHttpClient::ProcessReply                    Reply received. Route https://r5coopapigateway-kr-release.windrose.support:443/ping. IsOk true      [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5CommonUtils\Source\R5CommonUtils\Public\Network\Http\R5BaseHttpClient.h:190]
+[2026.05.07-20.36.33:856][ 12]R5LogHttp:                    [000012] UR5BaseHttpClient::HttpRequest                     Sent request. Route https://r5coopapigateway-kr-release.windrose.support:443/ping. IsOk true        [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5CommonUtils\Source\R5CommonUtils\Public\Network\Http\R5BaseHttpClient.h:157]
+[2026.05.07-20.36.33:922][ 14]R5LogHttp:                    [000014] UR5BaseHttpClient::ProcessReply                    Reply received. Route https://r5coopapigateway-ru-release.windrose.support:443/ping. IsOk true      [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5CommonUtils\Source\R5CommonUtils\Public\Network\Http\R5BaseHttpClient.h:190]
+[2026.05.07-20.36.33:922][ 14]R5LogHttp:                    [000014] UR5BaseHttpClient::HttpRequest                     Sent request. Route https://r5coopapigateway-ru-release.windrose.support:443/ping. IsOk true        [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5CommonUtils\Source\R5CommonUtils\Public\Network\Http\R5BaseHttpClient.h:157]
+[2026.05.07-20.36.34:022][ 17]R5LogHttp:                    [000017] UR5BaseHttpClient::ProcessReply                    Reply received. Route https://r5coopapigateway-eu-release.windrose.support:443/ping. IsOk true      [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5CommonUtils\Source\R5CommonUtils\Public\Network\Http\R5BaseHttpClient.h:190]
+[2026.05.07-20.36.34:022][ 17]R5LogHttp:                    [000017] UR5BaseHttpClient::HttpRequest                     Sent request. Route https://r5coopapigateway-eu-release.windrose.support:443/ping. IsOk true        [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5CommonUtils\Source\R5CommonUtils\Public\Network\Http\R5BaseHttpClient.h:157]
+[2026.05.07-20.36.34:055][ 18]R5LogHttp:                    [000018] UR5BaseHttpClient::ProcessReply                    Reply received. Route https://r5coopapigateway-kr-release.windrose.support:443/ping. IsOk true      [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5CommonUtils\Source\R5CommonUtils\Public\Network\Http\R5BaseHttpClient.h:190]
+[2026.05.07-20.36.34:055][ 18]R5LogHttp:                    [000018] UR5BaseHttpClient::HttpRequest                     Sent request. Route https://r5coopapigateway-kr-release.windrose.support:443/ping. IsOk true        [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5CommonUtils\Source\R5CommonUtils\Public\Network\Http\R5BaseHttpClient.h:157]
+[2026.05.07-20.36.34:155][ 21]R5LogHttp:                    [000021] UR5BaseHttpClient::ProcessReply                    Reply received. Route https://r5coopapigateway-ru-release.windrose.support:443/ping. IsOk true      [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5CommonUtils\Source\R5CommonUtils\Public\Network\Http\R5BaseHttpClient.h:190]
+[2026.05.07-20.36.34:155][ 21]R5LogHttp:                    [000021] UR5BaseHttpClient::HttpRequest                     Sent request. Route https://r5coopapigateway-ru-release.windrose.support:443/ping. IsOk true        [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5CommonUtils\Source\R5CommonUtils\Public\Network\Http\R5BaseHttpClient.h:157]
+[2026.05.07-20.36.34:221][ 23]R5LogHttp:                    [000023] UR5BaseHttpClient::ProcessReply                    Reply received. Route https://r5coopapigateway-eu-release.windrose.support:443/ping. IsOk true      [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5CommonUtils\Source\R5CommonUtils\Public\Network\Http\R5BaseHttpClient.h:190]
+[2026.05.07-20.36.34:221][ 23]R5LogHttp:                    [000023] UR5BaseHttpClient::HttpRequest                     Sent request. Route https://r5coopapigateway-eu-release.windrose.support:443/ping. IsOk true        [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5CommonUtils\Source\R5CommonUtils\Public\Network\Http\R5BaseHttpClient.h:157]
+[2026.05.07-20.36.34:253][ 24]R5LogHttp:                    [000024] UR5BaseHttpClient::ProcessReply                    Reply received. Route https://r5coopapigateway-kr-release.windrose.support:443/ping. IsOk true      [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5CommonUtils\Source\R5CommonUtils\Public\Network\Http\R5BaseHttpClient.h:190]
+[2026.05.07-20.36.34:253][ 24]R5LogHttp:                    [000024] UR5BaseHttpClient::HttpRequest                     Sent request. Route https://r5coopapigateway-kr-release.windrose.support:443/ping. IsOk true        [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5CommonUtils\Source\R5CommonUtils\Public\Network\Http\R5BaseHttpClient.h:157]
+[2026.05.07-20.36.34:388][ 28]R5LogHttp:                    [000028] UR5BaseHttpClient::ProcessReply                    Reply received. Route https://r5coopapigateway-ru-release.windrose.support:443/ping. IsOk true      [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5CommonUtils\Source\R5CommonUtils\Public\Network\Http\R5BaseHttpClient.h:190]
+[2026.05.07-20.36.34:388][ 28]R5LogHttp:                    [000028] UR5BaseHttpClient::HttpRequest                     Sent request. Route https://r5coopapigateway-ru-release.windrose.support:443/ping. IsOk true        [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5CommonUtils\Source\R5CommonUtils\Public\Network\Http\R5BaseHttpClient.h:157]
+[2026.05.07-20.36.34:420][ 29]R5LogHttp:                    [000029] UR5BaseHttpClient::ProcessReply                    Reply received. Route https://r5coopapigateway-eu-release.windrose.support:443/ping. IsOk true      [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5CommonUtils\Source\R5CommonUtils\Public\Network\Http\R5BaseHttpClient.h:190]
+[2026.05.07-20.36.34:420][ 29]R5LogHttp:                    [000029] UR5BaseHttpClient::HttpRequest                     Sent request. Route https://r5coopapigateway-eu-release.windrose.support:443/ping. IsOk true        [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5CommonUtils\Source\R5CommonUtils\Public\Network\Http\R5BaseHttpClient.h:157]
+[2026.05.07-20.36.34:453][ 30]R5LogHttp:                    [000030] UR5BaseHttpClient::ProcessReply                    Reply received. Route https://r5coopapigateway-kr-release.windrose.support:443/ping. IsOk true      [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5CommonUtils\Source\R5CommonUtils\Public\Network\Http\R5BaseHttpClient.h:190]
+[2026.05.07-20.36.34:453][ 30]R5LogHttp:                    [000030] UR5BaseHttpClient::HttpRequest                     Sent request. Route https://r5coopapigateway-kr-release.windrose.support:443/ping. IsOk true        [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5CommonUtils\Source\R5CommonUtils\Public\Network\Http\R5BaseHttpClient.h:157]
+[2026.05.07-20.36.34:620][ 35]R5LogHttp:                    [000035] UR5BaseHttpClient::ProcessReply                    Reply received. Route https://r5coopapigateway-ru-release.windrose.support:443/ping. IsOk true      [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5CommonUtils\Source\R5CommonUtils\Public\Network\Http\R5BaseHttpClient.h:190]
+[2026.05.07-20.36.34:620][ 35]R5LogHttp:                    [000035] UR5BaseHttpClient::HttpRequest                     Sent request. Route https://r5coopapigateway-ru-release.windrose.support:443/ping. IsOk true        [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5CommonUtils\Source\R5CommonUtils\Public\Network\Http\R5BaseHttpClient.h:157]
+[2026.05.07-20.36.34:621][ 36]R5LogHttp:                    [000035] UR5BaseHttpClient::ProcessReply                    Reply received. Route https://r5coopapigateway-eu-release.windrose.support:443/ping. IsOk true      [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5CommonUtils\Source\R5CommonUtils\Public\Network\Http\R5BaseHttpClient.h:190]
+[2026.05.07-20.36.34:653][ 36]R5LogHttp:                    [000036] UR5BaseHttpClient::ProcessReply                    Reply received. Route https://r5coopapigateway-kr-release.windrose.support:443/ping. IsOk true      [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5CommonUtils\Source\R5CommonUtils\Public\Network\Http\R5BaseHttpClient.h:190]
+[2026.05.07-20.36.34:854][ 42]R5LogHttp:                    [000042] UR5BaseHttpClient::ProcessReply                    Reply received. Route https://r5coopapigateway-ru-release.windrose.support:443/ping. IsOk true      [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5CommonUtils\Source\R5CommonUtils\Public\Network\Http\R5BaseHttpClient.h:190]
+[2026.05.07-20.36.34:854][ 42]R5LogPinger:                  [000042] UR5CoopPinger::UpdatePingResults                   Finished servers evaluation. bSuccess true. Duration : 1.54 sec; PingedServersNum: 3                [D:\Source\Build\work\gameRepoCheckoutDir\Source\BackendProxy\R5CaProxy\Private\R5CoopPinger.cpp:252]
+[2026.05.07-20.36.34:854][ 43]R5LogPinger:                  [000042] UR5CoopPinger::UpdatePingResults                   Pinged server info: Server: 'r5coopapigateway-eu-release.windrose.support:443'; AveragePingMs: 261.01825999999994; SuccessfulAttempts: 5/5 [D:\Source\Build\work\gameRepoCheckoutDir\Source\BackendProxy\R5CaProxy\Private\R5CoopPinger.cpp:283]
+[2026.05.07-20.36.34:854][ 43]R5LogPinger:                  [000042] UR5CoopPinger::UpdatePingResults                   Pinged server info: Server: 'r5coopapigateway-kr-release.windrose.support:443'; AveragePingMs: 267.57408; SuccessfulAttempts: 5/5 [D:\Source\Build\work\gameRepoCheckoutDir\Source\BackendProxy\R5CaProxy\Private\R5CoopPinger.cpp:283]
+[2026.05.07-20.36.34:854][ 43]R5LogPinger:                  [000042] UR5CoopPinger::UpdatePingResults                   Pinged server info: Server: 'r5coopapigateway-ru-release.windrose.support:443'; AveragePingMs: 307.73114; SuccessfulAttempts: 5/5 [D:\Source\Build\work\gameRepoCheckoutDir\Source\BackendProxy\R5CaProxy\Private\R5CoopPinger.cpp:283]
+[2026.05.07-20.36.34:854][ 43]R5LogCaProxy:                 [000042] UR5CaHttpClient::Init                              Set Ca endpoint. ApiEndpoint https://r5coopapigateway-eu-release.windrose.support:443/api/v1        [D:\Source\Build\work\gameRepoCheckoutDir\Source\BackendProxy\R5CaProxy\Private\R5CaHttpClient.cpp:34]
+[2026.05.07-20.36.34:854][ 43]R5LogHttp:                    [000042] UR5BaseHttpClient::HttpRequest                     Sent request. Route https://r5coopapigateway-eu-release.windrose.support:443/api/v1/Auth/AuthenticateDedicatedServer. IsOk true [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5CommonUtils\Source\R5CommonUtils\Public\Network\Http\R5BaseHttpClient.h:157]
+[2026.05.07-20.36.35:055][ 48]R5LogHttp:                    [000048] UR5BaseHttpClient::ProcessReply                    Reply received. Route https://r5coopapigateway-eu-release.windrose.support:443/api/v1/Auth/AuthenticateDedicatedServer. IsOk true [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5CommonUtils\Source\R5CommonUtils\Public\Network\Http\R5BaseHttpClient.h:190]
+[2026.05.07-20.36.35:055][ 48]R5LogCoopProxy: Verbose:      [000048] UR5CoopProxyServer::OnLoginFinished                Login finished successfully                                                                         [D:\Source\Build\work\gameRepoCheckoutDir\Source\BackendProxy\R5CoopProxy\Private\R5CoopProxyServer.cpp:403]
+[2026.05.07-20.36.35:055][ 48]R5LogCoopProxy: Verbose:      [000048] UR5CoopProxyServer::SetState                       CoopProxy. Change state. WaitingForAuthorization => WaitingForRegistration                          [D:\Source\Build\work\gameRepoCheckoutDir\Source\BackendProxy\R5CoopProxy\Private\R5CoopProxyServer.cpp:277]
+[2026.05.07-20.36.35:055][ 48]R5LogNet:                     [000048] R5NetServer::R5NetServer                           [0x1a5f7db7d40- 41444] Create R5NetServer                                                           [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5BusinessLogicCore\Source\R5Net\Cpp\R5NetServer.cpp:18]
+[2026.05.07-20.36.35:055][ 48]R5LogNet:                     [000048] R5NetServer::StartP2pServer                        [0x1a5f7db7d40- 41444] Start P2P server. IsSecure true                                              [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5BusinessLogicCore\Source\R5Net\Cpp\R5NetServer.cpp:76]
+[2026.05.07-20.36.35:055][ 48]R5LogNet:                     [000048] R5NetGrpcServerV2::R5NetGrpcServerV2               [0x1a5f650ca40- 41444] Uses root and client certificates from parameters                            [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5BusinessLogicCore\Source\R5Net\Cpp\Grpc\R5NetGrpcServerV2.cpp:41]
+[2026.05.07-20.36.35:056][ 48]R5LogNet:                     [000048] R5NetGrpcServerV2::R5NetGrpcServerV2               [0x1a5f650ca40- 41444] gRPC server started. ServerAddress 127.0.0.1:44605. Num of services 1        [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5BusinessLogicCore\Source\R5Net\Cpp\Grpc\R5NetGrpcServerV2.cpp:126]
+[2026.05.07-20.36.35:056][ 48]R5LogNet:                     [000048] R5NetServer::RegisterServer                        [0x1a5f7db7d40- 41444] Register server in Cm. HasOwner false                                        [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5BusinessLogicCore\Source\R5Net\Cpp\R5NetServer.cpp:112]
+[2026.05.07-20.36.35:056][ 48]R5LogNetCm:                   [000048] R5NetCmClient_GsStream::R5NetCmClient_GsStream     [Gs-47E051BC719B4F4A4881A10237B1B80F] Created Cm Client. CmServerUrl r5coopapigateway-eu-release.windrose.support. CmServerPort 443. P2pStunServersNum 0. BLLocalPort 44605 [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5BusinessLogicCore\Source\R5Net\Cpp\Cm\GsStream\R5NetCmClient_GsStream.cpp:40]
+[2026.05.07-20.36.35:056][ 48]R5LogNetCm: Verbose:          [000048] R5NetCmClient_GsStream::SetState                   [Gs-47E051BC719B4F4A4881A10237B1B80F] GsStream. Change state. Initial => Registration               [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5BusinessLogicCore\Source\R5Net\Cpp\Cm\GsStream\R5NetCmClient_GsStream.cpp:197]
+[2026.05.07-20.36.35:056][ 48]R5LogNetCm: Verbose:          [000048] R5NetGrpcClientV2<>::CreateChannel                 [Gs-47E051BC719B4F4A4881A10237B1B80F] ServerAddress r5coopapigateway-eu-release.windrose.support:443. IsKeepAliveActive true. IsConnectionSecure true [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5BusinessLogicCore\Source\R5Net\Cpp\Grpc\R5NetGrpcClientV2.h:150]
+[2026.05.07-20.36.35:056][ 48]R5LogNetCm: Verbose:          [000048] ...lient_GsStream_ClientReactor::StartKeepAlive    [Gs[0]-47E051BC719B4F4A4881A10237B1B80F] Start KeepAlive. Seconds 25                                [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5BusinessLogicCore\Source\R5Net\Cpp\Cm\GsStream\R5NetCmClient_GsStream_ClientReactor.cpp:197]
+[2026.05.07-20.36.35:056][ 48]R5LogNetCm: Verbose:          [000048] ...lient_GsStream_ClientReactor::RegisterServer    [Gs[0]-47E051BC719B4F4A4881A10237B1B80F] Register server. HasPassword false
+{
+  "Persistent": {
+    "AutoLoadLatestBackupIfHasBroken": true,
+    "DirectConnectionProxyAddress": "0.0.0.0",
+    "DirectConnectionServerAddress": "",
+    "DirectConnectionServerPort": -1,
+    "InviteCode": "b0777216",
+    "IsPasswordProtected": false,
+    "MaxPlayerCount": 2,
+    "P2pProxyAddress": "127.0.0.1",
+    "Password": "",
+    "PersistentServerId": "1609BAD841B57FF776D6CDABDD02A0EB",
+    "ServerName": "DevServer",
+    "UseDirectConnection": false,
+    "UserSelectedRegion": "",
+    "WorldIslandId": "1556652C185649FE4F9908010CBF9860"
+  },
+  "Transient": {
+    "BLSessionId": "",
+    "CurrentPlayerCount": 0,
+    "DeploymentId": "0.10.0.5.120-073042fb",
+    "DocumentVersion": "0.10.0",
+    "Hosting": "Dedicated",
+    "OwnerAccountId": "",
+    "OwnerPlayerName": "",
+    "Region": "",
+    "UseForceP2pConnection": false
+  },
+  "WorldDescription": {
+    "CreationTime": 17779996009869952,
+    "IslandId": "1556652C185649FE4F9908010CBF9860",
+    "WorldName": "",
+    "WorldPresetType": "Medium",
+    "WorldSettings": {
+      "BoolParameters": {
+        "{\"TagName\":\"WDS.Parameter.Coop.SharedQuests\"}": true,
+        "{\"TagName\":\"WDS.Parameter.EasyExplore\"}": false
+      },
+      "FloatParameters": {
+        "{\"TagName\":\"WDS.Parameter.BoardingDifficultyMultiplier\"}": 1.0,
+        "{\"TagName\":\"WDS.Parameter.Coop.ShipStatsCorrectionModifier\"}": 0.0,
+        "{\"TagName\":\"WDS.Parameter.Coop.StatsCorrectionModifier\"}": 1.0,
+        "{\"TagName\":\"WDS.Parameter.MobDamageMultiplier\"}": 1.0,
+        "{\"TagName\":\"WDS.Parameter.MobHealthMultiplier\"}": 1.0,
+        "{\"TagName\":\"WDS.Parameter.ShipsDamageMultiplier\"}": 1.0,
+        "{\"TagName\":\"WDS.Parameter.ShipsHealthMultiplier\"}": 1.0
+      },
+      "TagParameters": {
+        "{\"TagName\":\"WDS.Parameter.CombatDifficulty\"}": {
+          "TagName": "WDS.Parameter.CombatDifficulty.Normal"
+        }
+      }
+    }
+  }
+} [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5BusinessLogicCore\Source\R5Net\Cpp\Cm\GsStream\R5NetCmClient_GsStream_ClientReactor.cpp:71]
+[2026.05.07-20.36.35:691][ 67]R5LogNetCm:                   [000067] ...ient_GsStream_ClientReactor::ProcessMessages    [Gs[0]-47E051BC719B4F4A4881A10237B1B80F] Process requests                                           [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5BusinessLogicCore\Source\R5Net\Cpp\Cm\GsStream\R5NetCmClient_GsStream_ClientReactor.cpp:232]
+[2026.05.07-20.36.35:691][ 67]R5LogNetCm: Verbose:          [000067] ...sStream_ClientReactor::ProcessOnRegistration    [Gs[0]-47E051BC719B4F4A4881A10237B1B80F] Process OnRegistration. Result CmResult_ResultType_Success. BLSessionId 967fda2780834f5dad94f8fafb3d3fea [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5BusinessLogicCore\Source\R5Net\Cpp\Cm\GsStream\R5NetCmClient_GsStream_ClientReactor.cpp:261]
+[2026.05.07-20.36.35:691][ 67]R5LogNetCm: Verbose:          [000067] R5NetCmClient_GsStream::SetState                   [Gs-47E051BC719B4F4A4881A10237B1B80F] GsStream. Change state. Registration => Connected             [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5BusinessLogicCore\Source\R5Net\Cpp\Cm\GsStream\R5NetCmClient_GsStream.cpp:197]
+[2026.05.07-20.36.35:691][ 67]R5LogCoopProxy: Verbose:      [000067] UR5CoopProxyServer::OnServerRegistered             Server registration finished successfully. BLSessionId 967fda2780834f5dad94f8fafb3d3fea             [D:\Source\Build\work\gameRepoCheckoutDir\Source\BackendProxy\R5CoopProxy\Private\R5CoopProxyServer.cpp:479]
+[2026.05.07-20.36.35:691][ 67]R5LogCoopProxy:               [000067] UR5CoopProxyServer::PrintServerConnectionInfo      
+
+>= Server Connection Info =================================================================================
+>
+> InviteCode         : b0777216
+> Password           : 
+>
+>==========================================================================================================
+
+ [D:\Source\Build\work\gameRepoCheckoutDir\Source\BackendProxy\R5CoopProxy\Private\R5CoopProxyServer.cpp:532]
+[2026.05.07-20.36.35:691][ 67]R5LogCoopProxy: Verbose:      [000067] UR5CoopProxyServer::SetState                       CoopProxy. Change state. WaitingForRegistration => Registered                                       [D:\Source\Build\work\gameRepoCheckoutDir\Source\BackendProxy\R5CoopProxy\Private\R5CoopProxyServer.cpp:277]
+[2026.05.07-20.36.35:691][ 67]R5LogDataKeeper:              [000067] ...aKeeperForServerCoop::OnCoopNetServerCreated    Coop NetServer created and registered. BLSessionId 967fda2780834f5dad94f8fafb3d3fea                 [D:\Source\Build\work\gameRepoCheckoutDir\Source\R5DataKeepers\Private\R5DataKeeperForServerCoop.cpp:229]
+[2026.05.07-20.36.35:691][ 67]R5LogDataKeeper: Verbose:     [000067] UR5DataKeeper::SetIslandId                         Island doc is ready. IslandId 1556652C185649FE4F9908010CBF9860                                      [D:\Source\Build\work\gameRepoCheckoutDir\Source\R5DataKeepers\Private\R5DataKeeper.cpp:518]
+[2026.05.07-20.36.35:691][ 67]R5LogDataKeeper:              [000067] UR5DataKeeperForServer::OnNetServerInitialized     Finish BL Server init                                                                               [D:\Source\Build\work\gameRepoCheckoutDir\Source\R5DataKeepers\Private\R5DataKeeperForServer.cpp:577]
+[2026.05.07-20.36.35:691][ 67]R5LogBLService:               [000067] R5BLServiceManager::RegisterService                Register service. Name R5NetBlSession. this 0x1a5f5080ac0                                           [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5BusinessLogicCore\Source\R5BLCommon\Cpp\R5BLCommon\Services\R5BLServiceManager.inl:13]
+[2026.05.07-20.36.35:691][ 67]R5LogDataKeeper: Verbose:     [000067] UR5DataKeeperForServerCoop::OnOpenServerLobby      Coop. Open Island level                                                                             [D:\Source\Build\work\gameRepoCheckoutDir\Source\R5DataKeepers\Private\R5DataKeeperForServerCoop.cpp:243]
+[2026.05.07-20.36.35:691][ 67]R5LogDataKeeper:              [000067] IR5DataKeeperStateLogger::LogSetState              Server. Change state OpenedServerLobby => LoadedIslandData in 2331.000 ms                           [D:\Source\Build\work\gameRepoCheckoutDir\Source\R5DataKeepers\Private\R5DataKeeperStateLogger.cpp:23]
+[2026.05.07-20.36.35:691][ 67]R5LogDataKeeper: Verbose:     [000067] UR5DataKeeper::OpenLevelFromIslandView             Open level from IslandView. IslandId 1556652C185649FE4F9908010CBF9860. CommonIsland '/R5BusinessRules/CommonIslands/DA_CommonIsland_Personal.DA_CommonIsland_Personal' [D:\Source\Build\work\gameRepoCheckoutDir\Source\R5DataKeepers\Private\R5DataKeeper.cpp:546]
+[2026.05.07-20.36.35:691][ 67]R5LogDataKeeper:              [000067] UR5DataKeeper::OpenLevel                           Open level '/Game/Maps/GYM/Genlandia/GenlandiaMulty.GenlandiaMulty'. Options ''                     [D:\Source\Build\work\gameRepoCheckoutDir\Source\R5DataKeepers\Private\R5DataKeeper.cpp:565]
+[2026.05.07-20.36.35:691][ 67]LogGlobalStatus: UEngine::Browse Started Browse: "/Game/Maps/GYM/Genlandia/GenlandiaMulty"
+[2026.05.07-20.36.35:691][ 67]LogNet: Browse: /Game/Maps/GYM/Genlandia/GenlandiaMulty
+[2026.05.07-20.36.35:691][ 67]LogLoad: LoadMap: /Game/Maps/GYM/Genlandia/GenlandiaMulty
+[2026.05.07-20.36.35:691][ 67]LogWorld: BeginTearingDown for /Game/Maps/Lobby/R5ServerLobby
+[2026.05.07-20.36.35:691][ 67]R5LogDataKeeper: Verbose:     [000067] UR5DataKeeper::OnWorldEndPlay                      Clear world specific data                                                                           [D:\Source\Build\work\gameRepoCheckoutDir\Source\R5DataKeepers\Private\R5DataKeeper.cpp:354]
+[2026.05.07-20.36.35:691][ 67]LogNet: World NetDriver shutdown R5NetDriver_2147481131 [GameNetDriver]
+[2026.05.07-20.36.35:691][ 67]LogNet: DestroyNamedNetDriver: Name:GameNetDriver Def:GameNetDriver R5NetDriver_2147481131 
+[2026.05.07-20.36.35:691][ 67]R5LogSocketSubsystem: Verbose: [000067] UR5NetDriver::Shutdown                            Shutting down NetDriver                                                                             [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5CommonUtils\Source\R5SocketSubsystem\Private\R5NetDriver.cpp:189]
+[2026.05.07-20.36.35:691][ 67]R5LogSocketSubsystem:         [000067] FR5Socket::Close                                   Closing socket (R5:GameNetDriver:)                                                                  [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5CommonUtils\Source\R5SocketSubsystem\Private\R5Socket.cpp:46]
+[2026.05.07-20.36.35:691][ 67]R5LogP2pGate:                 [000067] ...ProxyForSocketSubsystem::CloseConnectionImpl    [[0x1a5f45bae88]] Cannot obtain connection for BLPlayerSessionId GameNetDriver                      [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5BusinessLogicCore\Source\R5P2pGate\Cpp\Proxies\R5P2pUeProxyForSocketSubsystem.cpp:42]
+[2026.05.07-20.36.35:691][ 67]R5LogSocketSubsystem:         [000067] FR5Socket::Close                                   Closing socket (R5:GameNetDriver:)                                                                  [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5CommonUtils\Source\R5SocketSubsystem\Private\R5Socket.cpp:46]
+[2026.05.07-20.36.35:691][ 67]R5LogP2pGate:                 [000067] ...ProxyForSocketSubsystem::CloseConnectionImpl    [[0x1a5f45bae88]] Cannot obtain connection for BLPlayerSessionId GameNetDriver                      [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5BusinessLogicCore\Source\R5P2pGate\Cpp\Proxies\R5P2pUeProxyForSocketSubsystem.cpp:42]
+[2026.05.07-20.36.35:691][ 67]LogExit: Name:GameNetDriver Def:GameNetDriver R5NetDriver_2147481131 shut down
+[2026.05.07-20.36.35:692][ 67]R5LogGameTimeComponent:       [000067] UR5GameTimeComponent::EndPlay                      EndPlayReason 'LevelTransition'                                                                     [D:\Source\Build\work\gameRepoCheckoutDir\Source\R5\Game\GameStates\Components\R5GameTimeComponent.cpp:67]
+[2026.05.07-20.36.35:692][ 67]LogWorld: UWorld::CleanupWorld for R5ServerLobby, bSessionEnded=true, bCleanupResources=true
+[2026.05.07-20.36.35:692][ 67]R5LogSystemResources:         [000067] ...emResourcesSubsystem::OnWorldEndPlayCallback    Memory Leak Detector is DISABLED. World R5ServerLobby. WorldCounter 0                               [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\Tools\R5SystemResourceMonitor\Source\R5SystemResourceMonitor\Private\R5SystemResourcesSubsystem.cpp:154]
+[2026.05.07-20.36.35:692][ 67]R5LogAmAppStats:              [000067] UR5AmAppStatsSubsystem::Deinitialize               Stop                                                                                                [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\Tools\R5AppMonitoring\Source\R5AppMonitoring\Private\R5AmAppStatsSubsystem.cpp:86]
+[2026.05.07-20.36.35:693][ 67]R5LogGameInitTracker:         [000067] AR5GameInitializationTracker::BeginDestroy         GameTracker 'R5GameInitializationTracker_2147481108'                                                [D:\Source\Build\work\gameRepoCheckoutDir\Source\R5\Utility\Trackers\R5GameInitializationTracker.cpp:105]
+[2026.05.07-20.36.35:693][ 67]LogReplicationGraph: Warning: 6 actors were not removed from ReplicationGraph
+[2026.05.07-20.36.35:693][ 67]LogReplicationGraph:   Leaked actor: R5GOS_GenericActors_Replicator /Game/Maps/Lobby/R5ServerLobby.R5ServerLobby:PersistentLevel.R5GOS_GenericActors_ReplicatorSingleton
+[2026.05.07-20.36.35:693][ 67]LogReplicationGraph:   Leaked actor: R5N_LogicActor /Game/Maps/Lobby/R5ServerLobby.R5ServerLobby:PersistentLevel.R5NatureLogicActor
+[2026.05.07-20.36.35:693][ 67]LogReplicationGraph:   Leaked actor: R5WorldSettings /Game/Maps/Lobby/R5ServerLobby.R5ServerLobby:PersistentLevel.R5WorldSettings
+[2026.05.07-20.36.35:693][ 67]LogReplicationGraph:   Leaked actor: BP_R5GameState_C /Game/Maps/Lobby/R5ServerLobby.R5ServerLobby:PersistentLevel.None
+[2026.05.07-20.36.35:693][ 67]LogReplicationGraph:   Leaked actor: R5DigVolumeFXManager /Game/Maps/Lobby/R5ServerLobby.R5ServerLobby:PersistentLevel.None
+[2026.05.07-20.36.35:693][ 67]LogReplicationGraph:   Leaked actor: R5MarkersReplicator /Game/Maps/Lobby/R5ServerLobby.R5ServerLobby:PersistentLevel.None
+[2026.05.07-20.36.35:696][ 67]LogUObjectHash: Compacting FUObjectHashTables data took   1.16ms
+[2026.05.07-20.36.35:714][ 67]LogLoad: Game class is 'BP_R5GameMode_C'
+[2026.05.07-20.36.35:714][ 67]R5LogSocketSubsystem: Verbose: [000067] UR5NetDriver::InitListen                          Init as R5NetDriver listen server. LocalURL = (/Game/Maps/GYM/Genlandia/GenlandiaMulty)             [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5CommonUtils\Source\R5SocketSubsystem\Private\R5NetDriver.cpp:142]
+[2026.05.07-20.36.35:715][ 67]R5LogReplicationGraph: Warning: [000067] UR5ReplicationGraph::GetReplicationPolicy        Can't determine rep policy for Actor: Default__BP_ScenarioLayout_Ketch_Base_C. Resolved as Spatialize_Dynamic by default. Actor should be registered in RepGraph Settings manually. [D:\Source\Build\work\gameRepoCheckoutDir\Source\R5\ReplicationGraph\R5ReplicationGraph.cpp:359]
+[2026.05.07-20.36.35:715][ 67]R5LogReplicationGraph: Warning: [000067] UR5ReplicationGraph::GetReplicationPolicy        Can't determine rep policy for Actor: Default__BP_ScenarioLayout_Ketch_Travel_C. Resolved as Spatialize_Dynamic by default. Actor should be registered in RepGraph Settings manually. [D:\Source\Build\work\gameRepoCheckoutDir\Source\R5\ReplicationGraph\R5ReplicationGraph.cpp:359]
+[2026.05.07-20.36.35:715][ 67]R5LogReplicationGraph: Warning: [000067] UR5ReplicationGraph::GetReplicationPolicy        Can't determine rep policy for Actor: Default__BP_ScenarioLayout_Brig_Base_C. Resolved as Spatialize_Dynamic by default. Actor should be registered in RepGraph Settings manually. [D:\Source\Build\work\gameRepoCheckoutDir\Source\R5\ReplicationGraph\R5ReplicationGraph.cpp:359]
+[2026.05.07-20.36.35:715][ 67]R5LogReplicationGraph: Warning: [000067] UR5ReplicationGraph::GetReplicationPolicy        Can't determine rep policy for Actor: Default__BP_ScenarioLayout_Brig_Travel_C. Resolved as Spatialize_Dynamic by default. Actor should be registered in RepGraph Settings manually. [D:\Source\Build\work\gameRepoCheckoutDir\Source\R5\ReplicationGraph\R5ReplicationGraph.cpp:359]
+[2026.05.07-20.36.35:715][ 67]R5LogReplicationGraph: Warning: [000067] UR5ReplicationGraph::GetReplicationPolicy        Can't determine rep policy for Actor: Default__BP_ScenarioLayout_Frigate_Base_C. Resolved as Spatialize_Dynamic by default. Actor should be registered in RepGraph Settings manually. [D:\Source\Build\work\gameRepoCheckoutDir\Source\R5\ReplicationGraph\R5ReplicationGraph.cpp:359]
+[2026.05.07-20.36.35:715][ 67]R5LogReplicationGraph: Warning: [000067] UR5ReplicationGraph::GetReplicationPolicy        Can't determine rep policy for Actor: Default__BP_ScenarioLayout_Frigate_Travel_C. Resolved as Spatialize_Dynamic by default. Actor should be registered in RepGraph Settings manually. [D:\Source\Build\work\gameRepoCheckoutDir\Source\R5\ReplicationGraph\R5ReplicationGraph.cpp:359]
+[2026.05.07-20.36.35:715][ 67]LogNetCore: DDoS detection status: detection enabled: 0 analytics enabled: 0
+[2026.05.07-20.36.35:715][ 67]LogNet: InitBase GameNetDriver (NetDriverDefinition GameNetDriver) using replication model R5ReplicationGraph
+[2026.05.07-20.36.35:716][ 67]R5LogSocketSubsystem:         [000067] FR5Socket::FR5Socket                               Create socket bIsListening false                                                                    [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5CommonUtils\Source\R5SocketSubsystem\Private\R5Socket.cpp:17]
+[2026.05.07-20.36.35:716][ 67]R5LogSocketSubsystem:         [000067] FR5SocketSubsystem::CreateSocket                   Created Socket                                                                                      [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5CommonUtils\Source\R5SocketSubsystem\Private\R5SocketSubsystem.cpp:69]
+[2026.05.07-20.36.35:716][ 67]PacketHandlerLog: Loaded PacketHandler component: Engine.EngineHandlerComponentFactory (StatelessConnectHandlerComponent)
+[2026.05.07-20.36.35:716][ 67]R5LogSocketSubsystem: Verbose: [000067] UR5NetDriver::InitListen                          Initialized as an R5P2P listen server                                                               [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5CommonUtils\Source\R5SocketSubsystem\Private\R5NetDriver.cpp:176]
+[2026.05.07-20.36.35:716][ 67]LogStreaming: Display: ULevelStreaming::RequestLevel(/Game/Maps/GYM/Genlandia/LS/LS_Genlandia) is flushing async loading
+[2026.05.07-20.36.35:723][ 67]LogStreaming: Display: ULevelStreaming::RequestLevel(/Game/Maps/DefaultLighting/LA_DayCycleLighting) is flushing async loading
+[2026.05.07-20.36.35:725][ 67]LogWorld: Bringing World /Game/Maps/GYM/Genlandia/GenlandiaMulty.GenlandiaMulty up for play (max tick rate 30) at 2026.05.07-13.36.35
+[2026.05.07-20.36.35:725][ 67]R5LogReplicationGraph:        [000067] UR5ReplicationGraph::InitializeForWorld            World: GenlandiaMulty                                                                               [D:\Source\Build\work\gameRepoCheckoutDir\Source\R5\ReplicationGraph\R5ReplicationGraph.cpp:17]
+[2026.05.07-20.36.35:725][ 67]LogWorld: Bringing up level for play took: 0.001408
+[2026.05.07-20.36.35:725][ 67]R5LogDataKeeper:              [000067] UR5DataKeeperForServerCoop::OnWorldBeginPlay       Coop. OnWorldBeginPlay. Init GameState                                                              [D:\Source\Build\work\gameRepoCheckoutDir\Source\R5DataKeepers\Private\R5DataKeeperForServerCoop.cpp:121]
+[2026.05.07-20.36.35:726][ 67]R5LogDataKeeper: Verbose:     [000067] UR5DataKeeper::SetGameStateIslandId                Init GameState. IslandId 1556652C185649FE4F9908010CBF9860                                           [D:\Source\Build\work\gameRepoCheckoutDir\Source\R5DataKeepers\Private\R5DataKeeper.cpp:530]
+[2026.05.07-20.36.35:726][ 67]R5LogDataKeeper: Verbose:     [000067] AR5DataKeeper_GameState::SetIslandId               Set IslandId 1556652C185649FE4F9908010CBF9860 for GameState BP_R5GameState_C_2147480894             [D:\Source\Build\work\gameRepoCheckoutDir\Source\R5DataKeepers\Private\R5DataKeeper_GameState.cpp:198]
+[2026.05.07-20.36.35:726][ 67]R5LogDataKeeper:              [000067] IR5DataKeeperStateLogger::LogSetState              Server. Change state LoadedIslandData => WaitingForFirstAccount in 35.000 ms                        [D:\Source\Build\work\gameRepoCheckoutDir\Source\R5DataKeepers\Private\R5DataKeeperStateLogger.cpp:23]
+[2026.05.07-20.36.35:726][ 67]R5LogCoopProxy:               [000067] ...opProxyServer::SetIsReadyForHostOwnerConnect    Host server is ready for owner to connect. Semaphore null                                           [D:\Source\Build\work\gameRepoCheckoutDir\Source\BackendProxy\R5CoopProxy\Private\R5CoopProxyServer.cpp:189]
+[2026.05.07-20.36.35:726][ 67]R5LogWDSSystem:               [000067] ...dDescriptionSettingsSystem::OnWorldBeginPlay    Initializing World Description Settings in world: GenlandiaMulty                                    [D:\Source\Build\work\gameRepoCheckoutDir\Source\GameFeature\R5WorldDescriptionSettings\R5WDSSystem\Private\R5WorldDescriptionSettingsSystem.cpp:36]
+[2026.05.07-20.36.35:726][ 67]R5LogWDSSystem:               [000067] ...iptionSettingsSystem::InitSettingsFromConfig    Init WDS Parameters from Config with preset: ER5CmNet_WorldPresetType::Medium                       [D:\Source\Build\work\gameRepoCheckoutDir\Source\GameFeature\R5WorldDescriptionSettings\R5WDSSystem\Private\R5WorldDescriptionSettingsSystem.cpp:91]
+[2026.05.07-20.36.35:726][ 67]R5LogWDSSystem:               [000067] ...tionSettingsSystem::UpdateSettingsFromPreset    WDSInstancedTag: DA_WDSParameter_Tag_CombatDifficulty; Value: WDS.Parameter.CombatDifficulty.Normal [D:\Source\Build\work\gameRepoCheckoutDir\Source\GameFeature\R5WorldDescriptionSettings\R5WDSSystem\Private\R5WorldDescriptionSettingsSystem.cpp:138]
+[2026.05.07-20.36.35:726][ 67]R5LogWDSSystem:               [000067] ...tionSettingsSystem::UpdateSettingsFromPreset    WDSInstancedFloat: DA_WDSParameter_Float_MobsHealthMultiplier; Value: 1                             [D:\Source\Build\work\gameRepoCheckoutDir\Source\GameFeature\R5WorldDescriptionSettings\R5WDSSystem\Private\R5WorldDescriptionSettingsSystem.cpp:138]
+[2026.05.07-20.36.35:726][ 67]R5LogWDSSystem:               [000067] ...tionSettingsSystem::UpdateSettingsFromPreset    WDSInstancedFloat: DA_WDSParameter_Float_MobsDamageMultiplier; Value: 1                             [D:\Source\Build\work\gameRepoCheckoutDir\Source\GameFeature\R5WorldDescriptionSettings\R5WDSSystem\Private\R5WorldDescriptionSettingsSystem.cpp:138]
+[2026.05.07-20.36.35:726][ 67]R5LogWDSSystem:               [000067] ...tionSettingsSystem::UpdateSettingsFromPreset    WDSInstancedFloat: DA_WDSParameter_Float_ShipsHealthMultiplier; Value: 1                            [D:\Source\Build\work\gameRepoCheckoutDir\Source\GameFeature\R5WorldDescriptionSettings\R5WDSSystem\Private\R5WorldDescriptionSettingsSystem.cpp:138]
+[2026.05.07-20.36.35:727][ 67]R5LogWDSSystem:               [000067] ...tionSettingsSystem::UpdateSettingsFromPreset    WDSInstancedFloat: DA_WDSParameter_Float_ShipsDamageMultiplier; Value: 1                            [D:\Source\Build\work\gameRepoCheckoutDir\Source\GameFeature\R5WorldDescriptionSettings\R5WDSSystem\Private\R5WorldDescriptionSettingsSystem.cpp:138]
+[2026.05.07-20.36.35:727][ 67]R5LogWDSSystem:               [000067] ...tionSettingsSystem::UpdateSettingsFromPreset    WDSInstancedFloat: DA_WDSParameter_Float_BoardingDifficultyMultiplier; Value: 1                     [D:\Source\Build\work\gameRepoCheckoutDir\Source\GameFeature\R5WorldDescriptionSettings\R5WDSSystem\Private\R5WorldDescriptionSettingsSystem.cpp:138]
+[2026.05.07-20.36.35:727][ 67]R5LogWDSSystem:               [000067] ...tionSettingsSystem::UpdateSettingsFromPreset    WDSInstancedBool: DA_WDSParameter_Bool_Coop_SharedQuests; Value: true                               [D:\Source\Build\work\gameRepoCheckoutDir\Source\GameFeature\R5WorldDescriptionSettings\R5WDSSystem\Private\R5WorldDescriptionSettingsSystem.cpp:138]
+[2026.05.07-20.36.35:727][ 67]R5LogWDSSystem:               [000067] ...tionSettingsSystem::UpdateSettingsFromPreset    WDSInstancedFloat: DA_WDSParameter_Float_Coop_StatsCorrectionModifier; Value: 1                     [D:\Source\Build\work\gameRepoCheckoutDir\Source\GameFeature\R5WorldDescriptionSettings\R5WDSSystem\Private\R5WorldDescriptionSettingsSystem.cpp:138]
+[2026.05.07-20.36.35:727][ 67]R5LogWDSSystem:               [000067] ...tionSettingsSystem::UpdateSettingsFromPreset    WDSInstancedFloat: DA_WDSParameter_Float_Coop_ShipStatsCorrectionModifier; Value: 0                 [D:\Source\Build\work\gameRepoCheckoutDir\Source\GameFeature\R5WorldDescriptionSettings\R5WDSSystem\Private\R5WorldDescriptionSettingsSystem.cpp:138]
+[2026.05.07-20.36.35:727][ 67]R5LogWDSSystem:               [000067] ...tionSettingsSystem::UpdateSettingsFromPreset    WDSInstancedBool: DA_WDSParameter_Bool_EasyExplore; Value: false                                    [D:\Source\Build\work\gameRepoCheckoutDir\Source\GameFeature\R5WorldDescriptionSettings\R5WDSSystem\Private\R5WorldDescriptionSettingsSystem.cpp:138]
+[2026.05.07-20.36.35:727][ 67]R5LogSystemResources:         [000067] ...ResourcesSubsystem::OnWorldBeginPlayCallback    Memory Leak Detector is ENABLED. World GenlandiaMulty. WorldCounter 1                               [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\Tools\R5SystemResourceMonitor\Source\R5SystemResourceMonitor\Private\R5SystemResourcesSubsystem.cpp:144]
+[2026.05.07-20.36.35:727][ 67]R5LogAmAppStats:              [000067] UR5AmAppStatsSubsystem::OnWorldBeginPlay           Start                                                                                               [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\Tools\R5AppMonitoring\Source\R5AppMonitoring\Private\R5AmAppStatsSubsystem.cpp:15]
+[2026.05.07-20.36.35:731][ 67]R5LogDataKeeper: Verbose:     [000067] UR5DataKeeper::CallWhenStartTerrainGeneration      Initialize callback for Terrain generation                                                          [D:\Source\Build\work\gameRepoCheckoutDir\Source\R5DataKeepers\Private\R5DataKeeper.cpp:468]
+[2026.05.07-20.36.35:731][ 67]R5LogContextualSpawner:       [000067] UR5ContextualSpawnerSubsystem::OnWorldBeginPlay    Contextual Spawner list provided by World Settings: DA_ContextualSpanwerList                        [D:\Source\Build\work\gameRepoCheckoutDir\Source\R5\Feature\ContextualSpawner\R5ContextualSpawnerSubsystem.cpp:290]
+[2026.05.07-20.36.35:731][ 67]R5LogContextualSpawner:       [000067] UR5ContextualSpawnerSubsystem::OnWorldBeginPlay    Create DA_ContextualSpawnerParams_Player_SegmentTreesAndMineralDestroy spawner with ID: 61773FB24FD46FBAC68C17811A938177 [D:\Source\Build\work\gameRepoCheckoutDir\Source\R5\Feature\ContextualSpawner\R5ContextualSpawnerSubsystem.cpp:300]
+[2026.05.07-20.36.35:731][ 67]R5LogContextualSpawner:       [000067] UR5ContextualSpawnerSubsystem::OnWorldBeginPlay    Create DA_ContextualSpawnerParams_Player_CopperCaves_DigVolumesDestroy spawner with ID: 07F5AB6D42239C643D1A09ADAB61CB50 [D:\Source\Build\work\gameRepoCheckoutDir\Source\R5\Feature\ContextualSpawner\R5ContextualSpawnerSubsystem.cpp:300]
+[2026.05.07-20.36.35:731][ 67]R5LogContextualSpawner:       [000067] UR5ContextualSpawnerSubsystem::OnWorldBeginPlay    Create DA_ContextualSpawnerParams_Player_IronCaverns_DigVolumesDestroy spawner with ID: EC6EF0F949C50B5CE2DD3A96B6AC5420 [D:\Source\Build\work\gameRepoCheckoutDir\Source\R5\Feature\ContextualSpawner\R5ContextualSpawnerSubsystem.cpp:300]
+[2026.05.07-20.36.35:732][ 67]R5LogGameInitTracker:         [000067] AR5GameInitializationTracker::BeginPlay            World 'GenlandiaMulty'. GameTracker 'R5GameInitializationTracker_2147480877'                        [D:\Source\Build\work\gameRepoCheckoutDir\Source\R5\Utility\Trackers\R5GameInitializationTracker.cpp:100]
+[2026.05.07-20.36.35:738][ 67]R5LogGameMode:                [000067] AR5GameMode::BeginPlay                             GameMode BP_R5GameMode_C_2147480916                                                                 [D:\Source\Build\work\gameRepoCheckoutDir\Source\R5\Game\GameModes\R5GameMode.cpp:175]
+[2026.05.07-20.36.35:739][ 67]R5LogEcCollector:             [000067] UR5EcCollector::OnAuthorizationResult              Authorization result. AccountId ''                                                                  [D:\Source\Build\work\gameRepoCheckoutDir\Source\BackendProxy\R5EcProxy\R5EcCollector.cpp:254]
+[2026.05.07-20.36.35:740][ 67]R5LogGameInitTracker:         [000067] AR5GameInitializationTracker::SetActorIsReady      Actor is ready. Call 4 callbacks for Game 'GameState 'BP_R5GameState_C_2147480894'. GameMode 'BP_R5GameMode_C_2147480916'' [D:\Source\Build\work\gameRepoCheckoutDir\Source\R5\Utility\Trackers\R5GameInitializationTracker.h:113]
+[2026.05.07-20.36.35:740][ 67]R5LogPreloader: Display:      [000067] UR5Preloader::Load                                 Start preloading GenlandiaMulty                                                                     [D:\Source\Build\work\gameRepoCheckoutDir\Source\R5Preloader\Private\R5Preloader.cpp:39]
+[2026.05.07-20.36.35:740][ 67]R5LogPreloader:               [000067] UR5Preloader::Load                                 Finish preloading GenlandiaMulty                                                                    [D:\Source\Build\work\gameRepoCheckoutDir\Source\R5Preloader\Private\R5Preloader.cpp:59]
+[2026.05.07-20.36.35:740][ 67]R5LogPreloader:               [000067] UR5Preloader::Load                                   cached objects 0:                                                                                 [D:\Source\Build\work\gameRepoCheckoutDir\Source\R5Preloader\Private\R5Preloader.cpp:60]
+[2026.05.07-20.36.35:740][ 67]R5LogPreloader:               [000067] UR5Preloader::Load                                   total refs 0                                                                                      [D:\Source\Build\work\gameRepoCheckoutDir\Source\R5Preloader\Private\R5Preloader.cpp:67]
+[2026.05.07-20.36.35:740][ 67]LogLoad: Took 0.049660 seconds to LoadMap(/Game/Maps/GYM/Genlandia/GenlandiaMulty)
+[2026.05.07-20.36.35:740][ 67]LogGlobalStatus: UEngine::LoadMap Load map complete /Game/Maps/GYM/Genlandia/GenlandiaMulty
+[2026.05.07-20.36.35:745][ 67]R5LogWater: Start collecting water landscape zones in the world...
+[2026.05.07-20.36.35:745][ 68]R5LogWater: Water landscape zones not found
+[2026.05.07-20.36.35:746][ 68]R5LogWater: Finish collecting water landscape zones in the world...
+[2026.05.07-20.36.35:779][ 69]R5LogWater: Water landscape global memory statistics:
+		GPULargeWaveWeightMaps size (x = 61, y = 61);
+		GPULargeWaveWeightMaps = 3.721000 KB;
+		CPULargeWaveWeightMaps = 3.721000 KB;
+		Areas count = 0;
+		Total: CPU = 3.721000 KB; GPU = 3.721000 KB.
+[2026.05.07-20.36.35:909][ 73]R5LogEcCollector:             [000073] UR5EcCollector::OnResponse                         New settings received. Settings
+	SecondsBetweenSendingEvents: 300
+	MaxEventsPerRequest: 100
+	MaxEventsPerSession: 0 [D:\Source\Build\work\gameRepoCheckoutDir\Source\BackendProxy\R5EcProxy\R5EcCollector.cpp:362]
+[2026.05.07-20.37.33:481][823]R5LogCoopProxy: Verbose:      [001823] ...ootDocumentsCollection::BackupChangedRecords    Backup changed records ...                                                                          [D:\Source\Build\work\gameRepoCheckoutDir\Source\BackendProxy\R5CoopProxy\Private\Data\R5CoopRootDocumentsCollection.cpp:282]
+[2026.05.07-20.37.33:481][823]R5LogCoopProxy: Verbose:      [001823] UR5CoopRootDocumentBackup::SaveBackupAsync         R5BLIsland[1556652C185649FE4F9908010CBF9860]. Save backup requested ...                             [D:\Source\Build\work\gameRepoCheckoutDir\Source\BackendProxy\R5CoopProxy\Private\Data\R5CoopRootDocumentBackup.cpp:178]
+[2026.05.07-20.37.33:618][828]R5LogCoopProxy: Verbose:      [001828] UR5CoopRootDocumentBackup::OnSaveBackupFinished    R5BLIsland[1556652C185649FE4F9908010CBF9860]. Save backup has finished successfully                 [D:\Source\Build\work\gameRepoCheckoutDir\Source\BackendProxy\R5CoopProxy\Private\Data\R5CoopRootDocumentBackup.cpp:203]
+[2026.05.07-20.37.41:380][ 64]LogCore: Engine exit requested (reason: ConsoleCtrl RequestExit)
+[2026.05.07-20.37.41:380][ 64]R5LogCoopProxy:               [002064] UR5CoopProxy::InitData::<lambda_1>::operator ()    Start on exit sync backups                                                                          [D:\Source\Build\work\gameRepoCheckoutDir\Source\BackendProxy\R5CoopProxy\Private\R5CoopProxy.cpp:211]
+[2026.05.07-20.37.41:381][ 64]R5LogCoopProxy:               [002064] UR5CoopProxy::SaveBackupsSync                      Start sync backups. Id A1DED0AA4DDA8C752E2490A41C86B5F4. IsInGameThread false                       [D:\Source\Build\work\gameRepoCheckoutDir\Source\BackendProxy\R5CoopProxy\Private\R5CoopProxy.cpp:155]
+[2026.05.07-20.37.41:391][ 64]R5LogCoopProxy: Verbose:      [002064] ...ootDocumentsCollection::BackupChangedRecords    Backup changed records ...                                                                          [D:\Source\Build\work\gameRepoCheckoutDir\Source\BackendProxy\R5CoopProxy\Private\Data\R5CoopRootDocumentsCollection.cpp:282]
+[2026.05.07-20.37.41:392][ 65]R5LogCoopProxy: Verbose:      [002064] UR5CoopRootDocumentBackup::SaveBackupAsync         R5BLIsland[1556652C185649FE4F9908010CBF9860]. Save backup requested ...                             [D:\Source\Build\work\gameRepoCheckoutDir\Source\BackendProxy\R5CoopProxy\Private\Data\R5CoopRootDocumentBackup.cpp:178]
+[2026.05.07-20.37.41:392][ 65]LogCore: Engine exit requested (reason: EngineExit() was called; note: exit was already requested)
+[2026.05.07-20.37.41:392][ 65]LogInit: Display: PreExit Game.
+[2026.05.07-20.37.41:392][ 65]LogWorld: BeginTearingDown for /Game/Maps/GYM/Genlandia/GenlandiaMulty
+[2026.05.07-20.37.41:392][ 65]R5LogDataKeeper: Verbose:     [002065] UR5DataKeeper::OnWorldEndPlay                      Clear world specific data                                                                           [D:\Source\Build\work\gameRepoCheckoutDir\Source\R5DataKeepers\Private\R5DataKeeper.cpp:354]
+[2026.05.07-20.37.41:392][ 65]LogNet: World NetDriver shutdown R5NetDriver_2147480915 [GameNetDriver]
+[2026.05.07-20.37.41:392][ 65]LogNet: DestroyNamedNetDriver: Name:GameNetDriver Def:GameNetDriver R5NetDriver_2147480915 
+[2026.05.07-20.37.41:392][ 65]R5LogSocketSubsystem: Verbose: [002065] UR5NetDriver::Shutdown                            Shutting down NetDriver                                                                             [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5CommonUtils\Source\R5SocketSubsystem\Private\R5NetDriver.cpp:189]
+[2026.05.07-20.37.41:392][ 65]R5LogSocketSubsystem:         [002065] FR5Socket::Close                                   Closing socket (R5:GameNetDriver:)                                                                  [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5CommonUtils\Source\R5SocketSubsystem\Private\R5Socket.cpp:46]
+[2026.05.07-20.37.41:392][ 65]R5LogP2pGate:                 [002065] ...ProxyForSocketSubsystem::CloseConnectionImpl    [[0x1a5f45bae88]] Cannot obtain connection for BLPlayerSessionId GameNetDriver                      [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5BusinessLogicCore\Source\R5P2pGate\Cpp\Proxies\R5P2pUeProxyForSocketSubsystem.cpp:42]
+[2026.05.07-20.37.41:392][ 65]R5LogSocketSubsystem:         [002065] FR5Socket::Close                                   Closing socket (R5:GameNetDriver:)                                                                  [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5CommonUtils\Source\R5SocketSubsystem\Private\R5Socket.cpp:46]
+[2026.05.07-20.37.41:392][ 65]R5LogP2pGate:                 [002065] ...ProxyForSocketSubsystem::CloseConnectionImpl    [[0x1a5f45bae88]] Cannot obtain connection for BLPlayerSessionId GameNetDriver                      [D:\Source\Build\work\gameRepoCheckoutDir\Plugins\R5BusinessLogicCore\Source\R5P2pGate\Cpp\Proxies\R5P2pUeProxyForSocketSubsystem.cpp:42]
+[2026.05.07-20.37.41:392][ 65]LogExit: Name:GameNetDriver Def:GameNetDriver R5NetDriver_2147480915 shut down
+[2026.05.07-20.37.41:392][ 65]R5LogGameTimeComponent:       [002065] UR5GameTimeComponent::EndPlay                      EndPlayReason 'Quit'                                                                                [D:\Source\Build\work\gameRepoCheckoutDir\Source\R5\Game\GameStates\Components\R5GameTimeComponent.cpp:67]
+[2026.05.07-20.37.41:393][ 65]R5LogCoopProxy:               [002065] UR5CoopProxy::PreDeinitialize                      Start on PreDeinitialize sync backups                                                               [D:\Source\Build\work\gameRepoCheckoutDir\Source\BackendProxy\R5CoopProxy\Private\R5CoopProxy.cpp:58]
+[2026.05.07-20.37.41:393][ 65]R5LogCoopProxy:               [002065] UR5CoopProxy::SaveBackupsSync                      Start sync backups. Id D610B103423536803F6C9E9FDE4D8040. IsInGameThread true                        [D:\Source\Build\work\gameRepoCheckoutDir\Source\BackendProxy\R5CoopProxy\Private\R5CoopProxy.cpp:155]
+[2026.05.07-20.37.41:393][ 65]R5LogCoopProxy: Verbose:      [002065] ...ootDocumentsCollection::BackupChangedRecords    Backup changed records ...                                                                          [D:\Source\Build\work\gameRepoCheckoutDir\Source\BackendProxy\R5CoopProxy\Private\Data\R5CoopRootDocumentsCollection.cpp:282]
+[2026.05.07-20.37.41:393][ 65]R5LogCoopProxy: Verbose:      [002065] UR5CoopRootDocumentBackup::SaveBackupAsync         R5BLIsland[1556652C185649FE4F9908010CBF9860]. Save backup requested ...                             [D:\Source\Build\work\gameRepoCheckoutDir\Source\BackendProxy\R5CoopProxy\Private\Data\R5CoopRootDocumentBackup.cpp:178]
+[2026.05.07-20.37.41:505][ 65]R5LogCoopProxy: Verbose:      [002065] UR5CoopRootDocumentBackup::OnSaveBackupFinished    R5BLIsland[1556652C185649FE4F9908010CBF9860]. Save backup has finished successfully                 [D:\Source\Build\work\gameRepoCheckoutDir\Source\BackendProxy\R5CoopProxy\Private\Data\R5CoopRootDocumentBackup.cpp:203]
+[2026.05.07-20.37.41:505][ 65]R5LogCoopProxy:               [002065] UR5CoopProxy::SaveBackupsSync                      Finished sync backups. Id A1DED0AA4DDA8C752E2490A41C86B5F4. Result true                             [D:\Source\Build\work\gameRepoCheckoutDir\Source\BackendProxy\R5CoopProxy\Private\R5CoopProxy.cpp:182]

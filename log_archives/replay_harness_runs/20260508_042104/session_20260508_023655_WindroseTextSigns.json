@@ -1,0 +1,33 @@
+﻿{
+    "session_name":  "20260508_023655_WindroseTextSigns",
+    "status":  "FAIL",
+    "wts_path":  "C:\\SteamLibrary\\steamapps\\common\\Windrose\\R5\\Binaries\\Win64\\ue4ss\\Mods\\WindroseTextSigns\\WindroseTextSigns.log",
+    "r5_path":  "C:\\Users\\User\\Documents\\Windrose Addons\\WindroseTextSigns\\log_archives\\20260508_040938_baseline_policy_setup\\files\\C\\Users\\User\\AppData\\Local\\R5\\Saved\\Logs\\R5.log",
+    "pair_gap_sec":  10,
+    "correlation_window_sec":  2,
+    "event_count":  20,
+    "match_count":  0,
+    "summary":  {
+                    "restore_attempts":  0,
+                    "prune_commits":  0,
+                    "prune_deferred":  3,
+                    "destroy_correlations":  0,
+                    "hosted_reconcile_calls":  0
+                },
+    "first_failure":  {
+                          "code":  "ROLE_LOCK_MISSING",
+                          "message":  "No [role] lock_acquired event observed.",
+                          "path":  "C:\\SteamLibrary\\steamapps\\common\\Windrose\\R5\\Binaries\\Win64\\ue4ss\\Mods\\WindroseTextSigns\\WindroseTextSigns.log",
+                          "line":  4,
+                          "token":  "role_change",
+                          "timestamp_utc":  "2026-05-08T02:35:15.0000000+00:00"
+                      },
+    "findings":  {
+                     "code":  "ROLE_LOCK_MISSING",
+                     "message":  "No [role] lock_acquired event observed.",
+                     "path":  "C:\\SteamLibrary\\steamapps\\common\\Windrose\\R5\\Binaries\\Win64\\ue4ss\\Mods\\WindroseTextSigns\\WindroseTextSigns.log",
+                     "line":  4,
+                     "token":  "role_change",
+                     "timestamp_utc":  "2026-05-08T02:35:15.0000000+00:00"
+                 }
+}

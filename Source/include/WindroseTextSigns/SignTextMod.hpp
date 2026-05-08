@@ -109,6 +109,7 @@ namespace WindroseTextSigns
         auto write_log_row(const std::string& row) -> void;
         auto flush_log_repeat_summary() -> void;
         auto log_line(const std::string& line) -> void;
+        auto trace_behavior_sm(const std::string& event, const std::string& fields = {}) -> void;
         auto now_utc() const -> std::string;
 
         auto register_input_hotkey() -> void;
@@ -147,8 +148,23 @@ namespace WindroseTextSigns
         auto tick_phase5_build_menu_selection_probe() -> void;
         auto is_restore_scan_world_active() -> bool;
         auto is_localclient_prune_ready(bool authority_source_resolved, std::string* out_reason = nullptr) -> bool;
+        auto tick_localclient_role_resolution() -> void;
+        auto tick_r5_readiness_markers() -> void;
         auto refresh_recent_destroy_signals_from_r5_log() -> void;
         auto has_recent_destroy_confirmation(const std::string& stable_id) -> bool;
+        auto mark_suspect_rebuild(
+            const std::string& key,
+            const std::string& stable_id,
+            const std::string& world_id,
+            uintptr_t old_actor_ptr,
+            uintptr_t new_actor_ptr,
+            std::chrono::steady_clock::time_point now) -> void;
+        auto expire_suspect_rebuild_states(std::chrono::steady_clock::time_point now) -> void;
+        auto maybe_promote_suspect_rebuild_to_prune(
+            const std::string& key,
+            const std::string& stable_id,
+            const std::string& world_id,
+            std::chrono::steady_clock::time_point now) -> bool;
         auto maybe_run_hosted_post_ready_reconcile() -> void;
         auto ensure_selected_label_for_action(const std::string& action_name) -> bool;
         auto is_actor_pointer_live(RC::Unreal::AActor* actor) const -> bool;
@@ -291,6 +307,7 @@ namespace WindroseTextSigns
         std::string m_world_folder_id{};
         bool m_sidecar_authoritative{false};
         bool m_verbose_log{false};
+        bool m_behavior_trace_enabled{false};
         uint64_t m_revision{0};
         std::string m_session_id{};
         BridgeRole m_bridge_role{BridgeRole::Unknown};
@@ -425,11 +442,28 @@ namespace WindroseTextSigns
         std::unordered_map<std::string, uint32_t> m_missing_label_scan_counts{};
         std::unordered_map<std::string, std::chrono::steady_clock::time_point> m_recent_destroy_guid_signals{};
         std::unordered_map<std::string, std::chrono::steady_clock::time_point> m_recent_destroy_slot_confirmations{};
+        struct SuspectRebuildState
+        {
+            std::string stable_id{};
+            std::string world_id{};
+            uintptr_t old_actor_ptr{0};
+            uintptr_t replacement_actor_ptr{0};
+            uint32_t stable_scan_hits{0};
+            std::chrono::steady_clock::time_point first_detected{};
+            std::chrono::steady_clock::time_point last_seen{};
+            std::chrono::steady_clock::time_point suppress_until{};
+        };
+        std::unordered_map<std::string, SuspectRebuildState> m_suspect_rebuild_states{};
         std::filesystem::path m_destroy_signal_log_path{};
         uintmax_t m_destroy_signal_log_offset{0};
         bool m_destroy_signal_log_initialized{false};
         std::chrono::steady_clock::time_point m_destroy_signal_last_poll{};
         uint32_t m_destroy_confirm_ttl_sec{10};
+        std::chrono::steady_clock::time_point m_last_player_activity{};
+        std::chrono::steady_clock::time_point m_pending_role_watchdog_started{};
+        bool m_pending_role_watchdog_logged{false};
+        std::string m_pending_resolution_last_block_reason{};
+        std::string m_pending_resolution_last_controller_signature{};
         bool m_hosted_ready_world_client_seen{false};
         bool m_hosted_ready_player_ready_seen{false};
         bool m_hosted_ready_datakeeper_seen{false};

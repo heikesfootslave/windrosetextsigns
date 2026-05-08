@@ -1,0 +1,19 @@
+﻿Replay Harness Run
+RunDir: C:\Users\User\Documents\Windrose Addons\WindroseTextSigns\log_archives\replay_harness_runs\20260508_042422
+Discovered: total=65 wts=12 r5=53
+PairedSessions: 12
+Unmatched: wts=0 r5=41
+
+Session Results:
+- [FAIL] 20260506_194346_WindroseTextSigns | pairGapSec=8 | restore=30 pruneCommit=0 pruneDeferred=2 destroyCorr=0 hostedRecon=0 | firstFailure=ROLE_LOCK_MISSING @ C:\Users\User\Documents\Windrose Addons\WindroseTextSigns\log_archives\20260508_041029_internet_client_logs_batch\files\E\Windrose\logs\UPnP static ip\WindroseTextSigns.log:3
+- [FAIL] 20260506_202200_WindroseTextSigns | pairGapSec=0 | restore=44 pruneCommit=0 pruneDeferred=2 destroyCorr=0 hostedRecon=0 | firstFailure=ROLE_LOCK_MISSING @ C:\Users\User\Documents\Windrose Addons\WindroseTextSigns\log_archives\20260508_041029_internet_client_logs_batch\files\E\Windrose\logs\UPnP auto ip\WindroseTextSigns.log:3
+- [FAIL] 20260506_211454_WindroseTextSigns | pairGapSec=2 | restore=67 pruneCommit=0 pruneDeferred=2 destroyCorr=0 hostedRecon=0 | firstFailure=ROLE_LOCK_MISSING @ C:\Users\User\Documents\Windrose Addons\WindroseTextSigns\log_archives\20260508_041029_internet_client_logs_batch\files\E\Windrose\logs\UPnP auto 3\WindroseTextSigns.log:3
+- [FAIL] 20260507_180216_WindroseTextSigns | pairGapSec=0 | restore=30 pruneCommit=0 pruneDeferred=2 destroyCorr=0 hostedRecon=0 | firstFailure=ROLE_LOCK_MISSING @ C:\Users\User\Documents\Windrose Addons\WindroseTextSigns\log_archives\20260508_041029_internet_client_logs_batch\files\E\Windrose\logs\0.1.2 auto fix\WindroseTextSigns.log:4
+- [FAIL] 20260507_184020_WindroseTextSigns | pairGapSec=0 | restore=312 pruneCommit=4 pruneDeferred=11 destroyCorr=0 hostedRecon=0 | firstFailure=ROLE_LOCK_MISSING @ C:\Users\User\Documents\Windrose Addons\WindroseTextSigns\log_archives\20260508_041029_internet_client_logs_batch\files\E\Windrose\logs\0.1.2 prune test\WindroseTextSigns.log:4
+- [FAIL] 20260507_191513_Ogmosis_WindroseTextSigns | pairGapSec=49 | restore=0 pruneCommit=8 pruneDeferred=6 destroyCorr=0 hostedRecon=0 | firstFailure=ROLE_LOCK_MISSING @ C:\Users\User\Downloads\Ogmosis_WindroseTextSigns.log:3
+- [FAIL] 20260507_200754_WindroseTextSigns | pairGapSec=0 | restore=3 pruneCommit=0 pruneDeferred=3 destroyCorr=0 hostedRecon=0 | firstFailure=ROLE_LOCK_MISSING @ C:\Users\User\Documents\Windrose Addons\WindroseTextSigns\log_archives\20260508_041029_internet_client_logs_batch\files\E\Windrose\logs\hosted_client\WindroseTextSigns.log:4
+- [PASS] 20260507_210322_WindroseTextSigns | pairGapSec=22 | restore=67 pruneCommit=0 pruneDeferred=7 destroyCorr=0 hostedRecon=0
+- [PASS] 20260507_215618_WindroseTextSigns | pairGapSec=6 | restore=9 pruneCommit=0 pruneDeferred=3 destroyCorr=0 hostedRecon=0
+- [PASS] 20260507_224550_WindroseTextSigns | pairGapSec=12 | restore=14 pruneCommit=0 pruneDeferred=1 destroyCorr=0 hostedRecon=0
+- [FAIL] 20260508_023655_WindroseTextSigns | pairGapSec=10 | restore=0 pruneCommit=0 pruneDeferred=3 destroyCorr=0 hostedRecon=0 | firstFailure=ROLE_LOCK_MISSING @ C:\Users\User\Documents\Windrose Addons\WindroseTextSigns\log_archives\20260508_040938_baseline_policy_setup\files\C\SteamLibrary\steamapps\common\Windrose\R5\Binaries\Win64\ue4ss\Mods\WindroseTextSigns\WindroseTextSigns.log:4
+- [FAIL] 20260508_023655_WindroseTextSigns | pairGapSec=10 | restore=0 pruneCommit=0 pruneDeferred=3 destroyCorr=0 hostedRecon=0 | firstFailure=ROLE_LOCK_MISSING @ C:\SteamLibrary\steamapps\common\Windrose\R5\Binaries\Win64\ue4ss\Mods\WindroseTextSigns\WindroseTextSigns.log:4
