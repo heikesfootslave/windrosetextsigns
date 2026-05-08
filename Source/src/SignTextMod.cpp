@@ -4045,16 +4045,12 @@ namespace WindroseTextSigns
 
     auto SignTextMod::is_hide_native_label_icon_enabled() const -> bool
     {
-        return config_bool_value(
-            "WTS_HIDE_NATIVE_LABEL_ICON",
-            config_bool_value("WTS_PHASE5_VISUAL_PATCH_HIDE_ICON_COMPONENTS", true));
+        return config_bool_value("WTS_HIDE_NATIVE_LABEL_ICON", true);
     }
 
     auto SignTextMod::is_label_text_visual_diagnostics_enabled() const -> bool
     {
-        return config_bool_value(
-            "WTS_LABEL_TEXT_VISUAL_DIAGNOSTICS",
-            config_bool_value("WTS_PHASE5_VISUAL_PATCH_PROBE", false));
+        return config_bool_value("WTS_LABEL_TEXT_VISUAL_DIAGNOSTICS", false);
     }
 
     auto SignTextMod::is_native_transport_inventory_probe_enabled() const -> bool
@@ -6550,194 +6546,10 @@ namespace WindroseTextSigns
 
     auto SignTextMod::tick_pending_fallback_hotkeys() -> void
     {
-        if (m_buildmenu_probe_requested.exchange(false))
-        {
-            run_buildmenu_asset_probe();
-        }
         if (m_native_transport_inventory_requested.exchange(false))
         {
             run_native_transport_inventory_probe("request");
         }
-    }
-
-    auto SignTextMod::run_six_sign_targeting_test() -> void
-    {
-        struct SeenRow
-        {
-            std::string stable_id{};
-            std::string key{};
-            std::string actor_name{};
-        };
-
-        std::vector<SeenRow> rows{};
-        std::unordered_set<std::string> unique_keys{};
-
-        UObjectGlobals::ForEachUObject([&](UObject* object, int32, int32) {
-            if (!object || !object->IsA(AActor::StaticClass()))
-            {
-                return LoopAction::Continue;
-            }
-
-            auto* actor = Cast<AActor>(object);
-            if (!actor || !is_probable_label_actor(actor))
-            {
-                return LoopAction::Continue;
-            }
-
-            const auto stable_id = extract_stable_id(actor);
-            const auto world_id = build_world_id_for_actor(actor);
-            const auto key = build_storage_key(world_id, stable_id);
-
-            if (unique_keys.insert(key).second)
-            {
-                rows.push_back(SeenRow{
-                    stable_id,
-                    key,
-                    narrow_ascii(actor->GetFullName())});
-            }
-
-            if (rows.size() >= 6)
-            {
-                return LoopAction::Break;
-            }
-            return LoopAction::Continue;
-        });
-
-        log_line("[test6] start uniqueKeysFound=" + std::to_string(rows.size()));
-        for (size_t i = 0; i < rows.size(); ++i)
-        {
-            const auto& row = rows[i];
-            log_line("[test6] row=" + std::to_string(i + 1) +
-                     " key=" + row.key +
-                     " stableId=" + row.stable_id +
-                     " actor=" + row.actor_name);
-        }
-
-        if (rows.size() >= 6)
-        {
-            log_line("[test6] PASS foundAtLeastSixUniqueSigns=true");
-        }
-        else
-        {
-            log_line("[test6] FAIL foundAtLeastSixUniqueSigns=false uniqueKeysFound=" + std::to_string(rows.size()));
-        }
-    }
-
-    auto SignTextMod::run_buildmenu_asset_probe() -> void
-    {
-        log_line("[buildmenu-probe] start");
-
-        std::vector<UObject*> wooden_items{};
-        wooden_items.reserve(32);
-        std::vector<std::string> widget_candidates{};
-        widget_candidates.reserve(32);
-        std::vector<std::string> function_candidates{};
-        function_candidates.reserve(64);
-
-        UObjectGlobals::ForEachUObject([&](UObject* object, int32, int32) {
-            if (!object)
-            {
-                return LoopAction::Continue;
-            }
-
-            const auto full_name = narrow_ascii(object->GetFullName());
-            const auto lower_full_name = lower_ascii(full_name);
-
-            if (lower_full_name.find("da_bi_utilities_lables_wooden_") != std::string::npos)
-            {
-                wooden_items.push_back(object);
-            }
-
-            if (contains_any_token(lower_full_name, {"wbp_", "widgetblueprintgeneratedclass"}) &&
-                contains_any_token(lower_full_name, {"build", "menu", "craft", "storage", "beds", "lables", "plaque"}))
-            {
-                if (widget_candidates.size() < 64)
-                {
-                    widget_candidates.push_back(full_name);
-                }
-            }
-
-            if (object->IsA(UFunction::StaticClass()))
-            {
-                if (contains_any_token(lower_full_name, {
-                        "makeconstructcommand",
-                        "finishconstruction",
-                        "onbuildingaddedtoisland",
-                        "buildmenu",
-                        "buildingmenu",
-                        "craft",
-                        "recipe",
-                        "lables",
-                        "wallplaque"}))
-                {
-                    if (function_candidates.size() < 128)
-                    {
-                        function_candidates.push_back(full_name);
-                    }
-                }
-            }
-
-            return LoopAction::Continue;
-        });
-
-        log_line("[buildmenu-probe] wooden_items_found=" + std::to_string(wooden_items.size()));
-        for (size_t i = 0; i < wooden_items.size() && i < 32; ++i)
-        {
-            auto* item = wooden_items[i];
-            if (!item)
-            {
-                continue;
-            }
-
-            const auto item_full_name = narrow_ascii(item->GetFullName());
-            const auto class_name = item->GetClassPrivate()
-                ? narrow_ascii(item->GetClassPrivate()->GetFullName())
-                : std::string{"unknown"};
-            const auto outer_name = item->GetOuterPrivate()
-                ? narrow_ascii(item->GetOuterPrivate()->GetFullName())
-                : std::string{"none"};
-
-            log_line("[buildmenu-probe] wooden_item index=" + std::to_string(i) +
-                     " object=" + item_full_name +
-                     " class=" + class_name +
-                     " outer=" + outer_name);
-
-            uint32_t logged_fields = 0;
-            for_each_property_in_chain_compat(item->GetClassPrivate(), [&](FProperty* prop) {
-                if (!prop || logged_fields >= 48)
-                {
-                    return;
-                }
-                auto value = try_extract_property_log_value(prop, item);
-                if (!value.has_value() || value->empty())
-                {
-                    return;
-                }
-                ++logged_fields;
-                log_line("[buildmenu-probe] wooden_item_field index=" + std::to_string(i) +
-                         " prop=" + lower_ascii(RC::to_string(prop->GetName())) +
-                         " value=" + *value);
-            });
-
-            log_line("[buildmenu-probe] wooden_item_field_count index=" + std::to_string(i) +
-                     " count=" + std::to_string(logged_fields));
-        }
-
-        log_line("[buildmenu-probe] widget_candidates_found=" + std::to_string(widget_candidates.size()));
-        for (size_t i = 0; i < widget_candidates.size() && i < 40; ++i)
-        {
-            log_line("[buildmenu-probe] widget_candidate index=" + std::to_string(i) +
-                     " value=" + widget_candidates[i]);
-        }
-
-        log_line("[buildmenu-probe] function_candidates_found=" + std::to_string(function_candidates.size()));
-        for (size_t i = 0; i < function_candidates.size() && i < 80; ++i)
-        {
-            log_line("[buildmenu-probe] function_candidate index=" + std::to_string(i) +
-                     " value=" + function_candidates[i]);
-        }
-
-        log_line("[buildmenu-probe] complete");
     }
 
     auto SignTextMod::run_native_transport_inventory_probe(const std::string& reason) -> void
@@ -7870,35 +7682,6 @@ namespace WindroseTextSigns
 
     auto SignTextMod::tick_file_triggers() -> void
     {
-        const auto trigger_path = m_mod_root / "Config" / "run_test6.flag";
-        if (std::filesystem::exists(trigger_path))
-        {
-            log_line("[test6] trigger file detected path=" + trigger_path.string());
-            m_six_sign_test_requested.store(true);
-
-            std::error_code remove_ec{};
-            std::filesystem::remove(trigger_path, remove_ec);
-            if (remove_ec)
-            {
-                log_line("[test6] trigger file remove failed path=" + trigger_path.string() + " error=" + remove_ec.message());
-            }
-        }
-
-        const auto buildmenu_trigger_path = m_mod_root / "Config" / "run_buildmenu_probe.flag";
-        if (std::filesystem::exists(buildmenu_trigger_path))
-        {
-            log_line("[buildmenu-probe] trigger file detected path=" + buildmenu_trigger_path.string());
-            m_buildmenu_probe_requested.store(true);
-
-            std::error_code remove_ec{};
-            std::filesystem::remove(buildmenu_trigger_path, remove_ec);
-            if (remove_ec)
-            {
-                log_line("[buildmenu-probe] trigger file remove failed path=" + buildmenu_trigger_path.string() +
-                         " error=" + remove_ec.message());
-            }
-        }
-
         const auto native_transport_trigger_path = m_mod_root / "Config" / "run_native_transport_inventory.flag";
         if (std::filesystem::exists(native_transport_trigger_path))
         {
@@ -8978,8 +8761,6 @@ namespace WindroseTextSigns
         NativeBridge::instance().set_role(desired);
         reset_bridge_snapshot_state("role_change_" + reason);
         m_bridge_route_last_candidates.clear();
-        m_bridge_route_candidate_index = 0;
-        m_bridge_route_last_switch = {};
         m_bridge_route_lock_acquired = false;
         m_bridge_route_locked_host.clear();
         m_bridge_route_loopback_same_machine_ok = false;
@@ -9410,6 +9191,54 @@ namespace WindroseTextSigns
                 found = true;
             }
             return LoopAction::Continue;
+        });
+        return found;
+    }
+
+    auto get_float_property_if_present(UObject* object, const std::string& property_name, float& out_value) -> bool
+    {
+        if (!object || property_name.empty())
+        {
+            return false;
+        }
+        const auto target = property_name;
+        bool found = false;
+        for_each_property_in_chain_compat(object->GetClassPrivate(), [&](FProperty* prop) {
+            if (found || !prop)
+            {
+                return;
+            }
+            const auto prop_hash = prop->GetClass().HashObject();
+            if (prop_hash != FFloatProperty::StaticClass().HashObject() &&
+                prop_hash != FDoubleProperty::StaticClass().HashObject())
+            {
+                return;
+            }
+
+            auto prop_name = RC::to_string(prop->GetName());
+            std::transform(prop_name.begin(), prop_name.end(), prop_name.begin(), [](unsigned char c) {
+                return static_cast<char>(std::tolower(c));
+            });
+            if (prop_name != target)
+            {
+                return;
+            }
+
+            if (prop_hash == FFloatProperty::StaticClass().HashObject())
+            {
+                if (auto* value_ptr = prop->ContainerPtrToValuePtr<float>(object))
+                {
+                    out_value = *value_ptr;
+                    found = true;
+                }
+                return;
+            }
+
+            if (auto* value_ptr = prop->ContainerPtrToValuePtr<double>(object))
+            {
+                out_value = static_cast<float>(*value_ptr);
+                found = true;
+            }
         });
         return found;
     }
@@ -10242,7 +10071,6 @@ namespace WindroseTextSigns
             m_bridge_sync_wait_started = now;
             m_bridge_health_unhealthy = false;
             m_bridge_health_warning_logged = false;
-            m_bridge_route_last_switch = now;
         }
 
         m_bridge_route_lock_acquired = true;
@@ -11692,11 +11520,16 @@ namespace WindroseTextSigns
         const bool localclient_authoritative =
             m_sidecar_authoritative &&
             !is_dedicated_runtime_process();
+        const bool dedicated_authoritative =
+            m_sidecar_authoritative &&
+            is_dedicated_runtime_process();
+        const bool authoritative_destroy_confirmation_runtime =
+            localclient_authoritative || dedicated_authoritative;
         const bool destructive_prune_allowed =
             is_dedicated_runtime_process() ||
             (m_session_ready_latched && m_role_lock_acquired);
-        const bool trusted_destroy_confirmed_local =
-            localclient_authoritative &&
+        const bool trusted_destroy_confirmed_authoritative =
+            authoritative_destroy_confirmation_runtime &&
             has_recent_destroy_confirmation(stable_id, world_id);
         const bool seen_live_this_session = m_seen_live_label_keys.find(key) != m_seen_live_label_keys.end();
         std::string localclient_prune_ready_reason{};
@@ -11705,7 +11538,7 @@ namespace WindroseTextSigns
         const bool authoritative_local_guard_blocked =
             localclient_authoritative &&
             !localclient_prune_ready &&
-            !trusted_destroy_confirmed_local;
+            !trusted_destroy_confirmed_authoritative;
         const bool remote_bridge_unsynced =
             !m_sidecar_authoritative &&
             m_bridge_role == BridgeRole::RemoteClient &&
@@ -11721,7 +11554,7 @@ namespace WindroseTextSigns
             if (const auto found = m_labels.find(key); found != m_labels.end())
             {
                 const bool destroy_confirmed_r5log =
-                    localclient_authoritative &&
+                    authoritative_destroy_confirmation_runtime &&
                     has_recent_destroy_confirmation(found->second.stable_id, found->second.world_id);
                 if (destroy_confirmed_r5log)
                 {
@@ -12010,11 +11843,17 @@ namespace WindroseTextSigns
         const bool localclient_runtime =
             runtime_role_lower == "localclient" ||
             runtime_role_lower == "localclientpending";
-        // Parse destroy/construct signals in LocalClient runtime states (including Pending)
-        // so short-lived evidence is not lost during authority-route bootstrap churn.
+        const bool dedicated_authoritative_runtime =
+            is_dedicated_runtime_process() &&
+            m_sidecar_authoritative;
+        // Parse destroy/construct signals in:
+        // 1) LocalClient runtime states (including Pending), so short-lived evidence
+        //    is not lost during authority-route bootstrap churn.
+        // 2) Dedicated authoritative runtime, so authoritative prune decisions can be
+        //    committed server-side and propagated to clients.
         const bool parse_destroy_construct_signals =
-            !is_dedicated_runtime_process() &&
-            localclient_runtime;
+            dedicated_authoritative_runtime ||
+            (!is_dedicated_runtime_process() && localclient_runtime);
 
         std::ifstream input{m_destroy_signal_log_path, std::ios::binary};
         if (!input)
@@ -12196,9 +12035,15 @@ namespace WindroseTextSigns
 
     auto SignTextMod::has_recent_destroy_confirmation(const std::string& stable_id, const std::string& expected_world_id) -> bool
     {
+        const auto runtime_role_lower = lower_ascii(m_runtime_role);
+        const bool localclient_authoritative_runtime =
+            !is_dedicated_runtime_process() &&
+            runtime_role_lower == "localclient";
+        const bool dedicated_authoritative_runtime =
+            is_dedicated_runtime_process() &&
+            m_sidecar_authoritative;
         if (!m_sidecar_authoritative ||
-            is_dedicated_runtime_process() ||
-            lower_ascii(m_runtime_role) != "localclient")
+            (!localclient_authoritative_runtime && !dedicated_authoritative_runtime))
         {
             return false;
         }
@@ -12213,16 +12058,28 @@ namespace WindroseTextSigns
                 return false;
             }
         }
-        auto* controller = try_get_primary_player_controller();
-        auto* controller_actor = controller && controller->IsA(AActor::StaticClass()) ? Cast<AActor>(controller) : nullptr;
-        if (!controller_actor)
+        if (localclient_authoritative_runtime)
         {
-            return false;
+            auto* controller = try_get_primary_player_controller();
+            auto* controller_actor = controller && controller->IsA(AActor::StaticClass()) ? Cast<AActor>(controller) : nullptr;
+            if (!controller_actor)
+            {
+                return false;
+            }
+            const auto active_world_id = active_storage_world_id(build_world_id_for_actor(controller_actor));
+            if (active_world_id.empty() || lower_ascii(active_world_id) != lower_ascii(expected_world_id))
+            {
+                return false;
+            }
         }
-        const auto active_world_id = active_storage_world_id(build_world_id_for_actor(controller_actor));
-        if (active_world_id.empty() || lower_ascii(active_world_id) != lower_ascii(expected_world_id))
+        else
         {
-            return false;
+            const auto active_world_id = active_storage_world_id(
+                !m_role_lock_world_id.empty() ? m_role_lock_world_id : m_world_folder_id);
+            if (active_world_id.empty() || lower_ascii(active_world_id) != lower_ascii(expected_world_id))
+            {
+                return false;
+            }
         }
         const auto now = std::chrono::steady_clock::now();
         const auto slot = try_extract_building_slot_from_stable_id(stable_id);
@@ -13042,6 +12899,10 @@ namespace WindroseTextSigns
         m_visual_verify_ready_pawn_loc_valid = false;
         m_visual_verify_expected_keys.clear();
         m_visual_verify_last_result.clear();
+        m_visual_verify_last_tier.clear();
+        m_visual_verify_recently_rendered_streak.clear();
+        m_visual_verify_no_render_streak.clear();
+        m_visual_verify_last_render_time_seen.clear();
     }
 
     auto SignTextMod::run_localclient_visual_verify_pass(
@@ -13127,10 +12988,28 @@ namespace WindroseTextSigns
         });
 
         uint32_t pass_count = 0;
+        uint32_t warn_count = 0;
         uint32_t fail_count = 0;
         const auto view = get_player_viewpoint_reflective(controller);
         const auto view_forward = view.valid ? vec_normalize(rotation_to_forward(view.rotation)) : FVector(0.0, 0.0, 0.0);
         const float max_dist = std::max(100.0f, static_cast<float>(safe_stoi(config_string_value("WTS_MAX_TARGET_DISTANCE", "1000"), 1000)));
+        auto read_last_render_time = [&](UObject* component, float& out_value) -> bool {
+            float on_screen = 0.0f;
+            if (get_float_property_if_present(component, "lastrendertimeonscreen", on_screen))
+            {
+                out_value = on_screen;
+                return true;
+            }
+
+            float any_render = 0.0f;
+            if (get_float_property_if_present(component, "lastrendertime", any_render))
+            {
+                out_value = any_render;
+                return true;
+            }
+
+            return false;
+        };
 
         log_line("[visual-verify] pass_start pass=" + std::to_string(pass_number) +
                  " reason=" + reason +
@@ -13147,15 +13026,12 @@ namespace WindroseTextSigns
             }
             const auto& rec = rec_it->second;
             auto* actor = actors_by_key.count(key) > 0 ? actors_by_key[key] : nullptr;
-            if (apply_before_verify && actor)
-            {
-                restore_known_text_if_any(actor, rec.stable_id, true);
-            }
 
             bool component_exists = false;
             bool component_registered = false;
             bool component_attached = false;
             bool component_pending_kill = false;
+            bool render_state_created = false;
             bool hidden_in_game = true;
             bool visible = false;
             bool text_non_empty = false;
@@ -13165,6 +13041,13 @@ namespace WindroseTextSigns
             bool in_viewport = false;
             bool within_fov = false;
             bool recently_rendered = false;
+            bool recently_rendered_consecutive_frames = false;
+            bool last_render_time_sampled_before = false;
+            bool last_render_time_sampled_after = false;
+            bool last_render_time_advanced = false;
+            float last_render_time_before = 0.0f;
+            float last_render_time_after = 0.0f;
+            float last_render_time_delta = 0.0f;
             float screen_x = 0.0f;
             float screen_y = 0.0f;
             int32_t viewport_w = 0;
@@ -13172,6 +13055,16 @@ namespace WindroseTextSigns
             double distance = 0.0;
 
             std::string observed_text{};
+            auto* component_before_apply = actor ? find_managed_text_component(actor, key) : nullptr;
+            if (component_before_apply)
+            {
+                last_render_time_sampled_before = read_last_render_time(component_before_apply, last_render_time_before);
+            }
+            if (apply_before_verify && actor)
+            {
+                restore_known_text_if_any(actor, rec.stable_id, true);
+            }
+
             auto* component = actor ? find_managed_text_component(actor, key) : nullptr;
             component_exists = component != nullptr;
             if (component)
@@ -13206,6 +13099,16 @@ namespace WindroseTextSigns
                     component_pending_kill = true;
                 }
 
+                bool render_state_value = false;
+                if (invoke_bool_return_no_param(
+                        component,
+                        STR("IsRenderStateCreated"),
+                        STR("/Script/Engine.PrimitiveComponent:IsRenderStateCreated"),
+                        render_state_value))
+                {
+                    render_state_created = render_state_value;
+                }
+
                 (void)get_bool_property_if_present(component, "bhiddeningame", hidden_in_game);
                 (void)get_bool_property_if_present(component, "bvisible", visible);
 
@@ -13224,6 +13127,30 @@ namespace WindroseTextSigns
                         recent_render_value))
                 {
                     recently_rendered = recent_render_value;
+                }
+
+                if (last_render_time_sampled_before || m_visual_verify_last_render_time_seen.find(key) != m_visual_verify_last_render_time_seen.end())
+                {
+                    float baseline = last_render_time_before;
+                    if (!last_render_time_sampled_before)
+                    {
+                        baseline = m_visual_verify_last_render_time_seen[key];
+                    }
+                    last_render_time_sampled_after = read_last_render_time(component, last_render_time_after);
+                    if (last_render_time_sampled_after)
+                    {
+                        last_render_time_delta = last_render_time_after - baseline;
+                        last_render_time_advanced = last_render_time_delta > 0.0001f;
+                        m_visual_verify_last_render_time_seen[key] = last_render_time_after;
+                    }
+                }
+                else
+                {
+                    last_render_time_sampled_after = read_last_render_time(component, last_render_time_after);
+                    if (last_render_time_sampled_after)
+                    {
+                        m_visual_verify_last_render_time_seen[key] = last_render_time_after;
+                    }
                 }
             }
 
@@ -13256,6 +13183,23 @@ namespace WindroseTextSigns
 
             const bool visible_state_ok = !hidden_in_game && visible;
             const bool screen_ok = in_front && within_fov && distance <= max_dist && projectable && in_viewport;
+            auto& recent_streak = m_visual_verify_recently_rendered_streak[key];
+            if (recently_rendered)
+            {
+                ++recent_streak;
+            }
+            else
+            {
+                recent_streak = 0;
+            }
+            recently_rendered_consecutive_frames = recent_streak >= 2;
+
+            const bool strong_last_render_signal = last_render_time_advanced && screen_ok;
+            int strong_signal_count = 0;
+            strong_signal_count += render_state_created ? 1 : 0;
+            strong_signal_count += strong_last_render_signal ? 1 : 0;
+            strong_signal_count += recently_rendered_consecutive_frames ? 1 : 0;
+
             const bool pass = component_exists &&
                 component_registered &&
                 component_attached &&
@@ -13264,26 +13208,46 @@ namespace WindroseTextSigns
                 text_non_empty &&
                 text_matches_expected &&
                 screen_ok &&
-                recently_rendered;
+                strong_signal_count >= 2;
+
+            auto& no_render_streak = m_visual_verify_no_render_streak[key];
+            if (pass)
+            {
+                no_render_streak = 0;
+            }
+            else
+            {
+                ++no_render_streak;
+            }
+            const bool repeated_no_render = no_render_streak >= 3;
+            const bool hard_fail = !pass && (component_pending_kill || repeated_no_render);
+            const std::string tier = pass ? "PASS" : (hard_fail ? "FAIL" : "WARN");
 
             ++pass_count;
-            if (!pass)
+            if (tier == "WARN")
+            {
+                ++warn_count;
+            }
+            else if (tier == "FAIL")
             {
                 ++fail_count;
             }
-            const bool had_prior = m_visual_verify_last_result.find(key) != m_visual_verify_last_result.end();
-            const bool prior = had_prior ? m_visual_verify_last_result[key] : false;
+            const bool had_prior = m_visual_verify_last_tier.find(key) != m_visual_verify_last_tier.end();
+            const auto prior_tier = had_prior ? m_visual_verify_last_tier[key] : std::string{};
+            const bool changed = had_prior ? (prior_tier != tier) : false;
+            m_visual_verify_last_tier[key] = tier;
             m_visual_verify_last_result[key] = pass;
 
             log_line("[visual-verify] pass=" + std::to_string(pass_number) +
                      " key=" + key +
                      " stableId=" + rec.stable_id +
-                     " result=" + std::string{pass ? "pass" : "fail"} +
-                     " changed=" + std::string{had_prior ? ((prior != pass) ? "true" : "false") : "n/a"} +
+                     " result=" + tier +
+                     " changed=" + std::string{had_prior ? (changed ? "true" : "false") : "n/a"} +
                      " exists=" + std::string{component_exists ? "true" : "false"} +
                      " registered=" + std::string{component_registered ? "true" : "false"} +
                      " attached=" + std::string{component_attached ? "true" : "false"} +
                      " pendingKill=" + std::string{component_pending_kill ? "true" : "false"} +
+                     " renderStateCreated=" + std::string{render_state_created ? "true" : "false"} +
                      " hiddenInGame=" + std::string{hidden_in_game ? "true" : "false"} +
                      " visible=" + std::string{visible ? "true" : "false"} +
                      " textMatch=" + std::string{text_matches_expected ? "true" : "false"} +
@@ -13296,6 +13260,14 @@ namespace WindroseTextSigns
                      " screen=" + std::to_string(screen_x) + "," + std::to_string(screen_y) +
                      " viewport=" + std::to_string(viewport_w) + "x" + std::to_string(viewport_h) +
                      " recentlyRendered=" + std::string{recently_rendered ? "true" : "false"} +
+                     " recentlyRenderedStreak=" + std::to_string(recent_streak) +
+                     " recentlyRenderedConsecutive=" + std::string{recently_rendered_consecutive_frames ? "true" : "false"} +
+                     " lastRenderBefore=" + std::to_string(last_render_time_before) +
+                     " lastRenderAfter=" + std::to_string(last_render_time_after) +
+                     " lastRenderDelta=" + std::to_string(last_render_time_delta) +
+                     " lastRenderAdvanced=" + std::string{strong_last_render_signal ? "true" : "false"} +
+                     " strongSignals=" + std::to_string(strong_signal_count) +
+                     " noRenderStreak=" + std::to_string(no_render_streak) +
                      " expectedChars=" + std::to_string(rec.text.size()) +
                      " observedChars=" + std::to_string(observed_text.size()));
 
@@ -13312,6 +13284,7 @@ namespace WindroseTextSigns
         log_line("[visual-verify] pass_complete pass=" + std::to_string(pass_number) +
                  " reason=" + reason +
                  " checked=" + std::to_string(pass_count) +
+                 " warned=" + std::to_string(warn_count) +
                  " failed=" + std::to_string(fail_count) +
                  " forcedReapply=" + std::string{force_reapply ? "true" : "false"});
     }
@@ -13355,6 +13328,10 @@ namespace WindroseTextSigns
             m_visual_verify_pass1_scan_cycle = m_restore_scan_cycle_counter;
             m_visual_verify_expected_keys.clear();
             m_visual_verify_last_result.clear();
+            m_visual_verify_last_tier.clear();
+            m_visual_verify_recently_rendered_streak.clear();
+            m_visual_verify_no_render_streak.clear();
+            m_visual_verify_last_render_time_seen.clear();
 
             auto* controller = try_get_primary_player_controller();
             UObject* controlled_pawn = nullptr;
@@ -13471,10 +13448,6 @@ namespace WindroseTextSigns
             tick_pending_hotkey();
             tick_phase7_umg_editor();
             tick_phase5_build_menu_selection_probe();
-            if (m_six_sign_test_requested.exchange(false))
-            {
-                run_six_sign_targeting_test();
-            }
         }
         tick_pending_fallback_hotkeys();
         tick_file_triggers();
@@ -13625,6 +13598,11 @@ namespace WindroseTextSigns
             const bool localclient_authoritative =
                 m_sidecar_authoritative &&
                 !is_dedicated_runtime_process();
+            const bool dedicated_authoritative_runtime =
+                m_sidecar_authoritative &&
+                is_dedicated_runtime_process();
+            const bool authoritative_destroy_confirmation_runtime =
+                localclient_authoritative || dedicated_authoritative_runtime;
             uint32_t scan_actor_count = 0;
             uint32_t scan_probable_label_count = 0;
             uint32_t scan_buildingish_count = 0;
@@ -13699,7 +13677,7 @@ namespace WindroseTextSigns
                             constexpr uint32_t k_rebuild_prune_missing_scan_threshold = 4;
                             const bool seen_live_this_session = m_seen_live_label_keys.find(key) != m_seen_live_label_keys.end();
                             const bool destroy_confirmed_r5log =
-                                localclient_authoritative &&
+                                authoritative_destroy_confirmation_runtime &&
                                 has_recent_destroy_confirmation(found->second.stable_id, found->second.world_id);
                             std::string localclient_prune_ready_reason{};
                             const bool localclient_prune_ready =
@@ -14112,7 +14090,7 @@ namespace WindroseTextSigns
                     }
                     ++considered_missing_labels;
                     const bool trusted_destroy_confirmed =
-                        localclient_authoritative &&
+                        authoritative_destroy_confirmation_runtime &&
                         has_recent_destroy_confirmation(rec.stable_id, rec.world_id);
                     const auto world_it = present_world_counts.find(rec.world_id);
                     if (world_it == present_world_counts.end() || world_it->second < k_min_live_labels_in_world_for_prune)
@@ -14355,9 +14333,7 @@ namespace WindroseTextSigns
         ImGui::Text("WindroseTextSigns prototype");
         ImGui::Separator();
         ImGui::Text("Hotkey: %s", m_hotkey_name.c_str());
-        ImGui::Text("Build-menu probe: Config/run_buildmenu_probe.flag or button below");
         ImGui::Text("Clear text: open editor, delete text, press Enter");
-        ImGui::Text("Tests: Config/run_test6.flag, Config/run_buildmenu_probe.flag");
         ImGui::Text("Probe events: %llu", static_cast<unsigned long long>(m_probe_event_count));
         ImGui::Text("Label hits: %llu", static_cast<unsigned long long>(m_probe_label_hit_count));
         ImGui::Text("Saved records: %zu", m_labels.size());
@@ -14399,16 +14375,6 @@ namespace WindroseTextSigns
         if (ImGui::Button("Reload Sidecar"))
         {
             load_sidecar_json();
-        }
-        ImGui::SameLine();
-        if (ImGui::Button("Run Test (6 Signs)"))
-        {
-            m_six_sign_test_requested.store(true);
-        }
-        ImGui::SameLine();
-        if (ImGui::Button("Run BuildMenu Asset Probe"))
-        {
-            m_buildmenu_probe_requested.store(true);
         }
 
         if (!m_selected.has_value())

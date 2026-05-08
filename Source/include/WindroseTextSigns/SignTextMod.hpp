@@ -140,8 +140,6 @@ namespace WindroseTextSigns
         auto tick_pending_hotkey() -> void;
         auto tick_pending_fallback_hotkeys() -> void;
         auto tick_file_triggers() -> void;
-        auto run_six_sign_targeting_test() -> void;
-        auto run_buildmenu_asset_probe() -> void;
         auto run_native_transport_inventory_probe(const std::string& reason) -> void;
         auto poll_player_marker_log_action_trigger() -> void;
         auto tick_player_marker_replication_probe() -> void;
@@ -343,10 +341,8 @@ namespace WindroseTextSigns
         bool m_bridge_route_auto_enabled{false};
         std::filesystem::path m_bridge_route_log_path{};
         std::chrono::steady_clock::time_point m_bridge_route_next_check{};
-        std::chrono::steady_clock::time_point m_bridge_route_last_switch{};
         std::string m_bridge_route_last_discovered_host{};
         std::vector<std::string> m_bridge_route_last_candidates{};
-        size_t m_bridge_route_candidate_index{0};
         bool m_bridge_route_lock_acquired{false};
         std::string m_bridge_route_locked_host{};
         bool m_bridge_route_loopback_same_machine_ok{false};
@@ -401,8 +397,6 @@ namespace WindroseTextSigns
         std::unordered_map<std::string, std::chrono::steady_clock::time_point> m_bridge_pending_request_keys{};
 
         std::atomic<bool> m_hotkey_requested{false};
-        std::atomic<bool> m_six_sign_test_requested{false};
-        std::atomic<bool> m_buildmenu_probe_requested{false};
         std::atomic<bool> m_native_transport_inventory_requested{false};
         std::atomic<bool> m_player_marker_replication_probe_requested{false};
         std::atomic<bool> m_phase7_enter_requested{false};
@@ -564,6 +558,10 @@ namespace WindroseTextSigns
         bool m_visual_verify_ready_pawn_loc_valid{false};
         std::unordered_set<std::string> m_visual_verify_expected_keys{};
         std::unordered_map<std::string, bool> m_visual_verify_last_result{};
+        std::unordered_map<std::string, std::string> m_visual_verify_last_tier{};
+        std::unordered_map<std::string, int> m_visual_verify_recently_rendered_streak{};
+        std::unordered_map<std::string, int> m_visual_verify_no_render_streak{};
+        std::unordered_map<std::string, float> m_visual_verify_last_render_time_seen{};
         bool m_in_process_event_probe{false};
     };
 }
