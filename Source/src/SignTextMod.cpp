@@ -12153,12 +12153,19 @@ namespace WindroseTextSigns
             }
         }
 
+        if (should_hold_restore_for_first_seen_post_ready(
+                key, world_id, first_seen_live_after_ready, is_ready_baseline_key))
+        {
+            return true;
+        }
+
         if (!fresh_construct_for_active_world || is_ready_baseline_key)
         {
             log_line("[save] restore_allowed_no_construct_correlation key=" + key);
             return false;
         }
 
+        m_first_seen_construct_hold_states.erase(key);
         log_line("[save] stale_restore_blocked key=" + key + " reason=new_construct_overrides_stale_record");
         auto found = m_labels.find(key);
         if (found == m_labels.end())
@@ -12181,6 +12188,87 @@ namespace WindroseTextSigns
                  " removedComponent=" + std::string{removed_component ? "true" : "false"});
         save_sidecar_json("new_construct_overrides_stale_record", key, stable_id, world_id);
         return true;
+    }
+
+    auto SignTextMod::should_hold_restore_for_first_seen_post_ready(
+        const std::string& key,
+        const std::string& world_id,
+        bool first_seen_live_after_ready,
+        bool is_ready_baseline_key) -> bool
+    {
+        if (!m_session_ready_latched ||
+            is_ready_baseline_key ||
+            key.empty() ||
+            world_id.empty())
+        {
+            if (is_ready_baseline_key)
+            {
+                m_first_seen_construct_hold_states.erase(key);
+            }
+            return false;
+        }
+
+        const bool authoritative_localclient =
+            m_sidecar_authoritative && lower_ascii(m_runtime_role) == "localclient";
+        const bool authoritative_dedicated =
+            m_sidecar_authoritative && is_dedicated_runtime_process();
+        if (!authoritative_localclient && !authoritative_dedicated)
+        {
+            m_first_seen_construct_hold_states.erase(key);
+            return false;
+        }
+
+        auto existing_it = m_first_seen_construct_hold_states.find(key);
+        if (existing_it == m_first_seen_construct_hold_states.end())
+        {
+            if (!first_seen_live_after_ready)
+            {
+                return false;
+            }
+            FirstSeenConstructHoldState initial_state{};
+            initial_state.world_id = world_id;
+            initial_state.session_epoch = m_session_epoch;
+            initial_state.first_seen_scan_cycle = m_restore_scan_cycle_counter;
+            initial_state.hold_logged = false;
+            existing_it = m_first_seen_construct_hold_states.emplace(key, std::move(initial_state)).first;
+        }
+
+        auto& hold_state = existing_it->second;
+        if (hold_state.session_epoch != m_session_epoch ||
+            lower_ascii(hold_state.world_id) != lower_ascii(world_id))
+        {
+            if (!first_seen_live_after_ready)
+            {
+                m_first_seen_construct_hold_states.erase(existing_it);
+                return false;
+            }
+            hold_state = {};
+            hold_state.world_id = world_id;
+            hold_state.session_epoch = m_session_epoch;
+            hold_state.first_seen_scan_cycle = m_restore_scan_cycle_counter;
+            hold_state.hold_logged = false;
+        }
+
+        constexpr uint64_t k_construct_hold_scans = 2;
+        const uint64_t elapsed_scans =
+            (m_restore_scan_cycle_counter >= hold_state.first_seen_scan_cycle)
+                ? (m_restore_scan_cycle_counter - hold_state.first_seen_scan_cycle)
+                : 0;
+        if (elapsed_scans < k_construct_hold_scans)
+        {
+            if (!hold_state.hold_logged)
+            {
+                log_line("[save] restore_deferred_construct_hold key=" + key +
+                         " worldId=" + world_id +
+                         " elapsedScans=" + std::to_string(elapsed_scans) +
+                         " holdScans=" + std::to_string(k_construct_hold_scans));
+                hold_state.hold_logged = true;
+            }
+            return true;
+        }
+
+        m_first_seen_construct_hold_states.erase(key);
+        return false;
     }
 
     auto SignTextMod::mark_suspect_rebuild(
@@ -12651,6 +12739,7 @@ namespace WindroseTextSigns
         m_world_inactive_since = {};
         m_ready_baseline_live_keys.clear();
         m_ready_baseline_capture_remaining_scans = 0;
+        m_first_seen_construct_hold_states.clear();
         m_restore_skip_guard_log_buckets.clear();
         m_bridge_route_retry_consumed = false;
         reset_visual_verify_debug_state();
@@ -13547,6 +13636,7 @@ namespace WindroseTextSigns
                     m_live_label_actor_ptrs.clear();
                     m_missing_label_scan_counts.clear();
                     m_seen_live_label_keys.clear();
+                    m_first_seen_construct_hold_states.clear();
                     // Hard reset transient render/component caches across logout/map travel.
                     // Without this, reconnect can retain stale "already rendered" state and
                     // skip reapplying visible text even though actors/components were rebuilt.
@@ -13682,7 +13772,7 @@ namespace WindroseTextSigns
                             std::string localclient_prune_ready_reason{};
                             const bool localclient_prune_ready =
                                 is_localclient_prune_ready(authority_source_resolved, &localclient_prune_ready_reason);
-                            if (localclient_authoritative)
+                            if (authoritative_destroy_confirmation_runtime)
                             {
                                 mark_suspect_rebuild(
                                     key,
@@ -13714,6 +13804,7 @@ namespace WindroseTextSigns
                                 m_component_name_cache.erase(key);
                                 m_phase4_next_retry.erase(key);
                                 m_missing_label_scan_counts.erase(key);
+                                m_first_seen_construct_hold_states.erase(key);
                                 if (m_text_buffer_bound_key == key)
                                 {
                                     m_text_buffer.fill('\0');
@@ -13723,7 +13814,7 @@ namespace WindroseTextSigns
                                 m_suspect_rebuild_states.erase(key);
                                 pruned_rebuilt_label = true;
                             }
-                            else if (localclient_authoritative)
+                            else if (authoritative_destroy_confirmation_runtime)
                             {
                                 const auto suspect_decision = maybe_promote_suspect_rebuild_to_prune(
                                     key,
@@ -13752,6 +13843,7 @@ namespace WindroseTextSigns
                                     m_component_name_cache.erase(key);
                                     m_phase4_next_retry.erase(key);
                                     m_missing_label_scan_counts.erase(key);
+                                    m_first_seen_construct_hold_states.erase(key);
                                     if (m_text_buffer_bound_key == key)
                                     {
                                         m_text_buffer.fill('\0');
@@ -13871,6 +13963,7 @@ namespace WindroseTextSigns
                                 m_component_name_cache.erase(key);
                                 m_phase4_next_retry.erase(key);
                                 m_missing_label_scan_counts.erase(key);
+                                m_first_seen_construct_hold_states.erase(key);
                                 if (m_text_buffer_bound_key == key)
                                 {
                                     m_text_buffer.fill('\0');
@@ -13889,7 +13982,7 @@ namespace WindroseTextSigns
                 m_missing_label_scan_counts.erase(key);
                 if (!pruned_rebuilt_label)
                 {
-                    if (localclient_authoritative)
+                    if (authoritative_destroy_confirmation_runtime)
                     {
                         const auto suspect_decision = maybe_promote_suspect_rebuild_to_prune(
                             key,
@@ -13919,6 +14012,7 @@ namespace WindroseTextSigns
                                 m_rendered_text_cache.erase(key);
                                 m_component_name_cache.erase(key);
                                 m_phase4_next_retry.erase(key);
+                                m_first_seen_construct_hold_states.erase(key);
                                 if (m_text_buffer_bound_key == key)
                                 {
                                     m_text_buffer.fill('\0');
@@ -14066,6 +14160,10 @@ namespace WindroseTextSigns
                 const bool destructive_prune_allowed =
                     is_dedicated_runtime_process() ||
                     (m_session_ready_latched && m_role_lock_acquired);
+                const bool post_ready_inventory_prune_window =
+                    m_session_ready_latched &&
+                    m_role_lock_acquired &&
+                    m_ready_baseline_capture_remaining_scans == 0;
                 std::string localclient_prune_ready_reason{};
                 const bool localclient_prune_ready =
                     is_localclient_prune_ready(authority_source_resolved, &localclient_prune_ready_reason);
@@ -14103,9 +14201,18 @@ namespace WindroseTextSigns
                         ++blocked_by_post_ready_role_lock;
                         continue;
                     }
+                    const auto miss_it = m_missing_label_scan_counts.find(key);
+                    const uint32_t existing_miss_count = (miss_it != m_missing_label_scan_counts.end()) ? miss_it->second : 0;
+                    const uint32_t next_miss_count = existing_miss_count + 1;
+                    const bool orphan_inventory_candidate =
+                        localclient_authoritative &&
+                        !trusted_destroy_confirmed &&
+                        post_ready_inventory_prune_window &&
+                        next_miss_count >= k_prune_missing_scan_threshold;
                     if (require_seen_live_for_authoritative_prune &&
                         !localclient_prune_ready &&
-                        !trusted_destroy_confirmed)
+                        !trusted_destroy_confirmed &&
+                        !orphan_inventory_candidate)
                     {
                         ++blocked_by_localclient_readiness;
                         continue;
@@ -14114,7 +14221,8 @@ namespace WindroseTextSigns
                     if ((!m_sidecar_authoritative && !seen_live_this_session) ||
                         (require_seen_live_for_authoritative_prune &&
                          !seen_live_this_session &&
-                         !trusted_destroy_confirmed))
+                         !trusted_destroy_confirmed &&
+                         !orphan_inventory_candidate))
                     {
                         ++blocked_by_live_guard;
                         continue;
@@ -14153,7 +14261,21 @@ namespace WindroseTextSigns
                     {
                         continue;
                     }
-                    if (localclient_authoritative && !has_recent_destroy_confirmation(found->second.stable_id, found->second.world_id))
+                    const bool trusted_destroy_confirmed =
+                        localclient_authoritative &&
+                        has_recent_destroy_confirmation(found->second.stable_id, found->second.world_id);
+                    const auto miss_it = m_missing_label_scan_counts.find(key);
+                    const uint32_t miss_count = (miss_it != m_missing_label_scan_counts.end()) ? miss_it->second : 0;
+                    const bool post_ready_inventory_window =
+                        m_session_ready_latched &&
+                        m_role_lock_acquired &&
+                        m_ready_baseline_capture_remaining_scans == 0;
+                    const bool orphan_inventory_prune_allowed =
+                        localclient_authoritative &&
+                        !trusted_destroy_confirmed &&
+                        post_ready_inventory_window &&
+                        miss_count >= k_prune_missing_scan_threshold;
+                    if (localclient_authoritative && !trusted_destroy_confirmed && !orphan_inventory_prune_allowed)
                     {
                         log_line("[save] prune_destroyed_label deferred key=" + key +
                                  " stableId=" + found->second.stable_id +
@@ -14167,15 +14289,20 @@ namespace WindroseTextSigns
                                           " reason=destroy_unconfirmed_localclient trustedDestroyConfirmed=false");
                         continue;
                     }
+                    const std::string prune_reason =
+                        orphan_inventory_prune_allowed ? "orphan_not_in_world_inventory" : "destroy_confirmed";
                     log_line("[save] prune_destroyed_label key=" + key +
                              " stableId=" + found->second.stable_id +
                              " worldId=" + found->second.world_id +
-                             " trustedDestroyConfirmed=" + std::string{localclient_authoritative ? "true" : "n/a"});
+                             " reason=" + prune_reason +
+                             " trustedDestroyConfirmed=" + std::string{localclient_authoritative ? (trusted_destroy_confirmed ? "true" : "false") : "n/a"} +
+                             " missCount=" + std::to_string(miss_count));
                     trace_behavior_sm("prune_commit",
                                       "path=destroy_scan key=" + key +
                                       " stableId=" + found->second.stable_id +
                                       " worldId=" + found->second.world_id +
-                                      " trustedDestroyConfirmed=" + std::string{localclient_authoritative ? "true" : "n/a"});
+                                      " reason=" + prune_reason +
+                                      " trustedDestroyConfirmed=" + std::string{localclient_authoritative ? (trusted_destroy_confirmed ? "true" : "false") : "n/a"});
                     if (m_sidecar_authoritative)
                     {
                         broadcast_bridge_clear(found->second.stable_id, found->second.world_id, "prune_destroyed_label");
@@ -14187,6 +14314,7 @@ namespace WindroseTextSigns
                     m_seen_live_label_keys.erase(key);
                     m_live_label_actor_ptrs.erase(key);
                     m_missing_label_scan_counts.erase(key);
+                    m_first_seen_construct_hold_states.erase(key);
                     if (m_text_buffer_bound_key == key)
                     {
                         m_text_buffer.fill('\0');

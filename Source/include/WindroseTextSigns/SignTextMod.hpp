@@ -176,6 +176,11 @@ namespace WindroseTextSigns
             const std::string& world_id,
             bool first_seen_live_after_ready,
             bool is_ready_baseline_key) -> bool;
+        auto should_hold_restore_for_first_seen_post_ready(
+            const std::string& key,
+            const std::string& world_id,
+            bool first_seen_live_after_ready,
+            bool is_ready_baseline_key) -> bool;
         auto maybe_run_hosted_post_ready_reconcile() -> void;
         auto is_localclient_runtime_stable_for_post_ready(std::string* out_reason = nullptr) -> bool;
         auto is_session_ready_for_role_resolution(std::string* out_reason = nullptr) -> bool;
@@ -475,6 +480,14 @@ namespace WindroseTextSigns
         std::unordered_map<std::string, RecentConstructSignal> m_recent_construct_slot_signals{};
         std::unordered_set<std::string> m_ready_baseline_live_keys{};
         uint32_t m_ready_baseline_capture_remaining_scans{0};
+        struct FirstSeenConstructHoldState
+        {
+            std::string world_id{};
+            uint64_t session_epoch{0};
+            uint64_t first_seen_scan_cycle{0};
+            bool hold_logged{false};
+        };
+        std::unordered_map<std::string, FirstSeenConstructHoldState> m_first_seen_construct_hold_states{};
         bool m_pending_world_inactive_ignored_logged{false};
         bool m_locked_world_inactive_ignored_logged{false};
         std::chrono::steady_clock::time_point m_world_inactive_since{};
