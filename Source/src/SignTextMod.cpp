@@ -1,5 +1,4 @@
 #include <WindroseTextSigns/SignTextMod.hpp>
-#include <WindroseTextSigns/RelayHttp.hpp>
 #include <WindroseTextSigns/UpnpNat.hpp>
 
 #include <algorithm>
@@ -290,23 +289,6 @@ namespace
         }
         cached_result = result;
         return cached_result;
-    }
-
-    auto make_relay_room_id(const std::string& world_id) -> std::string
-    {
-        auto safe = world_id.empty() ? std::string{"unknown-world"} : world_id;
-        for (auto& ch : safe)
-        {
-            const auto uch = static_cast<unsigned char>(ch);
-            if (std::isalnum(uch) == 0 && ch != '-' && ch != '_' && ch != '.')
-            {
-                ch = '_';
-            }
-        }
-        std::transform(safe.begin(), safe.end(), safe.begin(), [](unsigned char c) {
-            return static_cast<char>(std::tolower(c));
-        });
-        return "wts-v1-" + safe;
     }
 
     auto normalized_path_for_compare(const std::filesystem::path& path) -> std::string
@@ -2550,6 +2532,17 @@ namespace
         return true;
     }
 
+    auto invoke_no_param_cached(UObject* context, UFunction* fn) -> bool
+    {
+        if (!context || !fn || !is_uobject_reflection_safe(context))
+        {
+            return false;
+        }
+        std::vector<uint8_t> params(static_cast<size_t>(std::max<int32_t>(fn->GetStructureSize(), 1)), 0);
+        context->ProcessEvent(fn, params.data());
+        return true;
+    }
+
     auto invoke_bool_return_no_param(UObject* context, const TCHAR* in_chain_name, const TCHAR* path_name, bool& out_value) -> bool
     {
         auto* fn = find_function_by_chain_or_path(context, in_chain_name, path_name);
@@ -2675,6 +2668,86 @@ namespace
                 if (auto* value_ptr = prop->ContainerPtrToValuePtr<int32>(params.data()))
                 {
                     *value_ptr = value;
+                    assigned = true;
+                }
+            }
+        });
+        if (!assigned)
+        {
+            return false;
+        }
+        context->ProcessEvent(fn, params.data());
+        return true;
+    }
+
+    auto invoke_with_int_param_cached(UObject* context, UFunction* fn, int32 value) -> bool
+    {
+        if (!context || !fn)
+        {
+            return false;
+        }
+
+        std::vector<uint8_t> params(static_cast<size_t>(std::max<int32_t>(fn->GetStructureSize(), 16)), 0);
+        bool assigned = false;
+        for_each_property_in_chain_compat(fn, [&](FProperty* prop) {
+            if (!prop || prop->HasAnyPropertyFlags(CPF_ReturnParm) || prop->HasAnyPropertyFlags(CPF_OutParm))
+            {
+                return;
+            }
+
+            const auto prop_name = RC::to_string(prop->GetName());
+            std::string prop_name_lower = prop_name;
+            std::transform(prop_name_lower.begin(), prop_name_lower.end(), prop_name_lower.begin(), [](unsigned char c) {
+                return static_cast<char>(std::tolower(c));
+            });
+
+            if (prop->GetSize() == static_cast<int32_t>(sizeof(int32)) &&
+                (prop_name_lower == "zorder" || prop_name_lower == "z_order" || prop_name_lower == "value"))
+            {
+                if (auto* value_ptr = prop->ContainerPtrToValuePtr<int32>(params.data()))
+                {
+                    *value_ptr = value;
+                    assigned = true;
+                }
+            }
+        });
+        if (!assigned)
+        {
+            return false;
+        }
+        context->ProcessEvent(fn, params.data());
+        return true;
+    }
+
+    auto invoke_with_byte_or_int_param_cached(UObject* context, UFunction* fn, uint8_t value) -> bool
+    {
+        if (!context || !fn)
+        {
+            return false;
+        }
+
+        std::vector<uint8_t> params(static_cast<size_t>(std::max<int32_t>(fn->GetStructureSize(), 16)), 0);
+        bool assigned = false;
+        for_each_property_in_chain_compat(fn, [&](FProperty* prop) {
+            if (!prop || prop->HasAnyPropertyFlags(CPF_ReturnParm) || prop->HasAnyPropertyFlags(CPF_OutParm))
+            {
+                return;
+            }
+            const auto prop_hash = prop->GetClass().HashObject();
+            if (prop_hash == FByteProperty::StaticClass().HashObject())
+            {
+                if (auto* value_ptr = prop->ContainerPtrToValuePtr<uint8_t>(params.data()))
+                {
+                    *value_ptr = value;
+                    assigned = true;
+                }
+                return;
+            }
+            if (!assigned && prop->GetSize() == static_cast<int32_t>(sizeof(int32)))
+            {
+                if (auto* value_ptr = prop->ContainerPtrToValuePtr<int32>(params.data()))
+                {
+                    *value_ptr = static_cast<int32>(value);
                     assigned = true;
                 }
             }
@@ -4015,34 +4088,6 @@ namespace WindroseTextSigns
         return fallback;
     }
 
-    auto SignTextMod::is_static_construct_probe_enabled() const -> bool
-    {
-        if (std::filesystem::exists(m_mod_root / "Config" / "enable_static_construct_probe.flag"))
-        {
-            return true;
-        }
-        return config_bool_value("WTS_STATIC_CONSTRUCT_PROBE", false);
-    }
-
-    auto SignTextMod::is_process_event_probe_enabled() const -> bool
-    {
-        if (std::filesystem::exists(m_mod_root / "Config" / "enable_process_event_probe.flag"))
-        {
-            return true;
-        }
-        return config_bool_value("WTS_PROCESS_EVENT_PROBE", false);
-    }
-
-    auto SignTextMod::is_phase5_placement_probe_enabled() const -> bool
-    {
-        return config_bool_value("WTS_PHASE5_PLACEMENT_PROBE", false);
-    }
-
-    auto SignTextMod::is_phase5_build_menu_selection_probe_enabled() const -> bool
-    {
-        return config_bool_value("WTS_PHASE5_BUILD_MENU_SELECTION_PROBE", false);
-    }
-
     auto SignTextMod::is_hide_native_label_icon_enabled() const -> bool
     {
         return config_bool_value("WTS_HIDE_NATIVE_LABEL_ICON", true);
@@ -4056,21 +4101,6 @@ namespace WindroseTextSigns
     auto SignTextMod::is_native_transport_inventory_probe_enabled() const -> bool
     {
         return config_bool_value("WTS_NATIVE_TRANSPORT_INVENTORY_PROBE", false);
-    }
-
-    auto SignTextMod::is_player_marker_replication_probe_enabled() const -> bool
-    {
-        return config_bool_value("WTS_PLAYER_MARKER_REPLICATION_PROBE", false);
-    }
-
-    auto SignTextMod::is_player_marker_replication_probe_action_trigger_enabled() const -> bool
-    {
-        if (!is_player_marker_replication_probe_enabled())
-        {
-            return false;
-        }
-        const auto mode = lower_ascii(config_string_value("WTS_PLAYER_MARKER_REPLICATION_PROBE_START", "action"));
-        return mode == "action" || mode == "playeraction" || mode == "player_action";
     }
 
     auto SignTextMod::now_utc() const -> std::string
@@ -4176,10 +4206,6 @@ namespace WindroseTextSigns
             m_log << row << "\n";
             m_log.flush();
             m_log_bytes_written += row_bytes;
-            if (m_verbose_log)
-            {
-                Output::send<LogLevel::Warning>(STR("[WindroseTextSigns] {}"), RC::to_wstring(row));
-            }
             return;
         }
 
@@ -4375,10 +4401,6 @@ namespace WindroseTextSigns
         m_log_bytes_written = content.size();
         m_log_size_cap_hit = false;
 
-        if (m_verbose_log)
-        {
-            Output::send<LogLevel::Warning>(STR("[WindroseTextSigns] {}"), RC::to_wstring(row));
-        }
     }
 
     auto SignTextMod::flush_log_repeat_summary() -> void
@@ -4437,15 +4459,9 @@ namespace WindroseTextSigns
     auto SignTextMod::on_unreal_init() -> void
     {
         m_mod_root = resolve_mod_root();
-        m_static_construct_probe_enabled = is_static_construct_probe_enabled();
-        m_phase5_placement_probe_enabled = is_phase5_placement_probe_enabled();
-        m_phase5_build_menu_selection_probe_enabled = is_phase5_build_menu_selection_probe_enabled();
         m_hide_native_label_icon_enabled = is_hide_native_label_icon_enabled();
         m_label_text_visual_diagnostics_enabled = is_label_text_visual_diagnostics_enabled();
         m_native_transport_inventory_probe_enabled = is_native_transport_inventory_probe_enabled();
-        m_player_marker_replication_probe_enabled = is_player_marker_replication_probe_enabled();
-        m_player_marker_replication_probe_action_trigger_enabled = is_player_marker_replication_probe_action_trigger_enabled();
-        m_verbose_log = config_bool_value("WTS_VERBOSE_LOG", false);
         m_f8_latency_breakdown_enabled = config_bool_value("WTS_F8_LATENCY_BREAKDOWN_ENABLED", true);
         m_behavior_trace_enabled = config_bool_value("WTS_BEHAVIOR_TRACE_ENABLED", false);
         m_visual_verify_debug_force_reapply = config_bool_value("WTS_VISUAL_VERIFY_DEBUG_FORCE_REAPPLY", false);
@@ -4455,9 +4471,6 @@ namespace WindroseTextSigns
             0.1f,
             1.0f);
         m_world_text_font_enabled = config_bool_value("WTS_WORLD_TEXT_FONT_ENABLED", false);
-        m_player_marker_replication_probe_action_tokens = config_string_value(
-            "WTS_PLAYER_MARKER_REPLICATION_PROBE_ACTION_TOKENS",
-            "melee,attack,weapon,swing,ability,combat,primaryfire,fire,dodge,jump");
         const auto hotkey_config_value = config_string_value("WTS_HOTKEY", "F8");
         m_hotkey_vk = hotkey_vk_from_config(hotkey_config_value, k_default_hotkey_vk);
         m_hotkey_name = display_name_for_vk(m_hotkey_vk);
@@ -4496,16 +4509,8 @@ namespace WindroseTextSigns
         }
         m_bridge_upnp_enabled = (m_bridge_upnp_mode != BridgeUpnpMode::Off);
         NativeBridge::instance().set_remote_server(m_bridge_remote_server_host, static_cast<uint16_t>(m_bridge_udp_port));
-        m_relay_enabled = config_bool_value("WTS_RELAY_ENABLED", false);
-        m_relay_base_url = config_string_value("WTS_RELAY_BASE_URL", "");
-        m_relay_shared_secret = config_string_value("WTS_RELAY_SHARED_SECRET", "");
-        m_relay_poll_interval_ms = std::clamp(
-            safe_stoi(config_string_value("WTS_RELAY_POLL_INTERVAL_MS", "5000"), 5000),
-            1000,
-            60000);
         m_session_id = now_utc() + "-" + sanitize_path_segment(current_executable_path().filename().string());
         configure_data_root();
-        refresh_relay_room_id("startup");
         m_legacy_sidecar_path = m_mod_root / "SignTexts.json";
         m_sidecar_path = m_data_root / "SignTexts.json";
         m_backup_root = m_data_root / "Backups";
@@ -4525,12 +4530,6 @@ namespace WindroseTextSigns
                  " authoritative=" + std::string{m_sidecar_authoritative ? "true" : "false"} +
                  " profileRoot=" + (m_save_profile_root.empty() ? "none" : m_save_profile_root) +
                  " worldFolderId=" + m_world_folder_id);
-        log_line("[relay] config enabled=" + std::string{m_relay_enabled ? "true" : "false"} +
-                 " baseUrl=" + (m_relay_base_url.empty() ? "none" : m_relay_base_url) +
-                 " roomId=" + (m_relay_room_id.empty() ? "none" : m_relay_room_id) +
-                 " pollMs=" + std::to_string(m_relay_poll_interval_ms) +
-                 " auth=" + std::string{m_relay_shared_secret.empty() ? "none" : "configured"} +
-                 " transport=cloudflare-http-poll status=scaffold");
         log_line("[bridge] config udpPort=" + std::to_string(m_bridge_udp_port) +
                  " remoteServerHost=" + (m_bridge_remote_server_host.empty() ? "none" : m_bridge_remote_server_host) +
                  " configuredHost=" + (m_bridge_remote_server_host_config.empty() ? "none" : m_bridge_remote_server_host_config) +
@@ -4541,12 +4540,6 @@ namespace WindroseTextSigns
                  " sidecar=" + m_sidecar_path.string() +
                  " backups=" + m_backup_root.string());
         configure_bridge_role("startup");
-        log_line("[probe] StaticConstructObject post-probe config enabled=" +
-                 std::string{m_static_construct_probe_enabled ? "true" : "false"});
-        log_line("[probe] Phase5 placement probe config enabled=" +
-                 std::string{m_phase5_placement_probe_enabled ? "true" : "false"});
-        log_line("[probe] Phase5 build-menu selection probe config enabled=" +
-                 std::string{m_phase5_build_menu_selection_probe_enabled ? "true" : "false"});
         log_line("[visual] hideNativeLabelIcon=" +
                  std::string{m_hide_native_label_icon_enabled ? "true" : "false"} +
                  " diagnostics=" +
@@ -4557,12 +4550,6 @@ namespace WindroseTextSigns
                  " nativeFallback=" + std::string{config_bool_value("WTS_WORLD_TEXT_FONT_NATIVE_FALLBACK", false) ? "true" : "false"});
         log_line("[native-transport-probe] config enabled=" +
                  std::string{m_native_transport_inventory_probe_enabled ? "true" : "false"});
-        log_line("[player-marker-replication-probe] config enabled=" +
-                 std::string{m_player_marker_replication_probe_enabled ? "true" : "false"} +
-                 " startMode=" + config_string_value("WTS_PLAYER_MARKER_REPLICATION_PROBE_START", "action") +
-                 " actionTrigger=" +
-                 std::string{m_player_marker_replication_probe_action_trigger_enabled ? "true" : "false"} +
-                 " actionTokens=" + m_player_marker_replication_probe_action_tokens);
         log_line("[input] hotkey config=" + hotkey_config_value +
                  " resolved=" + m_hotkey_name +
                  " vk=" + std::to_string(m_hotkey_vk));
@@ -4599,12 +4586,9 @@ namespace WindroseTextSigns
         {
             log_line("[input] Runtime input/UI registration skipped reason=dedicated_server");
         }
-        install_process_event_probe();
-        install_static_construct_probe();
 
         m_unreal_ready = true;
         m_last_restore_scan = std::chrono::steady_clock::now();
-        m_last_probe_status = std::chrono::steady_clock::now();
         if (m_native_transport_inventory_probe_enabled)
         {
             m_native_transport_inventory_requested.store(true);
@@ -4719,6 +4703,10 @@ namespace WindroseTextSigns
 
     auto SignTextMod::set_phase7_game_and_ui_input_mode(bool enable_ui_mode) -> bool
     {
+        if (m_phase7_ui_input_mode_active == enable_ui_mode)
+        {
+            return true;
+        }
         auto* controller = try_get_primary_player_controller();
         if (!controller)
         {
@@ -4758,7 +4746,12 @@ namespace WindroseTextSigns
                  " ignoreLook=" + std::string{look_ignored ? "true" : "false"} +
                  " ignoreMove=" + std::string{move_ignored ? "true" : "false"} +
                  " llHook=disabled");
-        return input_mode_applied || cursor_set || look_ignored || move_ignored;
+        const bool applied = input_mode_applied || cursor_set || look_ignored || move_ignored;
+        if (applied)
+        {
+            m_phase7_ui_input_mode_active = enable_ui_mode;
+        }
+        return applied;
     }
 
     auto SignTextMod::open_phase7_native_editor_for_selection() -> bool
@@ -4838,59 +4831,158 @@ namespace WindroseTextSigns
         m_phase7_native_editor_open = false;
     }
 
-    auto SignTextMod::open_phase7_umg_editor_for_selection() -> bool
+    auto SignTextMod::cache_phase7_umg_class_pointers() -> bool
     {
-        if (!m_selected.has_value())
+        if (!m_phase7_class_user_widget)
         {
-            return false;
+            m_phase7_class_user_widget = find_uclass_by_path(STR("/Script/UMG.UserWidget"));
         }
-        if (!ensure_selected_actor_valid("open_phase7_umg_editor_for_selection"))
+        if (!m_phase7_class_widget_tree)
         {
-            return false;
+            m_phase7_class_widget_tree = find_uclass_by_path(STR("/Script/UMG.WidgetTree"));
         }
+        if (!m_phase7_class_canvas_panel)
+        {
+            m_phase7_class_canvas_panel = find_uclass_by_path(STR("/Script/UMG.CanvasPanel"));
+        }
+        if (!m_phase7_class_border)
+        {
+            m_phase7_class_border = find_uclass_by_path(STR("/Script/UMG.Border"));
+        }
+        if (!m_phase7_class_size_box)
+        {
+            m_phase7_class_size_box = find_uclass_by_path(STR("/Script/UMG.SizeBox"));
+        }
+        if (!m_phase7_class_text_block)
+        {
+            m_phase7_class_text_block = find_uclass_by_path(STR("/Script/UMG.TextBlock"));
+        }
+        if (!m_phase7_class_text_box)
+        {
+            m_phase7_class_text_box = find_uclass_by_path(STR("/Script/UMG.MultiLineEditableText"));
+        }
+        if (!m_phase7_class_text_box)
+        {
+            m_phase7_class_text_box = find_uclass_by_path(STR("/Script/UMG.MultiLineEditableTextBox"));
+        }
+        if (!m_phase7_class_text_box)
+        {
+            m_phase7_class_text_box = find_uclass_by_path(STR("/Script/UMG.EditableText"));
+        }
+        if (!m_phase7_class_text_box)
+        {
+            m_phase7_class_text_box = find_uclass_by_path(STR("/Script/UMG.EditableTextBox"));
+        }
+        return m_phase7_class_user_widget &&
+               m_phase7_class_widget_tree &&
+               m_phase7_class_canvas_panel &&
+               m_phase7_class_border &&
+               m_phase7_class_size_box &&
+               m_phase7_class_text_block &&
+               m_phase7_class_text_box;
+    }
+
+    auto SignTextMod::cache_phase7_umg_function_pointers() -> void
+    {
         if (m_phase7_umg_widget)
         {
+            if (!m_phase7_fn_add_to_viewport)
+            {
+                m_phase7_fn_add_to_viewport = find_function_by_chain_or_path(
+                    m_phase7_umg_widget,
+                    STR("AddToViewport"),
+                    STR("/Script/UMG.UserWidget:AddToViewport"));
+            }
+            if (!m_phase7_fn_remove_from_parent)
+            {
+                m_phase7_fn_remove_from_parent = find_function_by_chain_or_path(
+                    m_phase7_umg_widget,
+                    STR("RemoveFromParent"),
+                    STR("/Script/UMG.Widget:RemoveFromParent"));
+            }
+            if (!m_phase7_fn_set_visibility)
+            {
+                m_phase7_fn_set_visibility = find_function_by_chain_or_path(
+                    m_phase7_umg_widget,
+                    STR("SetVisibility"),
+                    STR("/Script/UMG.Widget:SetVisibility"));
+            }
+        }
+        if (m_phase7_umg_text_box)
+        {
+            if (!m_phase7_fn_set_keyboard_focus)
+            {
+                m_phase7_fn_set_keyboard_focus = find_function_by_chain_or_path(
+                    m_phase7_umg_text_box,
+                    STR("SetKeyboardFocus"),
+                    STR("/Script/UMG.Widget:SetKeyboardFocus"));
+            }
+            if (!m_phase7_fn_set_focus)
+            {
+                m_phase7_fn_set_focus = find_function_by_chain_or_path(
+                    m_phase7_umg_text_box,
+                    STR("SetFocus"),
+                    STR("/Script/UMG.Widget:SetFocus"));
+            }
+        }
+    }
+
+    auto SignTextMod::invalidate_phase7_umg_widget_cache(const std::string& reason) -> void
+    {
+        m_phase7_umg_widget = nullptr;
+        m_phase7_umg_text_box = nullptr;
+        m_phase7_umg_title = nullptr;
+        m_phase7_umg_hint = nullptr;
+        m_phase7_umg_apply_button = nullptr;
+        m_phase7_umg_clear_button = nullptr;
+        m_phase7_umg_cancel_button = nullptr;
+        m_phase7_fn_add_to_viewport = nullptr;
+        m_phase7_fn_remove_from_parent = nullptr;
+        m_phase7_fn_set_keyboard_focus = nullptr;
+        m_phase7_fn_set_focus = nullptr;
+        m_phase7_fn_set_visibility = nullptr;
+        m_phase7_umg_in_viewport = false;
+        m_phase7_ui_input_mode_active = false;
+        if (!reason.empty())
+        {
+            log_line("[phase7-umg] widget_cache_invalidated reason=" + reason);
+        }
+    }
+
+    auto SignTextMod::ensure_phase7_umg_widget_built() -> bool
+    {
+        if (m_phase7_umg_widget && m_phase7_umg_text_box &&
+            is_uobject_reflection_safe(m_phase7_umg_widget) &&
+            is_uobject_reflection_safe(m_phase7_umg_text_box))
+        {
+            cache_phase7_umg_function_pointers();
             return true;
+        }
+        if (m_phase7_umg_widget || m_phase7_umg_text_box)
+        {
+            invalidate_phase7_umg_widget_cache("stale_widget_pointer");
         }
 
         auto* controller = try_get_primary_player_controller();
-        auto* user_widget_class = find_uclass_by_path(STR("/Script/UMG.UserWidget"));
-        auto* widget_tree_class = find_uclass_by_path(STR("/Script/UMG.WidgetTree"));
-        auto* canvas_panel_class = find_uclass_by_path(STR("/Script/UMG.CanvasPanel"));
-        auto* border_class = find_uclass_by_path(STR("/Script/UMG.Border"));
-        auto* size_box_class = find_uclass_by_path(STR("/Script/UMG.SizeBox"));
-        auto* text_block_class = find_uclass_by_path(STR("/Script/UMG.TextBlock"));
-        auto* text_box_class = find_uclass_by_path(STR("/Script/UMG.MultiLineEditableText"));
-        if (!text_box_class)
-        {
-            text_box_class = find_uclass_by_path(STR("/Script/UMG.MultiLineEditableTextBox"));
-        }
-        if (!text_box_class)
-        {
-            text_box_class = find_uclass_by_path(STR("/Script/UMG.EditableText"));
-        }
-        if (!text_box_class)
-        {
-            text_box_class = find_uclass_by_path(STR("/Script/UMG.EditableTextBox"));
-        }
-        if (!controller || !user_widget_class || !widget_tree_class || !canvas_panel_class || !border_class || !size_box_class || !text_block_class || !text_box_class)
+        const bool classes_ok = cache_phase7_umg_class_pointers();
+        if (!controller || !classes_ok)
         {
             log_line("[phase7-umg] open_failed reason=missing_class controller=" + std::string{controller ? "1" : "0"} +
-                     " userWidget=" + std::string{user_widget_class ? "1" : "0"} +
-                     " widgetTree=" + std::string{widget_tree_class ? "1" : "0"} +
-                     " canvas=" + std::string{canvas_panel_class ? "1" : "0"} +
-                     " border=" + std::string{border_class ? "1" : "0"} +
-                     " sizeBox=" + std::string{size_box_class ? "1" : "0"} +
-                     " textBlock=" + std::string{text_block_class ? "1" : "0"} +
-                     " textBox=" + std::string{text_box_class ? "1" : "0"});
+                     " userWidget=" + std::string{m_phase7_class_user_widget ? "1" : "0"} +
+                     " widgetTree=" + std::string{m_phase7_class_widget_tree ? "1" : "0"} +
+                     " canvas=" + std::string{m_phase7_class_canvas_panel ? "1" : "0"} +
+                     " border=" + std::string{m_phase7_class_border ? "1" : "0"} +
+                     " sizeBox=" + std::string{m_phase7_class_size_box ? "1" : "0"} +
+                     " textBlock=" + std::string{m_phase7_class_text_block ? "1" : "0"} +
+                     " textBox=" + std::string{m_phase7_class_text_box ? "1" : "0"});
             return false;
         }
 
-        auto* widget = UObjectGlobals::NewObject<UObject>(controller, user_widget_class, NAME_None, RF_Transient);
+        auto* widget = UObjectGlobals::NewObject<UObject>(controller, m_phase7_class_user_widget, NAME_None, RF_Transient);
         auto* tree = widget ? get_object_property_if_present(widget, "WidgetTree") : nullptr;
         if (widget && !tree)
         {
-            tree = UObjectGlobals::NewObject<UObject>(widget, widget_tree_class, FName(STR("WidgetTree"), FNAME_Add), RF_Transient);
+            tree = UObjectGlobals::NewObject<UObject>(widget, m_phase7_class_widget_tree, FName(STR("WidgetTree"), FNAME_Add), RF_Transient);
             if (tree)
             {
                 (void)set_object_property_if_present(widget, "WidgetTree", tree);
@@ -4903,17 +4995,17 @@ namespace WindroseTextSigns
             return false;
         }
 
-        auto* root = create_umg_widget_object(tree, canvas_panel_class, "WTS_RootCanvas");
-        auto* frame = create_umg_widget_object(tree, border_class, "WTS_Frame");
-        auto* background = create_umg_widget_object(tree, border_class, "WTS_Background");
-        auto* panel = create_umg_widget_object(tree, canvas_panel_class, "WTS_InnerCanvas");
-        auto* title = create_umg_widget_object(tree, text_block_class, "WTS_Title");
-        auto* divider = create_umg_widget_object(tree, border_class, "WTS_Divider");
-        auto* input_frame = create_umg_widget_object(tree, border_class, "WTS_InputFrame");
-        auto* input_background = create_umg_widget_object(tree, border_class, "WTS_InputBackground");
-        auto* editor = create_umg_widget_object(tree, size_box_class, "WTS_EditorSize");
-        auto* text_box = create_umg_widget_object(tree, text_box_class, "WTS_TextBox");
-        auto* hint = create_umg_widget_object(tree, text_block_class, "WTS_KeyHints");
+        auto* root = create_umg_widget_object(tree, m_phase7_class_canvas_panel, "WTS_RootCanvas");
+        auto* frame = create_umg_widget_object(tree, m_phase7_class_border, "WTS_Frame");
+        auto* background = create_umg_widget_object(tree, m_phase7_class_border, "WTS_Background");
+        auto* panel = create_umg_widget_object(tree, m_phase7_class_canvas_panel, "WTS_InnerCanvas");
+        auto* title = create_umg_widget_object(tree, m_phase7_class_text_block, "WTS_Title");
+        auto* divider = create_umg_widget_object(tree, m_phase7_class_border, "WTS_Divider");
+        auto* input_frame = create_umg_widget_object(tree, m_phase7_class_border, "WTS_InputFrame");
+        auto* input_background = create_umg_widget_object(tree, m_phase7_class_border, "WTS_InputBackground");
+        auto* editor = create_umg_widget_object(tree, m_phase7_class_size_box, "WTS_EditorSize");
+        auto* text_box = create_umg_widget_object(tree, m_phase7_class_text_box, "WTS_TextBox");
+        auto* hint = create_umg_widget_object(tree, m_phase7_class_text_block, "WTS_KeyHints");
 
         if (!root || !frame || !background || !panel || !title || !divider || !input_frame || !input_background || !editor || !text_box || !hint)
         {
@@ -4940,28 +5032,10 @@ namespace WindroseTextSigns
             m_f8_latency_trace.construct_seen = true;
         }
 
-        const auto actor_world_id = m_selected->world_id.empty() ? build_world_id_for_actor(m_selected->actor) : m_selected->world_id;
-        configure_sidecar_for_actor(m_selected->actor, actor_world_id);
-        const auto world_id = active_storage_world_id(actor_world_id);
-        const auto key = build_storage_key(world_id, m_selected->stable_id);
-        if (m_text_buffer_bound_key != key)
-        {
-            if (const auto found = m_labels.find(key); found != m_labels.end())
-            {
-                std::snprintf(m_text_buffer.data(), m_text_buffer.size(), "%s", found->second.text.c_str());
-            }
-            else
-            {
-                m_text_buffer.fill('\0');
-            }
-            m_text_buffer_bound_key = key;
-        }
-        m_phase7_umg_last_text = std::string{m_text_buffer.data()};
-
         const bool root_set = set_object_property_if_present(tree, "RootWidget", root);
         const bool title_text = invoke_umg_set_text(title, "Sign Text");
         const bool hint_text = invoke_umg_set_text(hint, "Enter  Apply\nShift+Enter  New line\nEsc  Cancel");
-        const bool input_text = invoke_umg_set_text(text_box, std::string{m_text_buffer.data()});
+        const bool input_text = invoke_umg_set_text(text_box, "");
         const bool title_color =
             invoke_set_rgba_value(title, STR("SetColorAndOpacity"), nullptr, 0.91f, 0.88f, 0.81f, 1.0f) ||
             invoke_set_rgba_value(title, STR("SetForegroundColor"), nullptr, 0.91f, 0.88f, 0.81f, 1.0f);
@@ -5015,7 +5089,6 @@ namespace WindroseTextSigns
         const bool input_frame_content = invoke_set_content(input_frame, input_background);
         const bool input_background_content = invoke_set_content(input_background, editor);
         const bool set_content = invoke_set_content(editor, text_box);
-
         const bool layout_ok =
             frame_slot && slot_pos && slot_size && slot_align &&
             frame_content && background_content &&
@@ -5036,28 +5109,115 @@ namespace WindroseTextSigns
             return false;
         }
 
-        const bool added = invoke_add_to_viewport(widget, 1000);
-        const bool input_mode = set_phase7_game_and_ui_input_mode(true);
-        if (added)
+        m_phase7_umg_widget = widget;
+        m_phase7_umg_text_box = text_box;
+        m_phase7_umg_title = title;
+        m_phase7_umg_hint = hint;
+        cache_phase7_umg_function_pointers();
+
+        const bool added = invoke_with_int_param_cached(m_phase7_umg_widget, m_phase7_fn_add_to_viewport, 1000) ||
+                           invoke_add_to_viewport(m_phase7_umg_widget, 1000);
+        m_phase7_umg_in_viewport = added;
+        const bool hidden = added && invoke_with_byte_or_int_param_cached(m_phase7_umg_widget, m_phase7_fn_set_visibility, 1);
+        log_line("[phase7-umg] prewarm_result built=true added=" + std::string{added ? "true" : "false"} +
+                 " hidden=" + std::string{hidden ? "true" : "false"} +
+                 " style=" + std::string{(title_text && hint_text && input_text && title_color && hint_color && input_color &&
+                                          frame_color && background_color && divider_color && input_frame_color && input_background_color &&
+                                          frame_padding && background_padding && input_frame_padding && input_background_padding &&
+                                          editor_width && editor_height && root_opacity && frame_opacity && background_opacity &&
+                                          editor_opacity && input_opacity && frame_scale && title_scale && hint_scale && input_scale) ? "true" : "false"});
+        return true;
+    }
+
+    auto SignTextMod::maybe_prewarm_phase7_umg_editor() -> void
+    {
+        if (is_dedicated_runtime_process() || !m_session_ready_latched)
         {
-            (void)invoke_no_param(text_box, STR("SetKeyboardFocus"), STR("/Script/UMG.Widget:SetKeyboardFocus"));
-            (void)invoke_no_param(text_box, STR("SetFocus"), STR("/Script/UMG.Widget:SetFocus"));
+            return;
         }
+        if (m_phase7_umg_prewarm_succeeded)
+        {
+            return;
+        }
+        const auto now = std::chrono::steady_clock::now();
+        if (m_phase7_umg_prewarm_attempted &&
+            m_phase7_umg_prewarm_next_try.time_since_epoch().count() != 0 &&
+            now < m_phase7_umg_prewarm_next_try)
+        {
+            return;
+        }
+        m_phase7_umg_prewarm_attempted = true;
+        const bool built = ensure_phase7_umg_widget_built();
+        m_phase7_umg_prewarm_succeeded = built;
+        m_phase7_umg_prewarm_next_try = now + std::chrono::seconds(built ? 60 : 3);
+        log_line("[phase7-umg] prewarm_try success=" + std::string{built ? "true" : "false"} +
+                 " sessionReady=" + std::string{m_session_ready_latched ? "true" : "false"});
+    }
+
+    auto SignTextMod::open_phase7_umg_editor_for_selection() -> bool
+    {
+        if (!m_selected.has_value())
+        {
+            return false;
+        }
+        if (!ensure_selected_actor_valid("open_phase7_umg_editor_for_selection"))
+        {
+            return false;
+        }
+        if (!ensure_phase7_umg_widget_built())
+        {
+            return false;
+        }
+        if (!m_phase7_umg_widget || !m_phase7_umg_text_box || !is_uobject_reflection_safe(m_phase7_umg_widget) || !is_uobject_reflection_safe(m_phase7_umg_text_box))
+        {
+            invalidate_phase7_umg_widget_cache("open_invalid_widget");
+            return false;
+        }
+
+        const auto actor_world_id = m_selected->world_id.empty() ? build_world_id_for_actor(m_selected->actor) : m_selected->world_id;
+        configure_sidecar_for_actor(m_selected->actor, actor_world_id);
+        const auto world_id = active_storage_world_id(actor_world_id);
+        const auto key = build_storage_key(world_id, m_selected->stable_id);
+        if (m_text_buffer_bound_key != key)
+        {
+            if (const auto found = m_labels.find(key); found != m_labels.end())
+            {
+                std::snprintf(m_text_buffer.data(), m_text_buffer.size(), "%s", found->second.text.c_str());
+            }
+            else
+            {
+                m_text_buffer.fill('\0');
+            }
+            m_text_buffer_bound_key = key;
+        }
+        m_phase7_umg_last_text = std::string{m_text_buffer.data()};
+        const bool input_text = invoke_umg_set_text(m_phase7_umg_text_box, std::string{m_text_buffer.data()});
+        if (m_f8_latency_breakdown_enabled && m_f8_latency_trace.active && !m_f8_latency_trace.construct_seen)
+        {
+            m_f8_latency_trace.construct = std::chrono::steady_clock::now();
+            m_f8_latency_trace.construct_seen = true;
+        }
+
+        bool added = m_phase7_umg_in_viewport;
+        if (!m_phase7_umg_in_viewport)
+        {
+            added = invoke_with_int_param_cached(m_phase7_umg_widget, m_phase7_fn_add_to_viewport, 1000) ||
+                    invoke_add_to_viewport(m_phase7_umg_widget, 1000);
+            m_phase7_umg_in_viewport = added;
+        }
+        const bool visible = invoke_with_byte_or_int_param_cached(m_phase7_umg_widget, m_phase7_fn_set_visibility, 0);
+        const bool input_mode = set_phase7_game_and_ui_input_mode(true);
+        const bool focus_keyboard = invoke_no_param_cached(m_phase7_umg_text_box, m_phase7_fn_set_keyboard_focus) ||
+                                    invoke_no_param(m_phase7_umg_text_box, STR("SetKeyboardFocus"), STR("/Script/UMG.Widget:SetKeyboardFocus"));
+        const bool focus_widget = invoke_no_param_cached(m_phase7_umg_text_box, m_phase7_fn_set_focus) ||
+                                  invoke_no_param(m_phase7_umg_text_box, STR("SetFocus"), STR("/Script/UMG.Widget:SetFocus"));
 
         log_line("[phase7-umg] open_result added=" + std::string{added ? "true" : "false"} +
                  " inputModeApplied=" + std::string{input_mode ? "true" : "false"} +
-                 " rootSet=" + std::string{root_set ? "true" : "false"} +
-                 " title=" + std::string{(title_text && title_color) ? "true" : "false"} +
-                 " hint=" + std::string{(hint_text && hint_color) ? "true" : "false"} +
+                 " visible=" + std::string{visible ? "true" : "false"} +
                  " inputText=" + std::string{input_text ? "true" : "false"} +
-                 " color=" + std::string{input_color ? "true" : "false"} +
-                 " frameColor=" + std::string{(frame_color && background_color && divider_color && input_frame_color && input_background_color) ? "true" : "false"} +
-                 " padding=" + std::string{(frame_padding && background_padding && input_frame_padding && input_background_padding) ? "true" : "false"} +
-                 " editorSize=" + std::string{(editor_width && editor_height) ? "true" : "false"} +
-                 " opacity=" + std::string{(root_opacity && frame_opacity && background_opacity && editor_opacity && input_opacity) ? "true" : "false"} +
-                 " scale=" + std::string{(frame_scale && title_scale && hint_scale && input_scale) ? "true" : "false"} +
-                 " slot=" + std::string{(frame_slot && slot_pos && slot_size && slot_align && title_slot && title_pos && title_size && divider_slot && divider_pos && divider_size && input_slot && input_pos && input_size && hint_slot && hint_pos && hint_size) ? "true" : "false"} +
-                 " content=" + std::string{(frame_content && background_content && input_frame_content && input_background_content && set_content) ? "true" : "false"} +
+                 " focusKeyboard=" + std::string{focus_keyboard ? "true" : "false"} +
+                 " focusWidget=" + std::string{focus_widget ? "true" : "false"} +
                  " key=" + key);
         if (m_f8_latency_breakdown_enabled && m_f8_latency_trace.active)
         {
@@ -5093,12 +5253,6 @@ namespace WindroseTextSigns
         {
             return false;
         }
-
-        m_phase7_umg_widget = widget;
-        m_phase7_umg_text_box = text_box;
-        m_phase7_umg_apply_button = nullptr;
-        m_phase7_umg_clear_button = nullptr;
-        m_phase7_umg_cancel_button = nullptr;
         m_phase7_enter_was_down = false;
         m_phase7_escape_was_down = false;
         m_phase7_enter_requested.store(false);
@@ -5111,22 +5265,25 @@ namespace WindroseTextSigns
         m_phase7_keyboard_capture_active.store(false);
         if (m_phase7_umg_widget)
         {
-            const bool removed = invoke_no_param(
-                m_phase7_umg_widget,
-                STR("RemoveFromParent"),
-                STR("/Script/UMG.Widget:RemoveFromParent"));
-            log_line("[phase7-umg] close removedWidget=" + std::string{removed ? "true" : "false"});
+            const bool hidden = invoke_with_byte_or_int_param_cached(m_phase7_umg_widget, m_phase7_fn_set_visibility, 1);
+            bool removed = false;
+            if (!hidden)
+            {
+                removed = invoke_no_param_cached(m_phase7_umg_widget, m_phase7_fn_remove_from_parent) ||
+                    invoke_no_param(
+                        m_phase7_umg_widget,
+                        STR("RemoveFromParent"),
+                        STR("/Script/UMG.Widget:RemoveFromParent"));
+                m_phase7_umg_in_viewport = !removed;
+            }
+            log_line("[phase7-umg] close hidden=" + std::string{hidden ? "true" : "false"} +
+                     " removedWidget=" + std::string{removed ? "true" : "false"});
         }
         if (restore_game_input)
         {
             const bool restored = set_phase7_game_and_ui_input_mode(false);
             log_line("[phase7-umg] close restoreInput=" + std::string{restored ? "true" : "false"});
         }
-        m_phase7_umg_widget = nullptr;
-        m_phase7_umg_text_box = nullptr;
-        m_phase7_umg_apply_button = nullptr;
-        m_phase7_umg_clear_button = nullptr;
-        m_phase7_umg_cancel_button = nullptr;
         m_phase7_enter_was_down = false;
         m_phase7_escape_was_down = false;
         m_phase7_enter_requested.store(false);
@@ -5295,70 +5452,6 @@ namespace WindroseTextSigns
         log_line("[save] migrated legacy sidecar legacyPath=" + source_path.string() +
                  " newPath=" + m_sidecar_path.string());
     }
-
-    auto SignTextMod::install_process_event_probe() -> void
-    {
-        if (!is_process_event_probe_enabled() &&
-            !m_phase5_placement_probe_enabled &&
-            !m_player_marker_replication_probe_action_trigger_enabled)
-        {
-            log_line("[probe] ProcessEvent pre-probe skipped reason=disabled");
-            return;
-        }
-        if (m_process_event_probe_id != Hook::ERROR_ID)
-        {
-            return;
-        }
-
-        m_process_event_probe_id = Hook::RegisterProcessEventPreCallback(
-            [this](auto&, UObject* context, UFunction* function, void* params) {
-                process_event_probe(context, function, params);
-            },
-            {false, true, STR("WindroseTextSigns"), STR("PlacementAndLabelProbe")});
-
-        if (m_process_event_probe_id == Hook::ERROR_ID)
-        {
-            log_line("[probe] ProcessEvent pre-probe registration failed (hook unavailable). StaticConstructObject probe enabled=" +
-                     std::string{m_static_construct_probe_enabled ? "true" : "false"});
-            return;
-        }
-        log_line("[probe] ProcessEvent pre-probe installed id=" + std::to_string(m_process_event_probe_id) +
-                 " phase5Placement=" + std::string{m_phase5_placement_probe_enabled ? "true" : "false"} +
-                 " playerMarkerActionTrigger=" +
-                 std::string{m_player_marker_replication_probe_action_trigger_enabled ? "true" : "false"});
-    }
-
-    auto SignTextMod::install_static_construct_probe() -> void
-    {
-        if (!m_static_construct_probe_enabled)
-        {
-            log_line("[probe] StaticConstructObject post-probe skipped reason=disabled");
-            return;
-        }
-        if (m_static_construct_probe_id != Hook::ERROR_ID)
-        {
-            return;
-        }
-
-        m_static_construct_probe_id = Hook::RegisterStaticConstructObjectPostCallback(
-            [this](auto& info, const FStaticConstructObjectParameters& params) {
-                UObject* constructed = info.GetCurrentResolvedReturnValue();
-                static_construct_probe(params, constructed);
-            },
-            {false, true, STR("WindroseTextSigns"), STR("StaticConstructLabelProbe")});
-
-        if (m_static_construct_probe_id == Hook::ERROR_ID)
-        {
-            log_line("[probe] StaticConstructObject post-probe registration failed");
-            return;
-        }
-        log_line("[probe] StaticConstructObject post-probe installed id=" + std::to_string(m_static_construct_probe_id));
-    }
-
-    auto SignTextMod::uninstall_process_event_probe() -> void
-    {
-    }
-
     auto SignTextMod::try_get_primary_player_controller() -> UObject*
     {
         const auto now = std::chrono::steady_clock::now();
@@ -6074,7 +6167,6 @@ namespace WindroseTextSigns
             load_sidecar_json();
         }
         configure_bridge_role("sidecar_route");
-        refresh_relay_room_id("sidecar_route");
     }
 
     auto SignTextMod::configure_sidecar_for_actor(AActor* actor, const std::string& world_id) -> void
@@ -7060,779 +7152,6 @@ namespace WindroseTextSigns
 
         log_line("[native-transport-probe] complete logged=" + std::to_string(logged));
     }
-
-    auto SignTextMod::poll_player_marker_log_action_trigger() -> void
-    {
-        if (!m_player_marker_replication_probe_action_trigger_enabled ||
-            m_player_marker_replication_probe_active ||
-            m_player_marker_replication_probe_ran ||
-            m_player_marker_replication_probe_requested.load())
-        {
-            return;
-        }
-
-        const auto now = std::chrono::steady_clock::now();
-        if (now < m_player_marker_replication_probe_log_next)
-        {
-            return;
-        }
-        m_player_marker_replication_probe_log_next = now + std::chrono::seconds(1);
-
-        if (m_player_marker_replication_probe_log_path.empty() ||
-            !std::filesystem::exists(m_player_marker_replication_probe_log_path))
-        {
-            std::vector<std::filesystem::path> candidates{};
-            const auto local_app_data = get_env_var("LOCALAPPDATA");
-            if (!local_app_data.empty())
-            {
-                candidates.push_back(std::filesystem::path{local_app_data} / "R5" / "Saved" / "Logs" / "R5.log");
-            }
-            const auto cwd = std::filesystem::current_path();
-            candidates.push_back(cwd / ".." / ".." / "Saved" / "Logs" / "R5.log");
-            candidates.push_back(cwd / "R5" / "Saved" / "Logs" / "R5.log");
-            candidates.push_back(cwd / "Saved" / "Logs" / "R5.log");
-
-            for (const auto& candidate : candidates)
-            {
-                std::error_code ec{};
-                const auto resolved = std::filesystem::weakly_canonical(candidate, ec);
-                const auto path = ec ? candidate : resolved;
-                if (std::filesystem::exists(path))
-                {
-                    m_player_marker_replication_probe_log_path = path;
-                    m_player_marker_replication_probe_log_initialized = false;
-                    log_line("[player-marker-replication-probe] log_trigger_path path=" + path.string());
-                    break;
-                }
-            }
-        }
-
-        if (m_player_marker_replication_probe_log_path.empty() ||
-            !std::filesystem::exists(m_player_marker_replication_probe_log_path))
-        {
-            return;
-        }
-
-        std::error_code size_ec{};
-        const auto size = std::filesystem::file_size(m_player_marker_replication_probe_log_path, size_ec);
-        if (size_ec)
-        {
-            return;
-        }
-
-        if (!m_player_marker_replication_probe_log_initialized ||
-            m_player_marker_replication_probe_log_offset > size)
-        {
-            m_player_marker_replication_probe_log_initialized = true;
-            m_player_marker_replication_probe_log_offset = size;
-            log_line("[player-marker-replication-probe] log_trigger_armed offset=" +
-                     std::to_string(static_cast<unsigned long long>(size)));
-            return;
-        }
-
-        if (size == m_player_marker_replication_probe_log_offset)
-        {
-            return;
-        }
-
-        std::ifstream input{m_player_marker_replication_probe_log_path, std::ios::binary};
-        if (!input)
-        {
-            return;
-        }
-        input.seekg(static_cast<std::streamoff>(m_player_marker_replication_probe_log_offset), std::ios::beg);
-        std::string chunk{};
-        chunk.resize(static_cast<size_t>(std::min<uintmax_t>(size - m_player_marker_replication_probe_log_offset, 65536)));
-        input.read(chunk.data(), static_cast<std::streamsize>(chunk.size()));
-        chunk.resize(static_cast<size_t>(std::max<std::streamsize>(0, input.gcount())));
-        m_player_marker_replication_probe_log_offset = size;
-        if (chunk.empty())
-        {
-            return;
-        }
-
-        auto tokens = config_string_value(
-            "WTS_PLAYER_MARKER_REPLICATION_PROBE_LOG_TOKENS",
-            "R5LogMeleeAbility,RuleRequestServer,R5BLPlayerInWorld_AddUserMarkerRule,R5BLPlayerInWorld_UpdateUserMarkerRule");
-        tokens += ",";
-        tokens += m_player_marker_replication_probe_action_tokens;
-        std::replace(tokens.begin(), tokens.end(), ';', ',');
-
-        const auto chunk_lower = lower_ascii(chunk);
-        std::istringstream token_rows{tokens};
-        std::string token{};
-        while (std::getline(token_rows, token, ','))
-        {
-            token = lower_ascii(trim_copy_ascii(token));
-            if (token.empty() || chunk_lower.find(token) == std::string::npos)
-            {
-                continue;
-            }
-
-            m_player_marker_replication_probe_requested.store(true);
-            log_line("[player-marker-replication-probe] log_action_trigger token=" + token +
-                     " bytesRead=" + std::to_string(chunk.size()));
-            return;
-        }
-    }
-
-    auto SignTextMod::tick_player_marker_replication_probe() -> void
-    {
-        const auto now = std::chrono::steady_clock::now();
-        poll_player_marker_log_action_trigger();
-        const bool requested = m_player_marker_replication_probe_requested.exchange(false);
-        const auto start_mode = lower_ascii(config_string_value("WTS_PLAYER_MARKER_REPLICATION_PROBE_START", "action"));
-        const bool should_start_from_config =
-            m_player_marker_replication_probe_enabled &&
-            (start_mode == "startup" || start_mode == "auto") &&
-            !m_player_marker_replication_probe_ran &&
-            !m_player_marker_replication_probe_active;
-
-        if (!requested && !should_start_from_config && !m_player_marker_replication_probe_active)
-        {
-            return;
-        }
-
-        if (!m_player_marker_replication_probe_active)
-        {
-            if (!is_restore_scan_world_active())
-            {
-                if (requested || should_start_from_config)
-                {
-                    m_player_marker_replication_probe_requested.store(true);
-                    if (now - m_player_marker_replication_probe_last_summary > std::chrono::seconds(5))
-                    {
-                        m_player_marker_replication_probe_last_summary = now;
-                        log_line("[player-marker-replication-probe] waiting reason=no_active_world");
-                    }
-                }
-                return;
-            }
-
-            uint32_t duration_seconds = 90;
-            try
-            {
-                const auto configured = std::stoul(config_string_value("WTS_PLAYER_MARKER_REPLICATION_PROBE_SECONDS", "90"));
-                duration_seconds = static_cast<uint32_t>(std::clamp<unsigned long>(configured, 10UL, 600UL));
-            }
-            catch (...)
-            {
-                duration_seconds = 90;
-            }
-
-            m_player_marker_replication_probe_active = true;
-            m_player_marker_replication_probe_ran = true;
-            m_player_marker_replication_probe_last.clear();
-            m_player_marker_replication_probe_next = now;
-            m_player_marker_replication_probe_end = now + std::chrono::seconds(duration_seconds);
-            m_player_marker_replication_probe_last_summary = now;
-            log_line("[player-marker-replication-probe] start reason=" +
-                     std::string{requested ? "trigger" : "config"} +
-                     " durationSeconds=" + std::to_string(duration_seconds) +
-                     " passive=true");
-        }
-
-        if (now >= m_player_marker_replication_probe_end)
-        {
-            m_player_marker_replication_probe_active = false;
-            log_line("[player-marker-replication-probe] complete trackedObjects=" +
-                     std::to_string(m_player_marker_replication_probe_last.size()));
-            return;
-        }
-
-        uint32_t interval_ms = 1500;
-        uint32_t max_objects = 96;
-        uint32_t max_fields = 24;
-        uint32_t max_delta_logs = 80;
-        try
-        {
-            const auto configured = std::stoul(config_string_value("WTS_PLAYER_MARKER_REPLICATION_PROBE_INTERVAL_MS", "1500"));
-            interval_ms = static_cast<uint32_t>(std::clamp<unsigned long>(configured, 250UL, 10000UL));
-        }
-        catch (...)
-        {
-            interval_ms = 1500;
-        }
-        try
-        {
-            const auto configured = std::stoul(config_string_value("WTS_PLAYER_MARKER_REPLICATION_PROBE_MAX_OBJECTS", "96"));
-            max_objects = static_cast<uint32_t>(std::clamp<unsigned long>(configured, 10UL, 500UL));
-        }
-        catch (...)
-        {
-            max_objects = 96;
-        }
-        try
-        {
-            const auto configured = std::stoul(config_string_value("WTS_PLAYER_MARKER_REPLICATION_PROBE_MAX_FIELDS", "24"));
-            max_fields = static_cast<uint32_t>(std::clamp<unsigned long>(configured, 4UL, 80UL));
-        }
-        catch (...)
-        {
-            max_fields = 24;
-        }
-        try
-        {
-            const auto configured = std::stoul(config_string_value("WTS_PLAYER_MARKER_REPLICATION_PROBE_MAX_DELTAS", "80"));
-            max_delta_logs = static_cast<uint32_t>(std::clamp<unsigned long>(configured, 10UL, 500UL));
-        }
-        catch (...)
-        {
-            max_delta_logs = 80;
-        }
-
-        if (now < m_player_marker_replication_probe_next)
-        {
-            return;
-        }
-        m_player_marker_replication_probe_next = now + std::chrono::milliseconds(interval_ms);
-
-        struct ProbeObjectRow
-        {
-            std::string key{};
-            std::string full_name{};
-            std::string class_name{};
-            std::string outer_name{};
-            std::vector<std::string> fields{};
-            uint32_t net_fields{0};
-            uint32_t rep_notify_fields{0};
-            int score{0};
-        };
-
-        std::vector<ProbeObjectRow> rows{};
-        rows.reserve(max_objects + 16);
-        std::vector<ProbeObjectRow> focused_rows{};
-        focused_rows.reserve(256);
-        uint32_t scanned = 0;
-        uint32_t candidates_seen = 0;
-        uint32_t focused_candidates_seen = 0;
-        uint32_t non_live_without_net_skipped = 0;
-        uint32_t rows_with_net = 0;
-        uint32_t rows_with_rep_notify = 0;
-        uint32_t rows_with_live_context = 0;
-
-        UObjectGlobals::ForEachUObject([&](UObject* object, int32, int32) {
-            if (!object || object->IsA(UFunction::StaticClass()))
-            {
-                return LoopAction::Continue;
-            }
-            ++scanned;
-
-            const auto full_name = narrow_ascii(object->GetFullName());
-            const auto class_name = object->GetClassPrivate()
-                ? narrow_ascii(object->GetClassPrivate()->GetFullName())
-                : std::string{"unknown"};
-            const auto outer_name = object->GetOuterPrivate()
-                ? narrow_ascii(object->GetOuterPrivate()->GetFullName())
-                : std::string{"none"};
-            const auto full_lower = lower_ascii(full_name);
-            const auto class_lower = lower_ascii(class_name);
-            const auto outer_lower = lower_ascii(outer_name);
-
-            const bool focused_marker_object = is_player_marker_focused_probe_object(full_lower, class_lower, outer_lower);
-            if (!focused_marker_object &&
-                !is_player_marker_probe_object_candidate(full_lower, class_lower, outer_lower))
-            {
-                return LoopAction::Continue;
-            }
-            ++candidates_seen;
-            if (focused_marker_object)
-            {
-                ++focused_candidates_seen;
-            }
-
-            ProbeObjectRow row{};
-            row.full_name = full_name;
-            row.class_name = class_name;
-            row.outer_name = outer_name;
-            row.key = full_name;
-            const bool live_context = is_player_marker_probe_live_context(full_lower, class_lower, outer_lower);
-            const auto object_score_haystack = class_lower + " " + full_lower + " " + outer_lower;
-            row.score =
-                (live_context ? 35 : 0) +
-                (contains_any_token(object_score_haystack, {"r5markermodelpawn", "r5playerstate", "mapcontroller", "r5markersreplicator"}) ? 20 : 0) +
-                (contains_any_token(object_score_haystack, {"r5markersreplicationcomponent"}) ? 35 : 0) +
-                (contains_any_token(object_score_haystack, {"r5markermodeluser", "bp_markermodel_simple"}) ? 45 : 0) +
-                (contains_any_token(object_score_haystack, {"r5markersreplicator_"}) &&
-                 contains_any_token(object_score_haystack, {"bp_markermodel_simple", "bp_markermodel_user"}) ? 35 : 0) +
-                (contains_any_token(object_score_haystack, {"shownname", "markerguid"}) ? 10 : 0) +
-                (contains_any_token(object_score_haystack, {"marker", "player", "pawn", "ship", "replicator"}) ? 8 : 0) -
-                (contains_any_token(object_score_haystack, {"scenario", "quest", "poi_"}) ? 12 : 0);
-
-            uint32_t logged_fields = 0;
-            for_each_property_in_chain_compat(object->GetClassPrivate(), [&](FProperty* prop) {
-                if (!prop || logged_fields >= max_fields)
-                {
-                    return;
-                }
-                if (!(focused_marker_object
-                        ? is_player_marker_focused_probe_property_candidate(prop)
-                        : is_player_marker_probe_property_candidate(prop)))
-                {
-                    return;
-                }
-
-                const auto value = try_extract_player_marker_probe_property_value(prop, object);
-                if (!value.has_value())
-                {
-                    return;
-                }
-
-                const auto flags = static_cast<uint64_t>(prop->GetPropertyFlags());
-                if ((flags & static_cast<uint64_t>(CPF_Net)) != 0ULL)
-                {
-                    ++row.net_fields;
-                    row.score += 8;
-                }
-                if ((flags & static_cast<uint64_t>(CPF_RepNotify)) != 0ULL)
-                {
-                    ++row.rep_notify_fields;
-                    row.score += 10;
-                }
-
-                row.fields.push_back(
-                    RC::to_string(prop->GetName()) +
-                    "[" + RC::to_string(prop->GetClass().GetName()) + "]" +
-                    " flags=" + property_flag_summary(prop) +
-                    " value=" + *value);
-                ++logged_fields;
-            });
-
-            if (row.fields.empty())
-            {
-                return LoopAction::Continue;
-            }
-            if (row.net_fields == 0 && row.rep_notify_fields == 0 && !live_context)
-            {
-                ++non_live_without_net_skipped;
-                return LoopAction::Continue;
-            }
-            if (row.net_fields > 0)
-            {
-                ++rows_with_net;
-            }
-            if (row.rep_notify_fields > 0)
-            {
-                ++rows_with_rep_notify;
-            }
-            if (live_context)
-            {
-                ++rows_with_live_context;
-            }
-
-            std::sort(row.fields.begin(), row.fields.end());
-            if (focused_marker_object)
-            {
-                if (focused_rows.size() < 256)
-                {
-                    focused_rows.push_back(row);
-                }
-                else
-                {
-                    auto weakest_focused = std::min_element(
-                        focused_rows.begin(),
-                        focused_rows.end(),
-                        [](const ProbeObjectRow& left, const ProbeObjectRow& right) {
-                            if (left.score != right.score)
-                            {
-                                return left.score < right.score;
-                            }
-                            return left.full_name > right.full_name;
-                        });
-                    if (weakest_focused != focused_rows.end() &&
-                        (row.score > weakest_focused->score ||
-                         (row.score == weakest_focused->score && row.full_name < weakest_focused->full_name)))
-                    {
-                        *weakest_focused = row;
-                    }
-                }
-            }
-
-            if (rows.size() < max_objects)
-            {
-                rows.push_back(std::move(row));
-            }
-            else
-            {
-                auto weakest = std::min_element(
-                    rows.begin(),
-                    rows.end(),
-                    [](const ProbeObjectRow& left, const ProbeObjectRow& right) {
-                        if (left.score != right.score)
-                        {
-                            return left.score < right.score;
-                        }
-                        return left.full_name > right.full_name;
-                    });
-                if (weakest != rows.end() &&
-                    (row.score > weakest->score ||
-                     (row.score == weakest->score && row.full_name < weakest->full_name)))
-                {
-                    *weakest = std::move(row);
-                }
-            }
-
-            return LoopAction::Continue;
-        });
-
-        std::sort(rows.begin(), rows.end(), [](const ProbeObjectRow& left, const ProbeObjectRow& right) {
-            if (left.score != right.score)
-            {
-                return left.score > right.score;
-            }
-            return left.full_name < right.full_name;
-        });
-        std::sort(focused_rows.begin(), focused_rows.end(), [](const ProbeObjectRow& left, const ProbeObjectRow& right) {
-            if (left.score != right.score)
-            {
-                return left.score > right.score;
-            }
-            return left.full_name < right.full_name;
-        });
-
-        log_line("[player-marker-replication-probe] scan scanned=" + std::to_string(scanned) +
-                 " candidatesSeen=" + std::to_string(candidates_seen) +
-                 " focusedCandidatesSeen=" + std::to_string(focused_candidates_seen) +
-                 " rows=" + std::to_string(rows.size()) +
-                 " focusedRows=" + std::to_string(focused_rows.size()) +
-                 " liveRows=" + std::to_string(rows_with_live_context) +
-                 " netRows=" + std::to_string(rows_with_net) +
-                 " repNotifyRows=" + std::to_string(rows_with_rep_notify) +
-                 " nonLiveNoNetSkipped=" + std::to_string(non_live_without_net_skipped) +
-                 " tracked=" + std::to_string(m_player_marker_replication_probe_last.size()) +
-                 " intervalMs=" + std::to_string(interval_ms));
-
-        uint32_t delta_logs = 0;
-        for (const auto& row : focused_rows)
-        {
-            std::ostringstream fingerprint{};
-            fingerprint << row.class_name << "|" << row.outer_name;
-            for (const auto& field : row.fields)
-            {
-                fingerprint << "|" << field;
-            }
-            const auto fp = fingerprint.str();
-            const auto focused_key = "focused|" + row.key;
-            const auto found = m_player_marker_replication_probe_last.find(focused_key);
-            const bool is_new = found == m_player_marker_replication_probe_last.end();
-            const bool changed = !is_new && found->second != fp;
-            if (!is_new && !changed)
-            {
-                continue;
-            }
-
-            m_player_marker_replication_probe_last[focused_key] = fp;
-            if (delta_logs >= max_delta_logs)
-            {
-                continue;
-            }
-            ++delta_logs;
-
-            log_line("[player-marker-focused] " +
-                     std::string{is_new ? "object" : "delta"} +
-                     " score=" + std::to_string(row.score) +
-                     " netFields=" + std::to_string(row.net_fields) +
-                     " repNotifyFields=" + std::to_string(row.rep_notify_fields) +
-                     " class=" + row.class_name +
-                     " object=" + row.full_name +
-                     " outer=" + row.outer_name);
-
-            uint32_t field_index = 0;
-            for (const auto& field : row.fields)
-            {
-                if (field_index >= max_fields)
-                {
-                    break;
-                }
-                log_line("[player-marker-focused] field object=" + row.full_name +
-                         " index=" + std::to_string(field_index) +
-                         " " + field);
-                ++field_index;
-            }
-        }
-
-        for (const auto& row : rows)
-        {
-            std::ostringstream fingerprint{};
-            fingerprint << row.class_name << "|" << row.outer_name;
-            for (const auto& field : row.fields)
-            {
-                fingerprint << "|" << field;
-            }
-            const auto fp = fingerprint.str();
-            const auto found = m_player_marker_replication_probe_last.find(row.key);
-            const bool is_new = found == m_player_marker_replication_probe_last.end();
-            const bool changed = !is_new && found->second != fp;
-            if (!is_new && !changed)
-            {
-                continue;
-            }
-
-            m_player_marker_replication_probe_last[row.key] = fp;
-            if (delta_logs >= max_delta_logs)
-            {
-                continue;
-            }
-            ++delta_logs;
-
-            log_line("[player-marker-replication-probe] " +
-                     std::string{is_new ? "object" : "delta"} +
-                     " score=" + std::to_string(row.score) +
-                     " netFields=" + std::to_string(row.net_fields) +
-                     " repNotifyFields=" + std::to_string(row.rep_notify_fields) +
-                     " class=" + row.class_name +
-                     " object=" + row.full_name +
-                     " outer=" + row.outer_name);
-
-            uint32_t field_index = 0;
-            for (const auto& field : row.fields)
-            {
-                if (field_index >= max_fields)
-                {
-                    break;
-                }
-                log_line("[player-marker-replication-probe] field object=" + row.full_name +
-                         " index=" + std::to_string(field_index) +
-                         " " + field);
-                ++field_index;
-            }
-        }
-
-        if (delta_logs >= max_delta_logs)
-        {
-            log_line("[player-marker-replication-probe] delta_log_cap_reached cap=" + std::to_string(max_delta_logs));
-        }
-    }
-
-    auto SignTextMod::tick_phase5_build_menu_selection_probe() -> void
-    {
-        if (!m_phase5_build_menu_selection_probe_enabled || is_dedicated_runtime_process())
-        {
-            return;
-        }
-
-        const auto now = std::chrono::steady_clock::now();
-        if (now < m_phase5_build_menu_selection_probe_next)
-        {
-            return;
-        }
-        m_phase5_build_menu_selection_probe_next = now + std::chrono::milliseconds(750);
-
-        struct CandidateRow
-        {
-            std::string object{};
-            std::string class_name{};
-            std::vector<std::string> fields{};
-            bool selectedish_true{false};
-            bool references_wooden_label{false};
-            bool is_wooden_item{false};
-            bool is_building_item_widget{false};
-            int score{0};
-        };
-
-        std::vector<CandidateRow> rows{};
-        rows.reserve(256);
-        uint32_t scanned = 0;
-        uint32_t widgetish = 0;
-        uint32_t wooden_items = 0;
-
-        UObjectGlobals::ForEachUObject([&](UObject* object, int32, int32) {
-            if (!object || object->IsA(UFunction::StaticClass()))
-            {
-                return LoopAction::Continue;
-            }
-            ++scanned;
-
-            const auto full_name = narrow_ascii(object->GetFullName());
-            const auto class_name = object->GetClassPrivate()
-                ? narrow_ascii(object->GetClassPrivate()->GetFullName())
-                : std::string{"unknown"};
-            const auto lower_full = lower_ascii(full_name);
-            const auto lower_class = lower_ascii(class_name);
-            const auto haystack = lower_full + " " + lower_class;
-            const bool is_default_object = lower_full.find("default__") != std::string::npos;
-
-            const bool is_wooden_item = lower_full.find("da_bi_utilities_lables_wooden_") != std::string::npos;
-            const bool is_any_building_item_asset =
-                contains_any_token(lower_class, {"r5buildingitem"}) &&
-                lower_full.find("/game/gameplay/building/") != std::string::npos;
-            const bool is_building_item_widget =
-                contains_any_token(haystack, {"r5buildingitemwidget", "r5buildinggroupwidget", "buildingitemwidget", "buildinggroupwidget"}) ||
-                (contains_any_token(haystack, {"wbp_", "widgetblueprintgeneratedclass", "userwidget"}) &&
-                 contains_any_token(haystack, {"building", "craft_recipe", "recipelist"}) &&
-                 contains_any_token(haystack, {"item", "entry", "recipe", "lable", "label", "plaque"}));
-            const bool is_widgetish =
-                contains_any_token(haystack, {"wbp_", "widget", "userwidget", "buildmenu", "buildingmenu"}) &&
-                contains_any_token(haystack, {"build", "storage", "beds", "lable", "label", "plaque"});
-            const bool is_menu_stateish =
-                contains_any_token(haystack, {"build", "craft", "storage", "beds", "lable", "label", "plaque"}) &&
-                contains_any_token(haystack, {"selection", "selected", "current", "entry", "item", "viewmodel", "data"});
-
-            if (!is_wooden_item && is_default_object)
-            {
-                return LoopAction::Continue;
-            }
-
-            if (is_any_building_item_asset && !is_wooden_item)
-            {
-                return LoopAction::Continue;
-            }
-
-            if (!is_wooden_item && !is_building_item_widget && !is_widgetish && !is_menu_stateish)
-            {
-                return LoopAction::Continue;
-            }
-
-            if (is_wooden_item)
-            {
-                ++wooden_items;
-            }
-            if (is_widgetish)
-            {
-                ++widgetish;
-            }
-
-            CandidateRow row{};
-            row.object = full_name;
-            row.class_name = class_name;
-            row.is_wooden_item = is_wooden_item;
-            row.is_building_item_widget = is_building_item_widget;
-            row.score = (is_wooden_item ? 20 : 0) + (is_building_item_widget ? 16 : 0) + (is_widgetish ? 6 : 0) + (is_menu_stateish ? 4 : 0);
-
-            uint32_t logged_fields = 0;
-            for_each_property_in_chain_compat(object->GetClassPrivate(), [&](FProperty* prop) {
-                if (!prop || logged_fields >= 18)
-                {
-                    return;
-                }
-
-                auto value = try_extract_phase5_selection_property_value(prop, object);
-                if (!value.has_value() || value->empty())
-                {
-                    return;
-                }
-
-                const auto prop_name = lower_ascii(RC::to_string(prop->GetName()));
-                const auto value_lower = lower_ascii(*value);
-                const bool is_true_selection =
-                    value_lower == "bool=true" &&
-                    contains_any_token(prop_name, {"selected", "hover", "focus", "active", "current"});
-                const bool references_label =
-                    contains_any_token(value_lower, {
-                        "da_bi_utilities_lables_wooden_",
-                        "building_lable_",
-                        "wallplaque",
-                        "plaque",
-                        "label",
-                        "lable"});
-                const bool always_log =
-                    is_true_selection ||
-                    references_label ||
-                    contains_any_token(prop_name, {"selected", "current", "active", "hover", "focus", "item", "entry", "data"});
-
-                if (!always_log && !is_wooden_item)
-                {
-                    return;
-                }
-
-                row.selectedish_true = row.selectedish_true || is_true_selection;
-                row.references_wooden_label = row.references_wooden_label || references_label;
-                row.score += is_true_selection ? 12 : 0;
-                row.score += references_label ? 10 : 0;
-                row.fields.push_back(prop_name + "=" + *value);
-                ++logged_fields;
-            });
-
-            if (row.fields.empty() && !row.is_wooden_item && !row.is_building_item_widget)
-            {
-                return LoopAction::Continue;
-            }
-
-            if (row.is_building_item_widget || row.references_wooden_label || row.selectedish_true || row.is_wooden_item)
-            {
-                row.score += 5;
-            }
-
-            if (rows.size() < 256)
-            {
-                rows.push_back(std::move(row));
-            }
-
-            return LoopAction::Continue;
-        });
-
-        std::sort(rows.begin(), rows.end(), [](const CandidateRow& left, const CandidateRow& right) {
-            if (left.score != right.score)
-            {
-                return left.score > right.score;
-            }
-            return left.object < right.object;
-        });
-
-        const bool should_log_summary =
-            (now - m_phase5_build_menu_selection_probe_last_summary) > std::chrono::seconds(5);
-        if (should_log_summary)
-        {
-            m_phase5_build_menu_selection_probe_last_summary = now;
-            log_line("[phase5-select-probe] scan objects=" + std::to_string(scanned) +
-                     " widgetish=" + std::to_string(widgetish) +
-                     " woodenItems=" + std::to_string(wooden_items) +
-                     " candidates=" + std::to_string(rows.size()) +
-                     " candidateCap=256");
-        }
-
-        if (m_phase5_build_menu_selection_probe_last.size() > 512)
-        {
-            m_phase5_build_menu_selection_probe_last.clear();
-        }
-
-        uint32_t logged_rows = 0;
-        for (const auto& row : rows)
-        {
-            std::ostringstream fingerprint{};
-            fingerprint << row.class_name << "|" << row.selectedish_true << "|" << row.references_wooden_label;
-            for (const auto& field : row.fields)
-            {
-                fingerprint << "|" << field;
-            }
-
-            const auto fp = fingerprint.str();
-            const auto found = m_phase5_build_menu_selection_probe_last.find(row.object);
-            if (found != m_phase5_build_menu_selection_probe_last.end() && found->second == fp)
-            {
-                continue;
-            }
-            m_phase5_build_menu_selection_probe_last[row.object] = fp;
-
-            if (logged_rows >= 32)
-            {
-                continue;
-            }
-            ++logged_rows;
-            log_line("[phase5-select-probe] candidate selectedish=" +
-                     std::string{row.selectedish_true ? "true" : "false"} +
-                     " refsWoodenLabel=" + std::string{row.references_wooden_label ? "true" : "false"} +
-                     " isWoodenItem=" + std::string{row.is_wooden_item ? "true" : "false"} +
-                     " isBuildingItemWidget=" + std::string{row.is_building_item_widget ? "true" : "false"} +
-                     " score=" + std::to_string(row.score) +
-                     " class=" + row.class_name +
-                     " object=" + row.object);
-
-            uint32_t field_index = 0;
-            for (const auto& field : row.fields)
-            {
-                if (field_index >= 10)
-                {
-                    break;
-                }
-                log_line("[phase5-select-probe] field object=" + row.object +
-                         " index=" + std::to_string(field_index) +
-                         " " + field);
-                ++field_index;
-            }
-        }
-    }
-
     auto SignTextMod::tick_file_triggers() -> void
     {
         const auto native_transport_trigger_path = m_mod_root / "Config" / "run_native_transport_inventory.flag";
@@ -7847,21 +7166,6 @@ namespace WindroseTextSigns
             {
                 log_line("[native-transport-probe] trigger file remove failed path=" +
                          native_transport_trigger_path.string() + " error=" + remove_ec.message());
-            }
-        }
-
-        const auto player_marker_trigger_path = m_mod_root / "Config" / "run_player_marker_replication_probe.flag";
-        if (std::filesystem::exists(player_marker_trigger_path))
-        {
-            log_line("[player-marker-replication-probe] trigger file detected path=" + player_marker_trigger_path.string());
-            m_player_marker_replication_probe_requested.store(true);
-
-            std::error_code remove_ec{};
-            std::filesystem::remove(player_marker_trigger_path, remove_ec);
-            if (remove_ec)
-            {
-                log_line("[player-marker-replication-probe] trigger file remove failed path=" +
-                         player_marker_trigger_path.string() + " error=" + remove_ec.message());
             }
         }
     }
@@ -8430,689 +7734,6 @@ namespace WindroseTextSigns
         m_last_backup_snapshot = now;
         log_line("[save] snapshot_write path=" + snapshot_path.string() + " reason=" + reason);
     }
-
-    auto SignTextMod::refresh_relay_room_id(const std::string& reason) -> void
-    {
-        const auto next_room_id = make_relay_room_id(m_world_folder_id);
-        if (next_room_id == m_relay_room_id)
-        {
-            return;
-        }
-
-        const auto old_room_id = m_relay_room_id.empty() ? std::string{"none"} : m_relay_room_id;
-        m_relay_room_id = next_room_id;
-        m_relay_last_request_seq = 0;
-        m_relay_snapshot_received = false;
-        m_relay_next_poll = std::chrono::steady_clock::now();
-        m_relay_next_server_snapshot = std::chrono::steady_clock::now();
-        log_line("[relay] room_set reason=" + reason +
-                 " oldRoomId=" + old_room_id +
-                 " roomId=" + m_relay_room_id +
-                 " worldId=" + m_world_folder_id +
-                 " enabled=" + std::string{m_relay_enabled ? "true" : "false"});
-    }
-
-    auto SignTextMod::relay_is_configured() const -> bool
-    {
-        return m_relay_enabled &&
-            !m_relay_base_url.empty() &&
-            !m_relay_room_id.empty() &&
-            m_relay_room_id.find("unknown-world") == std::string::npos &&
-            is_hex_world_id(m_world_folder_id);
-    }
-
-    auto SignTextMod::relay_url(const std::string& path_and_query) const -> std::string
-    {
-        auto base = m_relay_base_url;
-        while (!base.empty() && base.back() == '/')
-        {
-            base.pop_back();
-        }
-        return base + path_and_query;
-    }
-
-    auto SignTextMod::relay_extract_payloads(const std::string& json) const -> std::vector<std::string>
-    {
-        std::vector<std::string> out{};
-        static const std::regex payload_rx{"\\\"payload\\\"\\s*:\\s*\\\"((?:\\\\.|[^\\\"\\\\])*)\\\"", std::regex::icase};
-        for (auto it = std::sregex_iterator(json.begin(), json.end(), payload_rx);
-             it != std::sregex_iterator{};
-             ++it)
-        {
-            if (it->size() > 1)
-            {
-                out.push_back(unescape_json((*it)[1].str()));
-            }
-        }
-        return out;
-    }
-
-    auto SignTextMod::relay_extract_max_seq(const std::string& json) const -> int
-    {
-        int out = m_relay_last_request_seq;
-        static const std::regex seq_rx{"\\\"seq\\\"\\s*:\\s*([0-9]+)", std::regex::icase};
-        for (auto it = std::sregex_iterator(json.begin(), json.end(), seq_rx);
-             it != std::sregex_iterator{};
-             ++it)
-        {
-            if (it->size() > 1)
-            {
-                out = std::max(out, safe_stoi((*it)[1].str(), out));
-            }
-        }
-        return out;
-    }
-
-    auto SignTextMod::relay_kind_name(const RelayHttpKind kind) const -> std::string
-    {
-        switch (kind)
-        {
-        case RelayHttpKind::ClientPost: return "ClientPost";
-        case RelayHttpKind::ClientSnapshot: return "ClientSnapshot";
-        case RelayHttpKind::ServerSnapshot: return "ServerSnapshot";
-        case RelayHttpKind::ServerRequests: return "ServerRequests";
-        default: return "Unknown";
-        }
-    }
-
-    auto SignTextMod::relay_has_inflight(const RelayHttpKind kind) const -> bool
-    {
-        return std::any_of(m_relay_http_tasks.begin(), m_relay_http_tasks.end(), [kind](const RelayHttpTask& task) {
-            return task.kind == kind;
-        });
-    }
-
-    auto SignTextMod::relay_enqueue_get(
-        const RelayHttpKind kind,
-        const std::string& url,
-        const std::string& reason,
-        const int after_seq) -> bool
-    {
-        if (m_relay_http_tasks.size() >= 8 || relay_has_inflight(kind))
-        {
-            log_line("[relay] enqueue_get_skipped kind=" + relay_kind_name(kind) +
-                     " reason=" + reason +
-                     " inflight=" + std::to_string(m_relay_http_tasks.size()));
-            return false;
-        }
-
-        RelayHttpTask task{};
-        task.kind = kind;
-        task.reason = reason;
-        task.url = url;
-        task.room_id = m_relay_room_id;
-        task.after_seq = after_seq;
-        task.started = std::chrono::steady_clock::now();
-        const auto token = m_relay_shared_secret;
-        const auto timeout_ms = static_cast<unsigned long>(m_relay_poll_interval_ms);
-        task.future = std::async(std::launch::async, [url, token, timeout_ms]() {
-            return RelayHttp::get(url, token, timeout_ms);
-        });
-        m_relay_http_tasks.push_back(std::move(task));
-        log_line("[relay] enqueue_get kind=" + relay_kind_name(kind) +
-                 " reason=" + reason +
-                 " inflight=" + std::to_string(m_relay_http_tasks.size()));
-        return true;
-    }
-
-    auto SignTextMod::relay_enqueue_post(
-        const RelayHttpKind kind,
-        const std::string& url,
-        const std::string& body,
-        const std::string& reason) -> bool
-    {
-        if (m_relay_http_tasks.size() >= 8)
-        {
-            log_line("[relay] enqueue_post_skipped kind=" + relay_kind_name(kind) +
-                     " reason=" + reason +
-                     " inflight=" + std::to_string(m_relay_http_tasks.size()));
-            return false;
-        }
-
-        if (kind == RelayHttpKind::ServerSnapshot && relay_has_inflight(kind))
-        {
-            log_line("[relay] enqueue_post_skipped kind=" + relay_kind_name(kind) +
-                     " reason=" + reason +
-                     " inflight_snapshot=true");
-            return false;
-        }
-
-        RelayHttpTask task{};
-        task.kind = kind;
-        task.reason = reason;
-        task.url = url;
-        task.room_id = m_relay_room_id;
-        task.started = std::chrono::steady_clock::now();
-        const auto token = m_relay_shared_secret;
-        const auto timeout_ms = static_cast<unsigned long>(m_relay_poll_interval_ms);
-        task.future = std::async(std::launch::async, [url, token, body, timeout_ms]() {
-            return RelayHttp::post_json(url, token, body, timeout_ms);
-        });
-        m_relay_http_tasks.push_back(std::move(task));
-        log_line("[relay] enqueue_post kind=" + relay_kind_name(kind) +
-                 " reason=" + reason +
-                 " bytes=" + std::to_string(body.size()) +
-                 " inflight=" + std::to_string(m_relay_http_tasks.size()));
-        return true;
-    }
-
-    auto SignTextMod::relay_process_completed_http() -> void
-    {
-        for (auto it = m_relay_http_tasks.begin(); it != m_relay_http_tasks.end();)
-        {
-            if (it->future.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready)
-            {
-                ++it;
-                continue;
-            }
-
-            auto response = it->future.get();
-            const auto kind = it->kind;
-            const auto reason = it->reason;
-            const auto room_id = it->room_id;
-            const auto after_seq = it->after_seq;
-            const auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                std::chrono::steady_clock::now() - it->started).count();
-            it = m_relay_http_tasks.erase(it);
-
-            if (room_id != m_relay_room_id)
-            {
-                log_line("[relay] http_ignored_stale_room kind=" + relay_kind_name(kind) +
-                         " reason=" + reason +
-                         " taskRoom=" + room_id +
-                         " currentRoom=" + m_relay_room_id);
-                continue;
-            }
-
-            if (!response.ok)
-            {
-                log_line("[relay] http_done kind=" + relay_kind_name(kind) +
-                         " reason=" + reason +
-                         " ok=false status=" + std::to_string(response.status_code) +
-                         " elapsedMs=" + std::to_string(elapsed_ms) +
-                         " error=" + (response.error.empty() ? "none" : response.error));
-                continue;
-            }
-
-            if (kind == RelayHttpKind::ClientSnapshot)
-            {
-                const auto payloads = relay_extract_payloads(response.body);
-                for (const auto& payload : payloads)
-                {
-                    handle_bridge_payload(payload);
-                }
-                m_relay_snapshot_received = m_relay_snapshot_received || !payloads.empty();
-                log_line("[relay] client_snapshot_applied reason=" + reason +
-                         " payloads=" + std::to_string(payloads.size()) +
-                         " elapsedMs=" + std::to_string(elapsed_ms) +
-                         " received=" + std::string{m_relay_snapshot_received ? "true" : "false"});
-                continue;
-            }
-
-            if (kind == RelayHttpKind::ServerRequests)
-            {
-                const auto payloads = relay_extract_payloads(response.body);
-                m_relay_last_request_seq = relay_extract_max_seq(response.body);
-                for (const auto& payload : payloads)
-                {
-                    handle_bridge_payload(payload);
-                }
-                log_line("[relay] server_requests_applied count=" + std::to_string(payloads.size()) +
-                         " afterSeq=" + std::to_string(after_seq) +
-                         " lastSeq=" + std::to_string(m_relay_last_request_seq) +
-                         " elapsedMs=" + std::to_string(elapsed_ms));
-                continue;
-            }
-
-            log_line("[relay] http_done kind=" + relay_kind_name(kind) +
-                     " reason=" + reason +
-                     " ok=true status=" + std::to_string(response.status_code) +
-                     " elapsedMs=" + std::to_string(elapsed_ms));
-        }
-    }
-
-    auto SignTextMod::relay_post_client_payload(const std::string& payload, const std::string& reason) -> bool
-    {
-        if (!relay_is_configured() || m_bridge_role != BridgeRole::RemoteClient)
-        {
-            return false;
-        }
-
-        std::ostringstream body{};
-        body << "{\"mod\":\"WindroseTextSigns\",\"schema\":\"relay.clientRequest.v1\""
-             << ",\"session\":\"" << escape_json(m_session_id) << "\""
-             << ",\"worldId\":\"" << escape_json(m_world_folder_id) << "\""
-             << ",\"reason\":\"" << escape_json(reason) << "\""
-             << ",\"payload\":\"" << escape_json(payload) << "\""
-             << "}";
-
-        return relay_enqueue_post(
-            RelayHttpKind::ClientPost,
-            relay_url("/v1/rooms/" + m_relay_room_id + "/client/requests"),
-            body.str(),
-            reason);
-    }
-
-    auto SignTextMod::relay_publish_server_snapshot(const std::string& reason) -> void
-    {
-        if (!relay_is_configured() ||
-            (m_bridge_role != BridgeRole::DedicatedServer && m_bridge_role != BridgeRole::ListenHost))
-        {
-            return;
-        }
-
-        std::ostringstream body{};
-        body << "{\"mod\":\"WindroseTextSigns\",\"schema\":\"relay.serverSnapshot.v1\""
-             << ",\"session\":\"" << escape_json(m_session_id) << "\""
-             << ",\"revision\":" << m_revision
-             << ",\"worldId\":\"" << escape_json(m_world_folder_id) << "\""
-             << ",\"reason\":\"" << escape_json(reason) << "\""
-             << ",\"payloads\":[";
-
-        bool first = true;
-        uint32_t count = 0;
-        const auto snapshot_count = static_cast<uint32_t>(m_labels.size());
-        const auto snapshot_id = make_bridge_snapshot_id(m_session_id, m_revision, snapshot_count);
-        for (const auto& [_, rec] : m_labels)
-        {
-            std::ostringstream axis_value{};
-            axis_value << std::fixed << std::setprecision(2) << std::clamp(rec.surface_axis, 0.0f, 1.0f);
-            const auto record_kind = rec.kind.empty() ? infer_new_record_kind_from_asset(rec.asset) : rec.kind;
-            const auto record_backing_asset = rec.backing_asset.empty()
-                ? infer_backing_asset_from_kind(record_kind, rec.asset)
-                : rec.backing_asset;
-            std::ostringstream payload{};
-            payload << "{\"mod\":\"WindroseTextSigns\",\"schema\":\"bridge.v1\",\"type\":\"upsert\""
-                    << ",\"session\":\"" << escape_json(m_session_id) << "\""
-                    << ",\"revision\":" << m_revision
-                    << ",\"snapshotId\":\"" << escape_json(snapshot_id) << "\""
-                    << ",\"snapshotCount\":" << snapshot_count
-                    << ",\"stableId\":\"" << escape_json(rec.stable_id) << "\""
-                    << ",\"worldId\":\"" << escape_json(rec.world_id) << "\""
-                    << ",\"text\":\"" << escape_json(rec.text) << "\""
-                    << ",\"asset\":\"" << escape_json(rec.asset) << "\""
-                    << ",\"kind\":\"" << escape_json(record_kind) << "\""
-                    << ",\"backingAsset\":\"" << escape_json(record_backing_asset) << "\""
-                    << ",\"surfaceAxis\":" << axis_value.str()
-                    << ",\"surfaceSign\":" << rec.surface_sign
-                    << ",\"depthOffset\":" << rec.depth_offset
-                    << ",\"alignX\":" << rec.align_x
-                    << ",\"alignY\":" << rec.align_y
-                    << ",\"fontSize\":" << rec.font_size
-                    << ",\"colorR\":" << rec.color_r
-                    << ",\"colorG\":" << rec.color_g
-                    << ",\"colorB\":" << rec.color_b
-                    << ",\"colorA\":" << rec.color_a
-                    << ",\"lastSeen\":\"" << escape_json(rec.last_seen_utc) << "\""
-                    << ",\"reason\":\"" << escape_json(reason) << "\""
-                    << "}";
-            if (!first) { body << ","; }
-            first = false;
-            body << "{\"payload\":\"" << escape_json(payload.str()) << "\"}";
-            ++count;
-        }
-
-        std::ostringstream end_payload{};
-        end_payload << "{\"mod\":\"WindroseTextSigns\",\"schema\":\"bridge.v1\",\"type\":\"snapshot_end\""
-                    << ",\"session\":\"" << escape_json(m_session_id) << "\""
-                    << ",\"revision\":" << m_revision
-                    << ",\"snapshotId\":\"" << escape_json(snapshot_id) << "\""
-                    << ",\"snapshotCount\":" << count
-                    << ",\"worldId\":\"" << escape_json(m_world_folder_id) << "\""
-                    << ",\"reason\":\"" << escape_json(reason) << "\""
-                    << "}";
-        if (!first) { body << ","; }
-        body << "{\"payload\":\"" << escape_json(end_payload.str()) << "\"}";
-        body << "]}";
-
-        const bool queued = relay_enqueue_post(
-            RelayHttpKind::ServerSnapshot,
-            relay_url("/v1/rooms/" + m_relay_room_id + "/server/snapshot"),
-            body.str(),
-            reason);
-        log_line("[relay] server_snapshot_queued reason=" + reason +
-                 " queued=" + std::string{queued ? "true" : "false"} +
-                 " records=" + std::to_string(count));
-    }
-
-    auto SignTextMod::relay_poll_server_requests() -> void
-    {
-        if (!relay_is_configured() ||
-            (m_bridge_role != BridgeRole::DedicatedServer && m_bridge_role != BridgeRole::ListenHost))
-        {
-            return;
-        }
-
-        (void)relay_enqueue_get(
-            RelayHttpKind::ServerRequests,
-            relay_url("/v1/rooms/" + m_relay_room_id + "/server/requests?after=" + std::to_string(m_relay_last_request_seq)),
-            "poll",
-            m_relay_last_request_seq);
-    }
-
-    auto SignTextMod::relay_poll_client_snapshot(const std::string& reason) -> void
-    {
-        if (!relay_is_configured() || m_bridge_role != BridgeRole::RemoteClient)
-        {
-            return;
-        }
-
-        (void)relay_enqueue_get(
-            RelayHttpKind::ClientSnapshot,
-            relay_url("/v1/rooms/" + m_relay_room_id + "/client/snapshot"),
-            reason);
-    }
-
-    auto SignTextMod::tick_relay() -> void
-    {
-        relay_process_completed_http();
-
-        if (!m_relay_enabled)
-        {
-            return;
-        }
-
-        const auto now = std::chrono::steady_clock::now();
-        if (!relay_is_configured())
-        {
-            if (now - m_relay_last_status > std::chrono::seconds(20))
-            {
-                m_relay_last_status = now;
-                log_line("[relay] waiting reason=not_configured baseUrl=" +
-                         (m_relay_base_url.empty() ? "none" : m_relay_base_url) +
-                         " roomId=" + (m_relay_room_id.empty() ? "none" : m_relay_room_id) +
-                         " worldId=" + m_world_folder_id);
-            }
-            return;
-        }
-
-        if (m_relay_next_poll.time_since_epoch().count() == 0)
-        {
-            m_relay_next_poll = now;
-        }
-        if (m_relay_next_server_snapshot.time_since_epoch().count() == 0)
-        {
-            m_relay_next_server_snapshot = now;
-        }
-
-        if (now >= m_relay_next_poll)
-        {
-            if (m_bridge_role == BridgeRole::RemoteClient)
-            {
-                relay_poll_client_snapshot(m_relay_snapshot_received ? "periodic_poll" : "initial_poll");
-            }
-            else if (m_bridge_role == BridgeRole::DedicatedServer || m_bridge_role == BridgeRole::ListenHost)
-            {
-                relay_poll_server_requests();
-            }
-            m_relay_next_poll = now + std::chrono::milliseconds(m_relay_poll_interval_ms);
-        }
-
-        if ((m_bridge_role == BridgeRole::DedicatedServer || m_bridge_role == BridgeRole::ListenHost) &&
-            now >= m_relay_next_server_snapshot)
-        {
-            relay_publish_server_snapshot("periodic_publish");
-            m_relay_next_server_snapshot = now + std::chrono::seconds(30);
-        }
-    }
-
-    auto SignTextMod::reset_bridge_snapshot_state(const std::string& reason) -> void
-    {
-        (void)reason;
-        m_bridge_snapshot_received = false;
-        m_bridge_snapshot_world_id.clear();
-        m_bridge_health_unhealthy = false;
-        m_bridge_health_warning_logged = false;
-        m_bridge_snapshot_retry_attempts = 0;
-        m_bridge_sync_wait_started = std::chrono::steady_clock::now();
-        m_bridge_last_snapshot_request = {};
-        m_bridge_snapshot_active = false;
-        m_bridge_snapshot_end_seen = false;
-        m_bridge_snapshot_expected_count = -1;
-        m_bridge_snapshot_id.clear();
-        m_bridge_snapshot_seen_keys.clear();
-        m_bridge_pending_request_keys.clear();
-        m_bridge_route_recovery_logged = false;
-        m_bridge_route_retry_consumed = false;
-    }
-
-    auto SignTextMod::configure_bridge_role(const std::string& reason) -> void
-    {
-        const auto now = std::chrono::steady_clock::now();
-        const auto runtime_role_lower = lower_ascii(m_runtime_role);
-        BridgeRole desired = BridgeRole::Unknown;
-        if (is_dedicated_server_process(std::filesystem::current_path(), m_mod_root))
-        {
-            desired = BridgeRole::DedicatedServer;
-        }
-        // Local authoritative sessions (Solo + Hosted/listen) use ListenHost bridge mode.
-        // This keeps role telemetry/locks stable and allows hosted behavior to activate as peers join.
-        else if (m_sidecar_authoritative && runtime_role_lower == "localclient")
-        {
-            desired = BridgeRole::ListenHost;
-        }
-        else if (runtime_role_lower == "remoteclient" || runtime_role_lower.find("remote") != std::string::npos)
-        {
-            desired = BridgeRole::RemoteClient;
-        }
-
-        if (m_role_lock_acquired && desired != m_bridge_role)
-        {
-            log_line("[role] lock_held skip_bridge_role_change reason=" + reason +
-                     " lockedBridgeRole=" + bridge_role_name(m_bridge_role) +
-                     " requestedBridgeRole=" + bridge_role_name(desired));
-            return;
-        }
-
-        if (desired == m_bridge_role)
-        {
-            maybe_acquire_role_lock(now, "role_stable_" + reason);
-            return;
-        }
-
-        m_bridge_role = desired;
-        NativeBridge::instance().set_role(desired);
-        reset_bridge_snapshot_state("role_change_" + reason);
-        m_bridge_route_last_candidates.clear();
-        m_bridge_route_lock_acquired = false;
-        m_bridge_route_locked_host.clear();
-        m_bridge_route_loopback_same_machine_ok = false;
-        m_bridge_route_force_non_loopback = false;
-        m_bridge_route_recovery_logged = false;
-        m_bridge_route_rejected_candidates_logged.clear();
-        m_bridge_route_fallback_candidates_logged.clear();
-        m_bridge_route_bootstrap_pause_logged = false;
-        m_bridge_upnp_timeout_logged = false;
-        if (desired != BridgeRole::DedicatedServer && desired != BridgeRole::ListenHost)
-        {
-            m_bridge_upnp_last_policy.clear();
-        }
-        m_relay_snapshot_received = false;
-        m_relay_next_poll = std::chrono::steady_clock::now();
-        m_relay_next_server_snapshot = std::chrono::steady_clock::now();
-        m_bridge_next_snapshot_request = std::chrono::steady_clock::now();
-        log_line("[bridge] role_set reason=" + reason +
-                 " role=" + bridge_role_name(m_bridge_role) +
-                 " runtimeRole=" + m_runtime_role +
-                 " authorityMode=" + m_authority_mode +
-                 " sidecarKind=" + m_sidecar_kind +
-                 " authoritative=" + std::string{m_sidecar_authoritative ? "true" : "false"});
-        maybe_acquire_role_lock(now, "role_set_" + reason);
-    }
-
-    auto SignTextMod::bridge_upnp_mode_name() const -> std::string
-    {
-        switch (m_bridge_upnp_mode)
-        {
-        case BridgeUpnpMode::Off:
-            return "off";
-        case BridgeUpnpMode::On:
-            return "on";
-        case BridgeUpnpMode::Auto:
-            return "auto";
-        default:
-            return "unknown";
-        }
-    }
-
-    auto SignTextMod::maybe_start_bridge_upnp_attempt(const std::string& reason) -> void
-    {
-        if (!m_bridge_upnp_enabled)
-        {
-            return;
-        }
-        if (m_bridge_role != BridgeRole::DedicatedServer && m_bridge_role != BridgeRole::ListenHost)
-        {
-            return;
-        }
-        if (m_bridge_upnp_mapped || m_bridge_upnp_job)
-        {
-            return;
-        }
-
-        const auto now = std::chrono::steady_clock::now();
-        if (m_bridge_upnp_last_attempt.time_since_epoch().count() != 0 &&
-            (now - m_bridge_upnp_last_attempt) < std::chrono::seconds(30))
-        {
-            return;
-        }
-
-        std::string policy = "disabled";
-        bool should_attempt = false;
-        const auto stats = NativeBridge::instance().known_client_stats();
-        if (m_bridge_upnp_mode == BridgeUpnpMode::On)
-        {
-            policy = "forced_on";
-            should_attempt = true;
-        }
-        else if (m_bridge_upnp_mode == BridgeUpnpMode::Auto)
-        {
-            if (stats.public_net > 0)
-            {
-                policy = "auto_public_client_detected";
-                should_attempt = true;
-            }
-            else if (stats.total == 0)
-            {
-                policy = "auto_wait_no_bridge_clients";
-            }
-            else
-            {
-                policy = "auto_local_or_lan_clients_only";
-            }
-        }
-
-        if (m_bridge_upnp_last_policy != policy)
-        {
-            log_line("[bridge-upnp] policy mode=" + bridge_upnp_mode_name() +
-                     " decision=" + policy +
-                     " role=" + bridge_role_name(m_bridge_role) +
-                     " knownClients=" + std::to_string(stats.total) +
-                     " loopbackClients=" + std::to_string(stats.loopback) +
-                     " privateClients=" + std::to_string(stats.private_net) +
-                     " publicClients=" + std::to_string(stats.public_net) +
-                     " reason=" + reason);
-            m_bridge_upnp_last_policy = policy;
-        }
-
-        if (!should_attempt)
-        {
-            return;
-        }
-
-        auto job = std::make_shared<BridgeUpnpJobState>();
-        const auto udp_port = static_cast<uint16_t>(m_bridge_udp_port);
-        m_bridge_upnp_job = job;
-        m_bridge_upnp_attempted = true;
-        m_bridge_upnp_attempt_count += 1;
-        m_bridge_upnp_last_attempt = now;
-        m_bridge_upnp_attempt_started = now;
-        m_bridge_upnp_timeout_logged = false;
-        std::thread([job, udp_port]() {
-            const auto result = UpnpNat::map_udp_port(udp_port, udp_port, "WindroseTextSigns bridge");
-            {
-                std::scoped_lock lock(job->mutex);
-                job->result = result;
-            }
-            job->done.store(true);
-        }).detach();
-
-        log_line("[bridge-upnp] attempt_start mode=" + bridge_upnp_mode_name() +
-                 " trigger=" + reason +
-                 " attempt=" + std::to_string(m_bridge_upnp_attempt_count) +
-                 " role=" + bridge_role_name(m_bridge_role) +
-                 " timeoutMs=90000");
-    }
-
-    auto SignTextMod::tick_bridge_upnp() -> void
-    {
-        if (m_bridge_role != BridgeRole::DedicatedServer && m_bridge_role != BridgeRole::ListenHost)
-        {
-            return;
-        }
-
-        if (m_bridge_upnp_job)
-        {
-            if (m_bridge_upnp_job->done.load())
-            {
-                UpnpNatResult upnp{};
-                {
-                    std::scoped_lock lock(m_bridge_upnp_job->mutex);
-                    upnp = m_bridge_upnp_job->result;
-                }
-                m_bridge_upnp_job.reset();
-                m_bridge_upnp_mapped = upnp.ok;
-                const auto waited_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                           std::chrono::steady_clock::now() - m_bridge_upnp_attempt_started)
-                                           .count();
-                log_line("[bridge-upnp] attempt_complete status=finished mode=" + bridge_upnp_mode_name() +
-                         " attempt=" + std::to_string(m_bridge_upnp_attempt_count) +
-                         " waitedMs=" + std::to_string(waited_ms) +
-                         " mapped=" + std::string{m_bridge_upnp_mapped ? "true" : "false"});
-                log_line("[bridge-upnp] attempted=" + std::string{upnp.attempted ? "true" : "false"} +
-                         " ok=" + std::string{upnp.ok ? "true" : "false"} +
-                         " comAvailable=" + std::string{upnp.com_available ? "true" : "false"} +
-                         " collectionAvailable=" + std::string{upnp.collection_available ? "true" : "false"} +
-                         " localIp=" + (upnp.local_ip.empty() ? "none" : upnp.local_ip) +
-                         " internalPort=" + std::to_string(upnp.internal_port) +
-                         " externalPort=" + std::to_string(upnp.external_port) +
-                         " protocol=" + upnp.protocol +
-                         " message=" + upnp.message +
-                         " mode=" + bridge_upnp_mode_name() +
-                         " mapped=" + std::string{m_bridge_upnp_mapped ? "true" : "false"});
-            }
-            else if (!m_bridge_upnp_timeout_logged &&
-                     m_bridge_upnp_attempt_started.time_since_epoch().count() != 0 &&
-                     (std::chrono::steady_clock::now() - m_bridge_upnp_attempt_started) >= std::chrono::seconds(3))
-            {
-                m_bridge_upnp_timeout_logged = true;
-                log_line("[bridge-upnp] attempt_inflight mode=" + bridge_upnp_mode_name() +
-                         " waitedMs=" + std::to_string(
-                             std::chrono::duration_cast<std::chrono::milliseconds>(
-                                 std::chrono::steady_clock::now() - m_bridge_upnp_attempt_started)
-                                 .count()) +
-                         " note=non_blocking_wait_continues");
-            }
-            constexpr auto k_upnp_hard_timeout = std::chrono::seconds(90);
-            if (m_bridge_upnp_attempt_started.time_since_epoch().count() != 0 &&
-                (std::chrono::steady_clock::now() - m_bridge_upnp_attempt_started) >= k_upnp_hard_timeout)
-            {
-                const auto waited_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                           std::chrono::steady_clock::now() - m_bridge_upnp_attempt_started)
-                                           .count();
-                log_line("[bridge-upnp] attempt_complete status=timeout mode=" + bridge_upnp_mode_name() +
-                         " attempt=" + std::to_string(m_bridge_upnp_attempt_count) +
-                         " waitedMs=" + std::to_string(waited_ms) +
-                         " action=abandon_inflight_result mapped=false");
-                m_bridge_upnp_job.reset();
-                m_bridge_upnp_mapped = false;
-            }
-            return;
-        }
-
-        maybe_start_bridge_upnp_attempt("tick");
-    }
-
     auto SignTextMod::send_bridge_snapshot_request(const std::string& reason) -> void
     {
         if (m_bridge_role != BridgeRole::RemoteClient)
@@ -9142,7 +7763,6 @@ namespace WindroseTextSigns
         m_bridge_snapshot_id.clear();
         m_bridge_snapshot_seen_keys.clear();
         const bool sent = NativeBridge::instance().send_to_server(payload.str());
-        relay_poll_client_snapshot(reason);
         log_line("[bridge] snapshot_request reason=" + reason +
                  " sent=" + std::string{sent ? "true" : "false"} +
                  " role=" + bridge_role_name(m_bridge_role) +
@@ -9187,9 +7807,8 @@ namespace WindroseTextSigns
                 << ",\"lastSeen\":\"" << escape_json(rec.last_seen_utc) << "\""
                 << "}";
         const bool sent = NativeBridge::instance().send_to_server(payload.str());
-        const bool relay_sent = relay_post_client_payload(payload.str(), request_type);
         const auto pending_key = build_storage_key(rec.world_id, rec.stable_id);
-        if (sent || relay_sent)
+        if (sent)
         {
             m_bridge_pending_request_keys[pending_key] = std::chrono::steady_clock::now();
         }
@@ -9197,12 +7816,11 @@ namespace WindroseTextSigns
                  " stableId=" + rec.stable_id +
                  " worldId=" + rec.world_id +
                  " sent=" + std::string{sent ? "true" : "false"} +
-                 " relaySent=" + std::string{relay_sent ? "true" : "false"} +
                  " textChars=" + std::to_string(rec.text.size()) +
                  " pendingKey=" + pending_key +
                  " pending=" + std::to_string(m_bridge_pending_request_keys.size()) +
                  " serverHost=" + m_bridge_remote_server_host);
-        return sent || relay_sent;
+        return sent;
     }
 
     auto SignTextMod::broadcast_bridge_record(
@@ -9255,10 +7873,6 @@ namespace WindroseTextSigns
                 << ",\"reason\":\"" << escape_json(reason) << "\""
                 << "}";
         const bool sent = NativeBridge::instance().broadcast_to_clients(payload.str());
-        if (reason != "snapshot_request")
-        {
-            relay_publish_server_snapshot(reason);
-        }
         log_line("[bridge] broadcast_upsert reason=" + reason +
                  " stableId=" + rec.stable_id +
                  " worldId=" + rec.world_id +
@@ -9282,7 +7896,6 @@ namespace WindroseTextSigns
                 << ",\"reason\":\"" << escape_json(reason) << "\""
                 << "}";
         const bool sent = NativeBridge::instance().broadcast_to_clients(payload.str());
-        relay_publish_server_snapshot(reason);
         log_line("[bridge] broadcast_clear reason=" + reason +
                  " stableId=" + stable_id +
                  " worldId=" + world_id +
@@ -9315,7 +7928,6 @@ namespace WindroseTextSigns
                 << ",\"reason\":\"" << escape_json(reason) << "\""
                 << "}";
         const bool sent = NativeBridge::instance().broadcast_to_clients(payload.str());
-        relay_publish_server_snapshot(reason);
         log_line("[bridge] broadcast_snapshot reason=" + reason +
                  " records=" + std::to_string(count) +
                  " revision=" + std::to_string(m_revision) +
@@ -10262,6 +8874,258 @@ namespace WindroseTextSigns
         }
     }
 
+    auto SignTextMod::reset_bridge_snapshot_state(const std::string& reason) -> void
+    {
+        (void)reason;
+        m_bridge_snapshot_received = false;
+        m_bridge_snapshot_world_id.clear();
+        m_bridge_health_unhealthy = false;
+        m_bridge_health_warning_logged = false;
+        m_bridge_snapshot_retry_attempts = 0;
+        m_bridge_sync_wait_started = std::chrono::steady_clock::now();
+        m_bridge_last_snapshot_request = {};
+        m_bridge_snapshot_active = false;
+        m_bridge_snapshot_end_seen = false;
+        m_bridge_snapshot_expected_count = -1;
+        m_bridge_snapshot_id.clear();
+        m_bridge_snapshot_seen_keys.clear();
+        m_bridge_pending_request_keys.clear();
+        m_bridge_route_recovery_logged = false;
+        m_bridge_route_retry_consumed = false;
+    }
+
+    auto SignTextMod::configure_bridge_role(const std::string& reason) -> void
+    {
+        const auto now = std::chrono::steady_clock::now();
+        const auto runtime_role_lower = lower_ascii(m_runtime_role);
+        BridgeRole desired = BridgeRole::Unknown;
+        if (is_dedicated_server_process(std::filesystem::current_path(), m_mod_root))
+        {
+            desired = BridgeRole::DedicatedServer;
+        }
+        else if (m_sidecar_authoritative && runtime_role_lower == "localclient")
+        {
+            desired = BridgeRole::ListenHost;
+        }
+        else if (runtime_role_lower == "remoteclient" || runtime_role_lower.find("remote") != std::string::npos)
+        {
+            desired = BridgeRole::RemoteClient;
+        }
+
+        if (m_role_lock_acquired && desired != m_bridge_role)
+        {
+            log_line("[role] lock_held skip_bridge_role_change reason=" + reason +
+                     " lockedBridgeRole=" + bridge_role_name(m_bridge_role) +
+                     " requestedBridgeRole=" + bridge_role_name(desired));
+            return;
+        }
+
+        if (desired == m_bridge_role)
+        {
+            maybe_acquire_role_lock(now, "role_stable_" + reason);
+            return;
+        }
+
+        m_bridge_role = desired;
+        NativeBridge::instance().set_role(desired);
+        reset_bridge_snapshot_state("role_change_" + reason);
+        m_bridge_route_last_candidates.clear();
+        m_bridge_route_lock_acquired = false;
+        m_bridge_route_locked_host.clear();
+        m_bridge_route_loopback_same_machine_ok = false;
+        m_bridge_route_force_non_loopback = false;
+        m_bridge_route_recovery_logged = false;
+        m_bridge_route_rejected_candidates_logged.clear();
+        m_bridge_route_fallback_candidates_logged.clear();
+        m_bridge_route_bootstrap_pause_logged = false;
+        m_bridge_upnp_timeout_logged = false;
+        if (desired != BridgeRole::DedicatedServer && desired != BridgeRole::ListenHost)
+        {
+            m_bridge_upnp_last_policy.clear();
+        }
+        m_bridge_next_snapshot_request = std::chrono::steady_clock::now();
+        log_line("[bridge] role_set reason=" + reason +
+                 " role=" + bridge_role_name(m_bridge_role) +
+                 " runtimeRole=" + m_runtime_role +
+                 " authorityMode=" + m_authority_mode +
+                 " sidecarKind=" + m_sidecar_kind +
+                 " authoritative=" + std::string{m_sidecar_authoritative ? "true" : "false"});
+        maybe_acquire_role_lock(now, "role_set_" + reason);
+    }
+
+    auto SignTextMod::bridge_upnp_mode_name() const -> std::string
+    {
+        switch (m_bridge_upnp_mode)
+        {
+        case BridgeUpnpMode::Off:
+            return "off";
+        case BridgeUpnpMode::On:
+            return "on";
+        case BridgeUpnpMode::Auto:
+            return "auto";
+        default:
+            return "unknown";
+        }
+    }
+
+    auto SignTextMod::maybe_start_bridge_upnp_attempt(const std::string& reason) -> void
+    {
+        if (!m_bridge_upnp_enabled)
+        {
+            return;
+        }
+        if (m_bridge_role != BridgeRole::DedicatedServer && m_bridge_role != BridgeRole::ListenHost)
+        {
+            return;
+        }
+        if (m_bridge_upnp_mapped || m_bridge_upnp_job)
+        {
+            return;
+        }
+
+        const auto now = std::chrono::steady_clock::now();
+        if (m_bridge_upnp_last_attempt.time_since_epoch().count() != 0 &&
+            (now - m_bridge_upnp_last_attempt) < std::chrono::seconds(30))
+        {
+            return;
+        }
+
+        std::string policy = "disabled";
+        bool should_attempt = false;
+        const auto stats = NativeBridge::instance().known_client_stats();
+        if (m_bridge_upnp_mode == BridgeUpnpMode::On)
+        {
+            policy = "forced_on";
+            should_attempt = true;
+        }
+        else if (m_bridge_upnp_mode == BridgeUpnpMode::Auto)
+        {
+            if (stats.public_net > 0)
+            {
+                policy = "auto_public_client_detected";
+                should_attempt = true;
+            }
+            else if (stats.total == 0)
+            {
+                policy = "auto_wait_no_bridge_clients";
+            }
+            else
+            {
+                policy = "auto_local_or_lan_clients_only";
+            }
+        }
+
+        if (m_bridge_upnp_last_policy != policy)
+        {
+            log_line("[bridge-upnp] policy mode=" + bridge_upnp_mode_name() +
+                     " decision=" + policy +
+                     " role=" + bridge_role_name(m_bridge_role) +
+                     " knownClients=" + std::to_string(stats.total) +
+                     " loopbackClients=" + std::to_string(stats.loopback) +
+                     " privateClients=" + std::to_string(stats.private_net) +
+                     " publicClients=" + std::to_string(stats.public_net) +
+                     " reason=" + reason);
+            m_bridge_upnp_last_policy = policy;
+        }
+
+        if (!should_attempt)
+        {
+            return;
+        }
+
+        auto job = std::make_shared<BridgeUpnpJobState>();
+        const auto udp_port = static_cast<uint16_t>(m_bridge_udp_port);
+        m_bridge_upnp_job = job;
+        m_bridge_upnp_attempted = true;
+        m_bridge_upnp_attempt_count += 1;
+        m_bridge_upnp_last_attempt = now;
+        m_bridge_upnp_attempt_started = now;
+        m_bridge_upnp_timeout_logged = false;
+        std::thread([job, udp_port]() {
+            const auto result = UpnpNat::map_udp_port(udp_port, udp_port, "WindroseTextSigns bridge");
+            {
+                std::scoped_lock lock(job->mutex);
+                job->result = result;
+            }
+            job->done.store(true);
+        }).detach();
+
+        log_line("[bridge-upnp] attempt_start mode=" + bridge_upnp_mode_name() +
+                 " trigger=" + reason +
+                 " attempt=" + std::to_string(m_bridge_upnp_attempt_count) +
+                 " role=" + bridge_role_name(m_bridge_role) +
+                 " timeoutMs=90000");
+    }
+
+    auto SignTextMod::tick_bridge_upnp() -> void
+    {
+        if (m_bridge_role != BridgeRole::DedicatedServer && m_bridge_role != BridgeRole::ListenHost)
+        {
+            return;
+        }
+
+        if (m_bridge_upnp_job)
+        {
+            if (m_bridge_upnp_job->done.load())
+            {
+                UpnpNatResult upnp{};
+                {
+                    std::scoped_lock lock(m_bridge_upnp_job->mutex);
+                    upnp = m_bridge_upnp_job->result;
+                }
+                m_bridge_upnp_job.reset();
+                m_bridge_upnp_mapped = upnp.ok;
+                const auto waited_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                           std::chrono::steady_clock::now() - m_bridge_upnp_attempt_started)
+                                           .count();
+                log_line("[bridge-upnp] attempt_complete status=finished mode=" + bridge_upnp_mode_name() +
+                         " attempt=" + std::to_string(m_bridge_upnp_attempt_count) +
+                         " waitedMs=" + std::to_string(waited_ms) +
+                         " mapped=" + std::string{m_bridge_upnp_mapped ? "true" : "false"});
+                log_line("[bridge-upnp] attempted=" + std::string{upnp.attempted ? "true" : "false"} +
+                         " ok=" + std::string{upnp.ok ? "true" : "false"} +
+                         " comAvailable=" + std::string{upnp.com_available ? "true" : "false"} +
+                         " collectionAvailable=" + std::string{upnp.collection_available ? "true" : "false"} +
+                         " localIp=" + (upnp.local_ip.empty() ? "none" : upnp.local_ip) +
+                         " internalPort=" + std::to_string(upnp.internal_port) +
+                         " externalPort=" + std::to_string(upnp.external_port) +
+                         " protocol=" + upnp.protocol +
+                         " message=" + upnp.message +
+                         " mode=" + bridge_upnp_mode_name() +
+                         " mapped=" + std::string{m_bridge_upnp_mapped ? "true" : "false"});
+            }
+            else if (!m_bridge_upnp_timeout_logged &&
+                     m_bridge_upnp_attempt_started.time_since_epoch().count() != 0 &&
+                     (std::chrono::steady_clock::now() - m_bridge_upnp_attempt_started) >= std::chrono::seconds(3))
+            {
+                m_bridge_upnp_timeout_logged = true;
+                log_line("[bridge-upnp] attempt_inflight mode=" + bridge_upnp_mode_name() +
+                         " waitedMs=" + std::to_string(
+                             std::chrono::duration_cast<std::chrono::milliseconds>(
+                                 std::chrono::steady_clock::now() - m_bridge_upnp_attempt_started)
+                                 .count()) +
+                         " note=non_blocking_wait_continues");
+            }
+            constexpr auto k_upnp_hard_timeout = std::chrono::seconds(90);
+            if (m_bridge_upnp_attempt_started.time_since_epoch().count() != 0 &&
+                (std::chrono::steady_clock::now() - m_bridge_upnp_attempt_started) >= k_upnp_hard_timeout)
+            {
+                const auto waited_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                           std::chrono::steady_clock::now() - m_bridge_upnp_attempt_started)
+                                           .count();
+                log_line("[bridge-upnp] attempt_complete status=timeout mode=" + bridge_upnp_mode_name() +
+                         " attempt=" + std::to_string(m_bridge_upnp_attempt_count) +
+                         " waitedMs=" + std::to_string(waited_ms) +
+                         " action=abandon_inflight_result mapped=false");
+                m_bridge_upnp_job.reset();
+                m_bridge_upnp_mapped = false;
+            }
+            return;
+        }
+
+        maybe_start_bridge_upnp_attempt("tick");
+    }
+
     auto SignTextMod::has_viable_remote_route_for_snapshot() const -> bool
     {
         if (m_bridge_role != BridgeRole::RemoteClient)
@@ -10519,8 +9383,6 @@ namespace WindroseTextSigns
             }
         }
         maybe_acquire_role_lock(now, "tick");
-
-        tick_relay();
 
         if (now - m_bridge_last_status > std::chrono::seconds(20))
         {
@@ -11502,298 +10364,6 @@ namespace WindroseTextSigns
                           " stableId=" + stable_id +
                           " applied=" + std::string{applied ? "true" : "false"});
     }
-
-    auto SignTextMod::process_event_probe(UObject* context, UFunction* function, void* params) -> void
-    {
-        if (!context || !function)
-        {
-            return;
-        }
-        if (m_in_process_event_probe)
-        {
-            return;
-        }
-        m_in_process_event_probe = true;
-        struct ProbeScopeReset
-        {
-            bool& flag;
-            ~ProbeScopeReset()
-            {
-                flag = false;
-            }
-        } reset_scope{m_in_process_event_probe};
-
-        const auto fn = lower_ascii(narrow_ascii(function->GetFullName()));
-        if (m_player_marker_replication_probe_action_trigger_enabled &&
-            !m_player_marker_replication_probe_active &&
-            !m_player_marker_replication_probe_ran &&
-            !m_player_marker_replication_probe_requested.load())
-        {
-            auto tokens = m_player_marker_replication_probe_action_tokens;
-            std::replace(tokens.begin(), tokens.end(), ';', ',');
-            std::istringstream token_rows{tokens};
-            std::string token{};
-            bool matched_action_token = false;
-            while (std::getline(token_rows, token, ','))
-            {
-                token = lower_ascii(trim_copy_ascii(token));
-                if (!token.empty() && fn.find(token) != std::string::npos)
-                {
-                    matched_action_token = true;
-                    break;
-                }
-            }
-
-            if (matched_action_token && is_restore_scan_world_active())
-            {
-                m_player_marker_replication_probe_requested.store(true);
-                log_line("[player-marker-replication-probe] action_trigger fn=" + fn +
-                         " context=" + narrow_ascii(context->GetFullName()));
-            }
-        }
-
-        // Stability hardening: keep ProcessEvent probing scoped to construction
-        // events only. UI telemetry was removed after it destabilized native map UI.
-        const bool construct_interesting = fn.find("makeconstructcommand") != std::string::npos ||
-            fn.find("finishconstruction") != std::string::npos ||
-            fn.find("onbuildingaddedtoisland") != std::string::npos ||
-            fn.find("construct") != std::string::npos;
-        if (!construct_interesting)
-        {
-            return;
-        }
-
-        ++m_probe_event_count;
-        {
-            const auto context_full_name = narrow_ascii(context->GetFullName());
-            const auto context_class_name = context->GetClassPrivate()
-                ? narrow_ascii(context->GetClassPrivate()->GetFullName())
-                : std::string{"unknown"};
-
-            std::ostringstream row{};
-            row << "[probe] fn=" << fn;
-            row << " context=" << context_full_name;
-            row << " class=" << context_class_name;
-            if (auto id = try_extract_guid_from_params(function, params); id.has_value())
-            {
-                row << " guidFromParams=" << *id;
-            }
-            if (context->IsA(AActor::StaticClass()))
-            {
-                auto* actor = Cast<AActor>(context);
-                if (actor && is_probable_label_actor(actor))
-                {
-                    ++m_probe_label_hit_count;
-                    row << " labelActor=1";
-                    row << " stableId=" << extract_stable_id(actor);
-                    row << " asset=" << detect_label_asset(actor);
-                }
-            }
-            log_line(row.str());
-
-            if (m_phase5_placement_probe_enabled && params)
-            {
-                uint32_t logged_props = 0;
-                for_each_property_in_chain_compat(function, [&](FProperty* prop) {
-                    if (!prop || logged_props >= 16)
-                    {
-                        return;
-                    }
-                    const auto prop_name = narrow_ascii(prop->GetName());
-                    const auto prop_class = narrow_ascii(prop->GetClass().GetName());
-                    auto value = try_extract_property_log_value(prop, params);
-                    if (!value.has_value())
-                    {
-                        const auto lowered_name = lower_ascii(prop_name);
-                        if (!contains_any_token(lowered_name, {
-                                "item",
-                                "asset",
-                                "recipe",
-                                "build",
-                                "construct",
-                                "label",
-                                "lable",
-                                "plaque",
-                                "index",
-                                "slot",
-                                "category"}))
-                        {
-                            return;
-                        }
-                        value = "unread";
-                    }
-                    log_line("[phase5-probe] fn=" + fn +
-                             " prop=" + prop_name +
-                             " propClass=" + prop_class +
-                             " value=" + *value);
-                    ++logged_props;
-                });
-            }
-        }
-    }
-
-    auto SignTextMod::static_construct_probe(const FStaticConstructObjectParameters& params, UObject* constructed_object) -> void
-    {
-        ++m_construct_event_count;
-        if (!constructed_object || !constructed_object->IsA(AActor::StaticClass()))
-        {
-            return;
-        }
-
-        auto* actor = Cast<AActor>(constructed_object);
-        if (!actor || !is_probable_label_actor(actor))
-        {
-            return;
-        }
-
-        const auto stable_id = extract_stable_id(actor);
-        const auto actor_world_id = build_world_id_for_actor(actor);
-        configure_sidecar_for_actor(actor, actor_world_id);
-        const auto world_id = active_storage_world_id(actor_world_id);
-        const auto key = build_storage_key(world_id, stable_id);
-        const auto now = std::chrono::steady_clock::now();
-        if (const auto seen = m_construct_probe_last_seen.find(key); seen != m_construct_probe_last_seen.end())
-        {
-            if ((now - seen->second) < std::chrono::milliseconds(500))
-            {
-                return;
-            }
-        }
-        m_construct_probe_last_seen[key] = now;
-
-        // If this key was missing across multiple scans and now re-appears, avoid
-        // pruning unless we have a trusted destroy confirmation. Object churn during
-        // load/travel can otherwise cause false-positive data loss.
-        constexpr uint32_t k_rebuild_prune_missing_scan_threshold = 4;
-        const auto runtime_role_lower = lower_ascii(m_runtime_role);
-        const auto authority_mode_lower = lower_ascii(m_authority_mode);
-        const bool authority_source_resolved =
-            runtime_role_lower != "localclientpending" &&
-            authority_mode_lower != "worldauthoritypending";
-        const bool localclient_authoritative =
-            m_sidecar_authoritative &&
-            !is_dedicated_runtime_process();
-        const bool dedicated_authoritative =
-            m_sidecar_authoritative &&
-            is_dedicated_runtime_process();
-        const bool authoritative_destroy_confirmation_runtime =
-            localclient_authoritative || dedicated_authoritative;
-        const bool destructive_prune_allowed =
-            is_dedicated_runtime_process() ||
-            (m_session_ready_latched && m_role_lock_acquired);
-        const bool trusted_destroy_confirmed_authoritative =
-            authoritative_destroy_confirmation_runtime &&
-            has_recent_destroy_confirmation(stable_id, world_id);
-        const bool seen_live_this_session = m_seen_live_label_keys.find(key) != m_seen_live_label_keys.end();
-        std::string localclient_prune_ready_reason{};
-        const bool localclient_prune_ready =
-            is_localclient_prune_ready(authority_source_resolved, &localclient_prune_ready_reason);
-        const bool authoritative_local_guard_blocked =
-            localclient_authoritative &&
-            !localclient_prune_ready &&
-            !trusted_destroy_confirmed_authoritative;
-        const bool remote_bridge_unsynced =
-            !m_sidecar_authoritative &&
-            m_bridge_role == BridgeRole::RemoteClient &&
-            !m_bridge_snapshot_received;
-        if (const auto miss_it = m_missing_label_scan_counts.find(key);
-            miss_it != m_missing_label_scan_counts.end() &&
-            miss_it->second >= k_rebuild_prune_missing_scan_threshold &&
-            m_restore_scan_has_seen_live_labels &&
-            destructive_prune_allowed &&
-            !remote_bridge_unsynced &&
-            !authoritative_local_guard_blocked)
-        {
-            if (const auto found = m_labels.find(key); found != m_labels.end())
-            {
-                const bool destroy_confirmed_r5log =
-                    authoritative_destroy_confirmation_runtime &&
-                    has_recent_destroy_confirmation(found->second.stable_id, found->second.world_id);
-                if (destroy_confirmed_r5log)
-                {
-                    log_line("[save] prune_on_reuse key=" + key +
-                             " stableId=" + found->second.stable_id +
-                             " worldId=" + found->second.world_id +
-                             " reason=destroy_confirmed_r5log" +
-                             " trustedDestroyConfirmed=true" +
-                             " missCount=" + std::to_string(miss_it->second));
-                    trace_behavior_sm("prune_commit",
-                                      "path=static_construct_probe key=" + key +
-                                      " stableId=" + found->second.stable_id +
-                                      " worldId=" + found->second.world_id +
-                                      " reason=destroy_confirmed_r5log trustedDestroyConfirmed=true");
-                    m_labels.erase(found);
-                    m_rendered_text_cache.erase(key);
-                    m_component_name_cache.erase(key);
-                    m_phase4_next_retry.erase(key);
-                    m_seen_live_label_keys.erase(key);
-                    m_missing_label_scan_counts.erase(key);
-                    save_sidecar_json("prune_on_reuse", key, stable_id, world_id);
-                }
-                else
-                {
-                    log_line("[save] prune_on_reuse deferred key=" + key +
-                             " stableId=" + stable_id +
-                             " worldId=" + world_id +
-                             " reason=destroy_unconfirmed" +
-                             " trustedDestroyConfirmed=false" +
-                             " missCount=" + std::to_string(miss_it->second) +
-                             " threshold=" + std::to_string(k_rebuild_prune_missing_scan_threshold) +
-                             " seenLiveBeforeScan=" + std::string{m_restore_scan_has_seen_live_labels ? "true" : "false"} +
-                             " localClientPruneReady=" + std::string{localclient_prune_ready ? "true" : "false"} +
-                             " localClientReadyReason=" + localclient_prune_ready_reason +
-                             " seenLiveThisSession=" + std::string{seen_live_this_session ? "true" : "false"});
-                    trace_behavior_sm("prune_deferred",
-                                      "path=static_construct_probe key=" + key +
-                                      " stableId=" + stable_id +
-                                      " worldId=" + world_id +
-                                      " reason=destroy_unconfirmed trustedDestroyConfirmed=false");
-                }
-            }
-        }
-        else if (const auto miss_it = m_missing_label_scan_counts.find(key);
-                 miss_it != m_missing_label_scan_counts.end() && miss_it->second > 0)
-        {
-            log_line("[save] prune_on_reuse deferred key=" + key +
-                     " stableId=" + stable_id +
-                     " worldId=" + world_id +
-                     " missCount=" + std::to_string(miss_it->second) +
-                     " threshold=" + std::to_string(k_rebuild_prune_missing_scan_threshold) +
-                     " seenLiveBeforeScan=" + std::string{m_restore_scan_has_seen_live_labels ? "true" : "false"} +
-                     " bridgeUnsynced=" + std::string{remote_bridge_unsynced ? "true" : "false"} +
-                     " destructivePruneAllowed=" + std::string{destructive_prune_allowed ? "true" : "false"} +
-                     " localClientPruneReady=" + std::string{localclient_prune_ready ? "true" : "false"} +
-                     " localClientReadyReason=" + localclient_prune_ready_reason +
-                     " seenLiveThisSession=" + std::string{seen_live_this_session ? "true" : "false"} +
-                     " authoritativeLocalGuardBlocked=" + std::string{authoritative_local_guard_blocked ? "true" : "false"});
-        }
-
-        ++m_construct_label_hit_count;
-        std::string class_name{"unknown"};
-        std::string outer_name{"unknown"};
-        std::string req_name{"unknown"};
-
-        if (params.Class)
-        {
-            class_name = narrow_ascii(params.Class->GetFullName());
-        }
-        if (params.Outer)
-        {
-            outer_name = narrow_ascii(params.Outer->GetFullName());
-        }
-        if (params.Name.ToString().size() > 0)
-        {
-            req_name = narrow_ascii(params.Name.ToString());
-        }
-
-        log_line("[probe-sco] class=" + class_name +
-                 " outer=" + outer_name +
-                 " requestedName=" + req_name +
-                 " actor=" + narrow_ascii(actor->GetFullName()) +
-                 " stableId=" + stable_id +
-                 " asset=" + detect_label_asset(actor));
-    }
-
     auto SignTextMod::is_restore_scan_world_active() -> bool
     {
         if (is_dedicated_server_process(std::filesystem::current_path(), m_mod_root))
@@ -12910,6 +11480,10 @@ namespace WindroseTextSigns
             m_hosted_ready_sequence_complete = false;
         }
         m_hosted_post_ready_reconcile_done = false;
+        invalidate_phase7_umg_widget_cache("session_reset_" + reason);
+        m_phase7_umg_prewarm_attempted = false;
+        m_phase7_umg_prewarm_succeeded = false;
+        m_phase7_umg_prewarm_next_try = {};
         m_pending_world_inactive_ignored_logged = false;
         m_locked_world_inactive_ignored_logged = false;
         m_world_inactive_since = {};
@@ -13722,11 +12296,9 @@ namespace WindroseTextSigns
 
             tick_pending_hotkey();
             tick_phase7_umg_editor();
-            tick_phase5_build_menu_selection_probe();
         }
         tick_pending_fallback_hotkeys();
         tick_file_triggers();
-        tick_player_marker_replication_probe();
         if (!is_dedicated_runtime_process())
         {
             // Always parse readiness markers in LocalClient states, including Pending.
@@ -13752,6 +12324,10 @@ namespace WindroseTextSigns
             if (m_session_ready_latched && lower_ascii(m_runtime_role) == "localclientpending")
             {
                 tick_localclient_role_resolution();
+            }
+            if (m_session_ready_latched)
+            {
+                maybe_prewarm_phase7_umg_editor();
             }
         }
         tick_bridge();
@@ -14622,21 +13198,6 @@ namespace WindroseTextSigns
             }
         }
 
-        const bool any_probe_enabled =
-            is_process_event_probe_enabled() ||
-            m_static_construct_probe_enabled ||
-            m_phase5_placement_probe_enabled ||
-            m_phase5_build_menu_selection_probe_enabled ||
-            m_player_marker_replication_probe_enabled;
-        if (any_probe_enabled && now - m_last_probe_status > std::chrono::seconds(20))
-        {
-            m_last_probe_status = now;
-            log_line("[probe-status] events=" + std::to_string(m_probe_event_count) +
-                     " labelHits=" + std::to_string(m_probe_label_hit_count) +
-                     " scoEvents=" + std::to_string(m_construct_event_count) +
-                     " scoLabelHits=" + std::to_string(m_construct_label_hit_count) +
-                     " records=" + std::to_string(m_labels.size()));
-        }
     }
 
     auto SignTextMod::render_ui() -> void
@@ -14654,8 +13215,6 @@ namespace WindroseTextSigns
         ImGui::Separator();
         ImGui::Text("Hotkey: %s", m_hotkey_name.c_str());
         ImGui::Text("Clear text: open editor, delete text, press Enter");
-        ImGui::Text("Probe events: %llu", static_cast<unsigned long long>(m_probe_event_count));
-        ImGui::Text("Label hits: %llu", static_cast<unsigned long long>(m_probe_label_hit_count));
         ImGui::Text("Saved records: %zu", m_labels.size());
         ImGui::Text("Phase 7 native probe: %s", m_phase7_native_supported ? "supported" : "not supported");
         ImGui::TextWrapped("Native probe detail: %s", m_phase7_native_probe_summary.empty() ? "not run" : m_phase7_native_probe_summary.c_str());

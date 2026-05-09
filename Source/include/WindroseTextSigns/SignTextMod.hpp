@@ -28,7 +28,6 @@
 
 #include <WindroseTextSigns/NativeBridge.hpp>
 #include <WindroseTextSigns/UpnpNat.hpp>
-#include <WindroseTextSigns/RelayHttp.hpp>
 
 namespace WindroseTextSigns
 {
@@ -75,30 +74,11 @@ namespace WindroseTextSigns
         auto render_ui() -> void;
 
       private:
-        enum class RelayHttpKind : uint32_t
-        {
-            ClientPost = 1,
-            ClientSnapshot = 2,
-            ServerSnapshot = 3,
-            ServerRequests = 4
-        };
-
         enum class BridgeUpnpMode : uint32_t
         {
             Off = 0,
             On = 1,
             Auto = 2
-        };
-
-        struct RelayHttpTask
-        {
-            RelayHttpKind kind{RelayHttpKind::ClientPost};
-            std::string reason{};
-            std::string url{};
-            std::string room_id{};
-            int after_seq{0};
-            std::chrono::steady_clock::time_point started{};
-            std::future<RelayHttpResponse> future{};
         };
 
         auto resolve_mod_root() -> std::filesystem::path;
@@ -117,23 +97,19 @@ namespace WindroseTextSigns
         auto open_phase7_native_editor_for_selection() -> bool;
         auto close_phase7_native_editor(bool restore_game_input) -> void;
         auto set_phase7_game_and_ui_input_mode(bool enable_ui_mode) -> bool;
+        auto cache_phase7_umg_class_pointers() -> bool;
+        auto cache_phase7_umg_function_pointers() -> void;
+        auto invalidate_phase7_umg_widget_cache(const std::string& reason) -> void;
+        auto ensure_phase7_umg_widget_built() -> bool;
+        auto maybe_prewarm_phase7_umg_editor() -> void;
         auto open_phase7_umg_editor_for_selection() -> bool;
         auto close_phase7_umg_editor(bool restore_game_input) -> void;
         auto tick_phase7_umg_editor() -> void;
         auto install_phase7_keyboard_capture_hook() -> void;
         auto uninstall_phase7_keyboard_capture_hook() -> void;
-        auto install_process_event_probe() -> void;
-        auto install_static_construct_probe() -> void;
-        auto uninstall_process_event_probe() -> void;
-        auto is_static_construct_probe_enabled() const -> bool;
-        auto is_process_event_probe_enabled() const -> bool;
-        auto is_phase5_placement_probe_enabled() const -> bool;
-        auto is_phase5_build_menu_selection_probe_enabled() const -> bool;
         auto is_hide_native_label_icon_enabled() const -> bool;
         auto is_label_text_visual_diagnostics_enabled() const -> bool;
         auto is_native_transport_inventory_probe_enabled() const -> bool;
-        auto is_player_marker_replication_probe_enabled() const -> bool;
-        auto is_player_marker_replication_probe_action_trigger_enabled() const -> bool;
         auto config_bool_value(std::string_view key, bool fallback) const -> bool;
         auto config_string_value(std::string_view key, std::string fallback) const -> std::string;
 
@@ -141,9 +117,6 @@ namespace WindroseTextSigns
         auto tick_pending_fallback_hotkeys() -> void;
         auto tick_file_triggers() -> void;
         auto run_native_transport_inventory_probe(const std::string& reason) -> void;
-        auto poll_player_marker_log_action_trigger() -> void;
-        auto tick_player_marker_replication_probe() -> void;
-        auto tick_phase5_build_menu_selection_probe() -> void;
         auto is_restore_scan_world_active() -> bool;
         auto is_localclient_prune_ready(bool authority_source_resolved, std::string* out_reason = nullptr) -> bool;
         auto tick_localclient_role_resolution() -> void;
@@ -239,9 +212,6 @@ namespace WindroseTextSigns
         auto create_managed_text_component(RC::Unreal::AActor* actor, const std::string& storage_key, const RC::Unreal::FVector& relative_location) -> RC::Unreal::UObject*;
         auto destroy_managed_text_component(RC::Unreal::AActor* actor, const std::string& storage_key) -> bool;
 
-        auto process_event_probe(RC::Unreal::UObject* context, RC::Unreal::UFunction* function, void* params) -> void;
-        auto static_construct_probe(const RC::Unreal::FStaticConstructObjectParameters& params, RC::Unreal::UObject* constructed_object) -> void;
-
         auto load_sidecar_json() -> void;
         auto save_sidecar_json(const std::string& reason, const std::string& key, const std::string& stable_id, const std::string& world_id) -> void;
         auto sidecar_record_count_on_disk() const -> std::optional<size_t>;
@@ -264,21 +234,6 @@ namespace WindroseTextSigns
         auto reset_role_route_locks(const std::string& reason) -> void;
         auto next_snapshot_retry_delay() const -> std::chrono::seconds;
         auto tick_bridge() -> void;
-        auto refresh_relay_room_id(const std::string& reason) -> void;
-        auto relay_is_configured() const -> bool;
-        auto relay_url(const std::string& path_and_query) const -> std::string;
-        auto relay_extract_payloads(const std::string& json) const -> std::vector<std::string>;
-        auto relay_extract_max_seq(const std::string& json) const -> int;
-        auto relay_kind_name(RelayHttpKind kind) const -> std::string;
-        auto relay_has_inflight(RelayHttpKind kind) const -> bool;
-        auto relay_enqueue_get(RelayHttpKind kind, const std::string& url, const std::string& reason, int after_seq = 0) -> bool;
-        auto relay_enqueue_post(RelayHttpKind kind, const std::string& url, const std::string& body, const std::string& reason) -> bool;
-        auto relay_process_completed_http() -> void;
-        auto relay_post_client_payload(const std::string& payload, const std::string& reason) -> bool;
-        auto relay_publish_server_snapshot(const std::string& reason) -> void;
-        auto relay_poll_server_requests() -> void;
-        auto relay_poll_client_snapshot(const std::string& reason) -> void;
-        auto tick_relay() -> void;
         auto send_bridge_snapshot_request(const std::string& reason) -> void;
         auto send_bridge_record_request(const std::string& request_type, const LabelRecord& rec) -> bool;
         auto broadcast_bridge_record(
@@ -336,7 +291,6 @@ namespace WindroseTextSigns
         std::string m_save_profile_root{};
         std::string m_world_folder_id{};
         bool m_sidecar_authoritative{false};
-        bool m_verbose_log{false};
         bool m_f8_latency_breakdown_enabled{true};
         bool m_behavior_trace_enabled{false};
         uint64_t m_revision{0};
@@ -375,17 +329,6 @@ namespace WindroseTextSigns
             UpnpNatResult result{};
         };
         std::shared_ptr<BridgeUpnpJobState> m_bridge_upnp_job{};
-        bool m_relay_enabled{false};
-        std::string m_relay_base_url{};
-        std::string m_relay_shared_secret{};
-        std::string m_relay_room_id{};
-        int m_relay_poll_interval_ms{5000};
-        int m_relay_last_request_seq{0};
-        bool m_relay_snapshot_received{false};
-        std::chrono::steady_clock::time_point m_relay_next_poll{};
-        std::chrono::steady_clock::time_point m_relay_next_server_snapshot{};
-        std::chrono::steady_clock::time_point m_relay_last_status{};
-        std::vector<RelayHttpTask> m_relay_http_tasks{};
         std::chrono::steady_clock::time_point m_bridge_next_snapshot_request{};
         std::chrono::steady_clock::time_point m_bridge_sync_wait_started{};
         std::chrono::steady_clock::time_point m_bridge_last_snapshot_request{};
@@ -404,7 +347,6 @@ namespace WindroseTextSigns
 
         std::atomic<bool> m_hotkey_requested{false};
         std::atomic<bool> m_native_transport_inventory_requested{false};
-        std::atomic<bool> m_player_marker_replication_probe_requested{false};
         std::atomic<bool> m_phase7_enter_requested{false};
         std::atomic<bool> m_phase7_escape_requested{false};
         uint32_t m_hotkey_retry_remaining{0};
@@ -415,23 +357,16 @@ namespace WindroseTextSigns
         bool m_phase7_native_supported{false};
         bool m_phase7_native_editor_open{false};
         bool m_phase7_imgui_fallback_enabled{true};
-        bool m_static_construct_probe_enabled{false};
-        bool m_phase5_placement_probe_enabled{false};
-        bool m_phase5_build_menu_selection_probe_enabled{false};
         bool m_hide_native_label_icon_enabled{true};
         bool m_label_text_visual_diagnostics_enabled{false};
         bool m_native_transport_inventory_probe_enabled{false};
         bool m_native_transport_inventory_probe_ran{false};
-        bool m_player_marker_replication_probe_enabled{false};
-        bool m_player_marker_replication_probe_action_trigger_enabled{false};
-        bool m_player_marker_replication_probe_active{false};
-        bool m_player_marker_replication_probe_ran{false};
-        std::string m_player_marker_replication_probe_action_tokens{};
         int m_hotkey_vk{0x77};
         std::string m_hotkey_name{"F8"};
         bool m_hotkey_poll_was_down{false};
         bool m_phase7_enter_was_down{false};
         bool m_phase7_escape_was_down{false};
+        bool m_phase7_ui_input_mode_active{false};
         std::atomic<bool> m_phase7_keyboard_capture_active{false};
         std::atomic<bool> m_phase7_keyboard_hook_stop{false};
         std::atomic<bool> m_phase7_keyboard_hook_installed{false};
@@ -452,27 +387,36 @@ namespace WindroseTextSigns
         RC::Unreal::UObject* m_phase7_native_widget{};
         RC::Unreal::UObject* m_phase7_umg_widget{};
         RC::Unreal::UObject* m_phase7_umg_text_box{};
+        RC::Unreal::UObject* m_phase7_umg_title{};
+        RC::Unreal::UObject* m_phase7_umg_hint{};
         RC::Unreal::UObject* m_phase7_umg_apply_button{};
         RC::Unreal::UObject* m_phase7_umg_clear_button{};
         RC::Unreal::UObject* m_phase7_umg_cancel_button{};
+        RC::Unreal::UClass* m_phase7_class_user_widget{};
+        RC::Unreal::UClass* m_phase7_class_widget_tree{};
+        RC::Unreal::UClass* m_phase7_class_canvas_panel{};
+        RC::Unreal::UClass* m_phase7_class_border{};
+        RC::Unreal::UClass* m_phase7_class_size_box{};
+        RC::Unreal::UClass* m_phase7_class_text_block{};
+        RC::Unreal::UClass* m_phase7_class_text_box{};
+        RC::Unreal::UFunction* m_phase7_fn_add_to_viewport{};
+        RC::Unreal::UFunction* m_phase7_fn_remove_from_parent{};
+        RC::Unreal::UFunction* m_phase7_fn_set_keyboard_focus{};
+        RC::Unreal::UFunction* m_phase7_fn_set_focus{};
+        RC::Unreal::UFunction* m_phase7_fn_set_visibility{};
+        bool m_phase7_umg_prewarm_attempted{false};
+        bool m_phase7_umg_prewarm_succeeded{false};
+        bool m_phase7_umg_in_viewport{false};
+        std::chrono::steady_clock::time_point m_phase7_umg_prewarm_next_try{};
 
         std::optional<SelectionCandidate> m_selected{};
         std::array<char, 257> m_text_buffer{};
         std::string m_text_buffer_bound_key{};
 
-        RC::Unreal::Hook::GlobalCallbackId m_process_event_probe_id{RC::Unreal::Hook::ERROR_ID};
-        RC::Unreal::Hook::GlobalCallbackId m_static_construct_probe_id{RC::Unreal::Hook::ERROR_ID};
-
         std::unordered_map<std::string, LabelRecord> m_labels{};
         std::chrono::steady_clock::time_point m_last_restore_scan{};
         std::chrono::steady_clock::time_point m_last_restore_scan_diag{};
-        std::chrono::steady_clock::time_point m_last_probe_status{};
         std::chrono::steady_clock::time_point m_last_ui_tick_log{};
-
-        uint64_t m_probe_event_count{0};
-        uint64_t m_probe_label_hit_count{0};
-        uint64_t m_construct_event_count{0};
-        uint64_t m_construct_label_hit_count{0};
         std::unordered_map<std::string, std::string> m_rendered_text_cache{};
         std::unordered_set<std::string> m_label_text_visual_logged_keys{};
         std::unordered_map<std::string, std::string> m_component_name_cache{};
@@ -543,18 +487,6 @@ namespace WindroseTextSigns
         uint32_t m_dedicated_last_probable_label_count{0};
         bool m_prune_deferred_logged{false};
         std::string m_last_prune_defer_reason{};
-        std::unordered_map<std::string, std::chrono::steady_clock::time_point> m_construct_probe_last_seen{};
-        std::chrono::steady_clock::time_point m_phase5_build_menu_selection_probe_next{};
-        std::chrono::steady_clock::time_point m_phase5_build_menu_selection_probe_last_summary{};
-        std::unordered_map<std::string, std::string> m_phase5_build_menu_selection_probe_last{};
-        std::chrono::steady_clock::time_point m_player_marker_replication_probe_next{};
-        std::chrono::steady_clock::time_point m_player_marker_replication_probe_end{};
-        std::chrono::steady_clock::time_point m_player_marker_replication_probe_last_summary{};
-        std::chrono::steady_clock::time_point m_player_marker_replication_probe_log_next{};
-        std::unordered_map<std::string, std::string> m_player_marker_replication_probe_last{};
-        std::filesystem::path m_player_marker_replication_probe_log_path{};
-        uintmax_t m_player_marker_replication_probe_log_offset{0};
-        bool m_player_marker_replication_probe_log_initialized{false};
         std::chrono::steady_clock::time_point m_last_backup_snapshot{};
         std::string m_last_backup_signature{};
         bool m_runtime_text_label_patch_applied{false};
@@ -586,6 +518,5 @@ namespace WindroseTextSigns
         std::unordered_map<std::string, int> m_visual_verify_recently_rendered_streak{};
         std::unordered_map<std::string, int> m_visual_verify_no_render_streak{};
         std::unordered_map<std::string, float> m_visual_verify_last_render_time_seen{};
-        bool m_in_process_event_probe{false};
     };
 }
