@@ -420,6 +420,9 @@ namespace WindroseTextSigns
         std::chrono::steady_clock::time_point m_phase7_last_interaction_at{};
         bool m_phase7_watchdog_logged{false};
         bool m_phase7_last_close_removed{false};
+        std::chrono::steady_clock::time_point m_phase7_guard_fail_started{};
+        std::string m_phase7_guard_fail_reason{};
+        bool m_phase7_guard_hysteresis_logged{false};
 
         std::optional<SelectionCandidate> m_selected{};
         std::array<char, 257> m_text_buffer{};

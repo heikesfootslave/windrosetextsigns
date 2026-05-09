@@ -4949,6 +4949,9 @@ namespace WindroseTextSigns
         m_phase7_teardown_pending_reason.clear();
         m_phase7_watchdog_logged = false;
         m_phase7_last_close_removed = false;
+        m_phase7_guard_fail_started = {};
+        m_phase7_guard_fail_reason.clear();
+        m_phase7_guard_hysteresis_logged = false;
         if (!reason.empty())
         {
             log_line("[phase7-umg] widget_cache_invalidated reason=" + reason);
@@ -5349,6 +5352,9 @@ namespace WindroseTextSigns
         m_phase7_teardown_pending = false;
         m_phase7_teardown_pending_reason.clear();
         m_phase7_watchdog_logged = false;
+        m_phase7_guard_fail_started = {};
+        m_phase7_guard_fail_reason.clear();
+        m_phase7_guard_hysteresis_logged = false;
     }
 
     auto SignTextMod::force_close_phase7_for_teardown(const std::string& reason) -> void
@@ -6886,6 +6892,16 @@ namespace WindroseTextSigns
             // One keypress should survive transient viewpoint/controller hiccups.
             m_hotkey_retry_remaining = 8;
             m_hotkey_retry_next = now;
+            if (m_f8_latency_breakdown_enabled && !m_f8_latency_trace.active)
+            {
+                m_f8_latency_trace.active = true;
+                m_f8_latency_trace.target_seen = false;
+                m_f8_latency_trace.construct_seen = false;
+                m_f8_latency_trace.edge = now;
+                m_f8_latency_trace.target = {};
+                m_f8_latency_trace.construct = {};
+                ++m_f8_latency_trace.press_id;
+            }
         }
 
         if (m_hotkey_retry_remaining == 0)
@@ -12355,6 +12371,14 @@ namespace WindroseTextSigns
 
     auto SignTextMod::tick_localclient_visual_verify_debug(std::chrono::steady_clock::time_point now) -> void
     {
+        const auto is_hard_phase7_loss = [](const std::string& reason) -> bool
+        {
+            const auto lower = lower_copy_ascii(reason);
+            return lower.find("controller_world_not_gameplay") != std::string::npos ||
+                   lower.find("controller_world_null") != std::string::npos ||
+                   lower.find("controller_world_unavailable") != std::string::npos ||
+                   lower.find("controller_world_transition") != std::string::npos;
+        };
         std::string stability_reason{};
         if (!is_localclient_runtime_stable_for_post_ready(&stability_reason))
         {
@@ -12362,7 +12386,10 @@ namespace WindroseTextSigns
             {
                 log_line("[visual-verify] session_ready_lost reset=true");
             }
-            force_close_phase7_for_teardown("session_ready_lost:" + stability_reason);
+            if (is_hard_phase7_loss(stability_reason))
+            {
+                force_close_phase7_for_teardown("session_ready_lost:" + stability_reason);
+            }
             reset_visual_verify_debug_state();
             return;
         }
@@ -12382,7 +12409,6 @@ namespace WindroseTextSigns
             {
                 log_line("[visual-verify] session_ready_lost reset=true");
             }
-            force_close_phase7_for_teardown("session_ready_lost:not_session_ready");
             reset_visual_verify_debug_state();
             return;
         }
@@ -12537,15 +12563,60 @@ namespace WindroseTextSigns
             std::string phase7_guard_reason{};
             if (is_phase7_runtime_interaction_safe(&phase7_guard_reason))
             {
+                m_phase7_guard_fail_started = {};
+                m_phase7_guard_fail_reason.clear();
+                m_phase7_guard_hysteresis_logged = false;
                 tick_phase7_umg_editor();
             }
             else
             {
-                if (m_phase7_umg_widget &&
+                const auto now = std::chrono::steady_clock::now();
+                const auto reason_lower = lower_ascii(phase7_guard_reason);
+                const bool phase7_open = (m_phase7_umg_widget != nullptr) || m_phase7_umg_in_viewport;
+                const bool hard_invalid =
+                    reason_lower.find("controller_world_not_gameplay") != std::string::npos ||
+                    reason_lower.find("controller_world_null") != std::string::npos ||
+                    reason_lower.find("controller_world_unavailable") != std::string::npos ||
+                    reason_lower.find("controller_world_transition") != std::string::npos ||
+                    reason_lower.find("runtime_role_not_client") != std::string::npos ||
+                    reason_lower.find("dedicated_runtime") != std::string::npos;
+                const bool soft_transient =
+                    reason_lower.find("no_valid_player_controller") != std::string::npos ||
+                    reason_lower.find("controlled_pawn_missing") != std::string::npos ||
+                    reason_lower.find("role_lock_pending") != std::string::npos ||
+                    reason_lower.find("runtime_role_not_localclient") != std::string::npos ||
+                    reason_lower.find("authority_pending") != std::string::npos ||
+                    reason_lower == "session_not_ready";
+                bool should_force_close = true;
+
+                if (phase7_open && !hard_invalid && soft_transient)
+                {
+                    if (m_phase7_guard_fail_started.time_since_epoch().count() == 0 ||
+                        m_phase7_guard_fail_reason != phase7_guard_reason)
+                    {
+                        m_phase7_guard_fail_started = now;
+                        m_phase7_guard_fail_reason = phase7_guard_reason;
+                        m_phase7_guard_hysteresis_logged = false;
+                    }
+                    const auto guard_fail_ms =
+                        std::chrono::duration_cast<std::chrono::milliseconds>(now - m_phase7_guard_fail_started).count();
+                    if (guard_fail_ms < 1000)
+                    {
+                        if (!m_phase7_guard_hysteresis_logged)
+                        {
+                            log_line("[phase7-umg] teardown_deferred reason=" + phase7_guard_reason +
+                                     " elapsedMs=" + std::to_string(guard_fail_ms) +
+                                     " thresholdMs=1000");
+                            m_phase7_guard_hysteresis_logged = true;
+                        }
+                        should_force_close = false;
+                    }
+                }
+                if (should_force_close &&
+                    m_phase7_umg_widget &&
                     m_phase7_opened_at.time_since_epoch().count() != 0 &&
                     m_phase7_last_interaction_at.time_since_epoch().count() != 0)
                 {
-                    const auto now = std::chrono::steady_clock::now();
                     const auto open_ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - m_phase7_opened_at).count();
                     const auto idle_ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - m_phase7_last_interaction_at).count();
                     if (open_ms >= 10000 && idle_ms >= 10000 && !m_phase7_watchdog_logged)
@@ -12557,7 +12628,10 @@ namespace WindroseTextSigns
                                  " guard=" + phase7_guard_reason);
                     }
                 }
-                force_close_phase7_for_teardown(phase7_guard_reason);
+                if (should_force_close)
+                {
+                    force_close_phase7_for_teardown(phase7_guard_reason);
+                }
             }
         }
         tick_pending_fallback_hotkeys();
