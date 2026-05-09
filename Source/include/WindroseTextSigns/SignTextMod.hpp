@@ -83,7 +83,6 @@ namespace WindroseTextSigns
 
         auto resolve_mod_root() -> std::filesystem::path;
         auto configure_data_root() -> void;
-        auto migrate_legacy_sidecar_if_needed() -> void;
         auto open_log() -> void;
         auto compact_log_line(std::string line) const -> std::string;
         auto write_log_row(const std::string& row) -> void;
@@ -105,6 +104,8 @@ namespace WindroseTextSigns
         auto open_phase7_umg_editor_for_selection() -> bool;
         auto close_phase7_umg_editor(bool restore_game_input) -> void;
         auto force_close_phase7_for_teardown(const std::string& reason) -> void;
+        auto arm_phase7_definitive_teardown(const std::string& reason) -> void;
+        auto maybe_run_phase7_bootstrap_sanitize() -> void;
         auto reset_phase7_runtime_state() -> void;
         auto is_phase7_runtime_interaction_safe(std::string* out_reason = nullptr) -> bool;
         auto tick_phase7_umg_editor() -> void;
@@ -268,8 +269,6 @@ namespace WindroseTextSigns
         std::filesystem::path m_data_root{};
         std::filesystem::path m_log_path{};
         std::filesystem::path m_sidecar_path{};
-        std::filesystem::path m_legacy_sidecar_path{};
-        std::vector<std::filesystem::path> m_legacy_sidecar_paths{};
         std::filesystem::path m_backup_root{};
         std::ofstream m_log{};
         size_t m_log_bytes_written{0};
@@ -414,6 +413,11 @@ namespace WindroseTextSigns
         std::chrono::steady_clock::time_point m_phase7_umg_prewarm_next_try{};
         bool m_phase7_teardown_pending{false};
         std::string m_phase7_teardown_pending_reason{};
+        bool m_phase7_definitive_teardown_armed{false};
+        std::string m_phase7_definitive_teardown_reason{};
+        uint64_t m_phase7_bootstrap_sanitize_epoch{0};
+        std::chrono::steady_clock::time_point m_phase7_teardown_suppressed_last_log{};
+        std::string m_phase7_teardown_suppressed_last_reason{};
         uint64_t m_phase7_open_epoch{0};
         uint64_t m_phase7_active_epoch{0};
         std::chrono::steady_clock::time_point m_phase7_opened_at{};

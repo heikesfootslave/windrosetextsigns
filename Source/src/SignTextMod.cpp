@@ -1021,8 +1021,6 @@ namespace
         return std::nullopt;
     }
 
-    auto collect_moddata_roots(const std::filesystem::path& cwd, const std::filesystem::path& mod_root) -> std::vector<std::filesystem::path>;
-
     auto resolve_data_root_for_role(const std::filesystem::path& cwd, const std::filesystem::path& mod_root) -> DataRootResolution
     {
         DataRootResolution out{};
@@ -1050,50 +1048,28 @@ namespace
             }
         }
 
-        const auto candidates = collect_moddata_roots(cwd, mod_root);
-        for (const auto& path : candidates)
+        if (!profile_roots.empty())
         {
-            if (std::filesystem::exists(path))
-            {
-                out.data_root = path;
-                break;
-            }
+            out.profile_root = profile_roots.front();
+            out.world_id = "unknown-world";
+            out.data_root = dedicated_server
+                ? out.profile_root / "WindroseTextSigns" / out.world_id
+                : out.profile_root / "WindroseTextSigns" / "StartupCache" / out.world_id;
+            out.data_mode = dedicated_server ? "ServerAuthoritativePendingWorld" : "LocalClientStartupCachePendingWorld";
+            out.sidecar_kind = dedicated_server ? "authoritative-pending-world" : "cache-pending-world";
+            out.authoritative = dedicated_server;
+            return out;
         }
-        if (out.data_root.empty() && !candidates.empty())
-        {
-            out.data_root = candidates.front();
-        }
-        out.profile_root.clear();
+
+        out.profile_root = mod_root;
         out.world_id = "unknown-world";
-        out.data_mode = dedicated_server ? "ServerAuthoritativeFallbackModData" : "LocalClientStartupCacheFallbackModData";
-        out.sidecar_kind = dedicated_server ? "authoritative-fallback" : "cache-fallback";
+        out.data_root = mod_root / "Cache";
+        out.data_mode = dedicated_server ? "ServerAuthoritativeFallbackModRoot" : "LocalClientStartupCacheFallbackModRoot";
+        out.sidecar_kind = dedicated_server ? "authoritative-fallback-modroot" : "cache-fallback-modroot";
         out.authoritative = dedicated_server;
-        if (!dedicated_server)
-        {
-            out.data_root /= "StartupCache";
-        }
+        out.data_root /= dedicated_server ? "DedicatedServer" : "StartupCache";
+        out.data_root /= out.world_id;
         return out;
-    }
-
-    auto collect_moddata_roots(const std::filesystem::path& cwd, const std::filesystem::path& mod_root) -> std::vector<std::filesystem::path>
-    {
-        std::vector<std::filesystem::path> roots{};
-        if (!mod_root.empty())
-        {
-            auto mods_dir = mod_root.parent_path();
-            if (!mods_dir.empty() && lower_ascii_path_token(mods_dir.filename().string()) == "mods")
-            {
-                auto ue4ss_dir = mods_dir.parent_path();
-                if (!ue4ss_dir.empty())
-                {
-                    append_unique_path(roots, ue4ss_dir / "ModData" / "WindroseTextSigns");
-                }
-            }
-        }
-
-        append_unique_path(roots, cwd / "ue4ss" / "ModData" / "WindroseTextSigns");
-        append_unique_path(roots, cwd / "ModData" / "WindroseTextSigns");
-        return roots;
     }
 
     auto normalize_spaces(std::string_view text) -> std::string
@@ -4511,15 +4487,8 @@ namespace WindroseTextSigns
         NativeBridge::instance().set_remote_server(m_bridge_remote_server_host, static_cast<uint16_t>(m_bridge_udp_port));
         m_session_id = now_utc() + "-" + sanitize_path_segment(current_executable_path().filename().string());
         configure_data_root();
-        m_legacy_sidecar_path = m_mod_root / "SignTexts.json";
         m_sidecar_path = m_data_root / "SignTexts.json";
         m_backup_root = m_data_root / "Backups";
-        m_legacy_sidecar_paths.clear();
-        append_unique_path(m_legacy_sidecar_paths, m_legacy_sidecar_path);
-        for (const auto& root : collect_moddata_roots(std::filesystem::current_path(), m_mod_root))
-        {
-            append_unique_path(m_legacy_sidecar_paths, root / "SignTexts.json");
-        }
 
         open_log();
         log_line(std::string{"[build] version=0.1.2-prototype compiled="} + __DATE__ + " " + __TIME__ + " flags=configurable-hotkey,phase2-role-aware-sidecar,remote-cache-routing,staticconstruct-gated,phase6-native-udp-bridge,bridge-auto-route,bridge-batched-snapshots,phase7-umg-no-llhook,dedicated-no-render-components,phase4-marker-guard,restore-scan-diag,label-text-native-icon-hide,probes-default-off");
@@ -4573,8 +4542,6 @@ namespace WindroseTextSigns
         {
             log_line("[save] failed to create backup root path=" + m_backup_root.string() + " error=" + backup_mkdir_ec.message());
         }
-
-        migrate_legacy_sidecar_if_needed();
 
         load_sidecar_json();
         if (!is_dedicated_runtime_process())
@@ -5351,10 +5318,55 @@ namespace WindroseTextSigns
         m_phase7_active_epoch = 0;
         m_phase7_teardown_pending = false;
         m_phase7_teardown_pending_reason.clear();
+        m_phase7_definitive_teardown_armed = false;
+        m_phase7_definitive_teardown_reason.clear();
         m_phase7_watchdog_logged = false;
         m_phase7_guard_fail_started = {};
         m_phase7_guard_fail_reason.clear();
         m_phase7_guard_hysteresis_logged = false;
+    }
+
+    auto SignTextMod::arm_phase7_definitive_teardown(const std::string& reason) -> void
+    {
+        const bool had_phase7_state =
+            m_phase7_native_widget ||
+            m_phase7_umg_widget ||
+            m_phase7_native_editor_open ||
+            m_phase7_umg_in_viewport ||
+            m_phase7_ui_input_mode_active;
+        const bool had_active_session_state =
+            had_phase7_state ||
+            m_session_ready_latched ||
+            m_role_lock_acquired;
+        if (!had_active_session_state)
+        {
+            return;
+        }
+        if (m_phase7_definitive_teardown_armed &&
+            m_phase7_definitive_teardown_reason == reason)
+        {
+            return;
+        }
+        m_phase7_definitive_teardown_armed = true;
+        m_phase7_definitive_teardown_reason = reason;
+        log_line("[phase7] teardown_armed reason=" + reason);
+    }
+
+    auto SignTextMod::maybe_run_phase7_bootstrap_sanitize() -> void
+    {
+        if (m_phase7_bootstrap_sanitize_epoch == m_session_epoch)
+        {
+            return;
+        }
+        m_phase7_bootstrap_sanitize_epoch = m_session_epoch;
+        if (m_phase7_umg_widget && is_uobject_reflection_safe(m_phase7_umg_widget))
+        {
+            close_phase7_umg_editor(true);
+        }
+        reset_phase7_runtime_state();
+        invalidate_phase7_umg_widget_cache("bootstrap_sanitize");
+        m_phase7_teardown_skip_logged = false;
+        log_line("[phase7] bootstrap_sanitize applied=true epoch=" + std::to_string(m_session_epoch));
     }
 
     auto SignTextMod::force_close_phase7_for_teardown(const std::string& reason) -> void
@@ -5385,6 +5397,7 @@ namespace WindroseTextSigns
         if (!m_phase7_umg_widget)
         {
             reset_phase7_runtime_state();
+            log_line("[phase7] teardown_committed removed=false reason=" + reason);
         }
     }
 
@@ -5621,66 +5634,6 @@ namespace WindroseTextSigns
         }
     }
 
-    auto SignTextMod::migrate_legacy_sidecar_if_needed() -> void
-    {
-        if (m_sidecar_path.empty())
-        {
-            return;
-        }
-        if (std::filesystem::exists(m_sidecar_path))
-        {
-            log_line("[save] using sidecar path=" + m_sidecar_path.string());
-            return;
-        }
-
-        std::vector<std::filesystem::path> existing_legacy_paths{};
-        for (const auto& legacy_path : m_legacy_sidecar_paths)
-        {
-            if (legacy_path.empty() || normalized_path_for_compare(legacy_path) == normalized_path_for_compare(m_sidecar_path))
-            {
-                continue;
-            }
-            if (std::filesystem::exists(legacy_path))
-            {
-                existing_legacy_paths.push_back(legacy_path);
-            }
-        }
-
-        if (existing_legacy_paths.empty())
-        {
-            log_line("[save] no legacy sidecar to migrate newPath=" + m_sidecar_path.string());
-            return;
-        }
-
-        std::sort(existing_legacy_paths.begin(), existing_legacy_paths.end(), [](const auto& lhs, const auto& rhs) {
-            std::error_code lhs_ec{};
-            std::error_code rhs_ec{};
-            return std::filesystem::last_write_time(lhs, lhs_ec) > std::filesystem::last_write_time(rhs, rhs_ec);
-        });
-
-        const auto& source_path = existing_legacy_paths.front();
-        std::error_code copy_ec{};
-        std::filesystem::copy_file(source_path, m_sidecar_path, std::filesystem::copy_options::overwrite_existing, copy_ec);
-        if (copy_ec)
-        {
-            log_line("[save] legacy sidecar migration failed legacyPath=" + source_path.string() +
-                     " newPath=" + m_sidecar_path.string() + " error=" + copy_ec.message());
-            return;
-        }
-
-        const auto marker_path = source_path.parent_path() / "MIGRATED_TO.txt";
-        std::ofstream marker(marker_path, std::ios::out | std::ios::trunc);
-        if (marker.is_open())
-        {
-            marker << "WindroseTextSigns sidecar migrated at " << now_utc() << "\n";
-            marker << "from=" << source_path.string() << "\n";
-            marker << "to=" << m_sidecar_path.string() << "\n";
-            marker.close();
-        }
-
-        log_line("[save] migrated legacy sidecar legacyPath=" + source_path.string() +
-                 " newPath=" + m_sidecar_path.string());
-    }
     auto SignTextMod::try_get_primary_player_controller() -> UObject*
     {
         const auto now = std::chrono::steady_clock::now();
@@ -6477,8 +6430,7 @@ namespace WindroseTextSigns
         }
         else
         {
-            const auto moddata_roots = collect_moddata_roots(std::filesystem::current_path(), m_mod_root);
-            cache_base = moddata_roots.empty() ? (m_mod_root / "Cache") : moddata_roots.front();
+            cache_base = m_mod_root / "Cache";
         }
 
         auto remote_world_id = safe_world_id;
@@ -10897,6 +10849,30 @@ namespace WindroseTextSigns
                 }
             }
 
+            const bool farewell_transition =
+                line_lower.find("change state readytoplay => sentfarewell") != std::string::npos ||
+                line_lower.find("change state readytoplay => saidfarewell") != std::string::npos;
+            if (farewell_transition)
+            {
+                arm_phase7_definitive_teardown("sent_farewell");
+            }
+            const bool request_exit =
+                line_lower.find("requestexit(") != std::string::npos ||
+                line_lower.find("engine exit requested") != std::string::npos;
+            if (request_exit)
+            {
+                arm_phase7_definitive_teardown("engine_request_exit");
+            }
+            const bool lobby_or_transition_travel =
+                ((line_lower.find("open level") != std::string::npos ||
+                  line_lower.find("loadmap:") != std::string::npos) &&
+                 (line_lower.find("/game/maps/lobby/") != std::string::npos ||
+                  line_lower.find("r5transitionmap") != std::string::npos));
+            if (lobby_or_transition_travel)
+            {
+                arm_phase7_definitive_teardown("travel_lobby_transition");
+            }
+
             if (!parse_destroy_construct_signals)
             {
                 continue;
@@ -11719,8 +11695,22 @@ namespace WindroseTextSigns
             m_hosted_ready_sequence_complete = false;
         }
         m_hosted_post_ready_reconcile_done = false;
-        force_close_phase7_for_teardown("session_reset_" + reason);
-        invalidate_phase7_umg_widget_cache("session_reset_" + reason);
+        const bool definitive_teardown =
+            m_phase7_definitive_teardown_armed ||
+            reason.rfind("definitive_", 0) == 0;
+        if (definitive_teardown)
+        {
+            force_close_phase7_for_teardown("session_reset_" + reason);
+            invalidate_phase7_umg_widget_cache("session_reset_" + reason);
+        }
+        else
+        {
+            log_line("[phase7] teardown_suppressed reason=non_definitive_state detail=session_reset_" + reason);
+            m_phase7_teardown_pending = false;
+            m_phase7_teardown_pending_reason.clear();
+            m_phase7_definitive_teardown_armed = false;
+            m_phase7_definitive_teardown_reason.clear();
+        }
         m_phase7_umg_prewarm_attempted = false;
         m_phase7_umg_prewarm_succeeded = false;
         m_phase7_umg_prewarm_next_try = {};
@@ -12371,24 +12361,12 @@ namespace WindroseTextSigns
 
     auto SignTextMod::tick_localclient_visual_verify_debug(std::chrono::steady_clock::time_point now) -> void
     {
-        const auto is_hard_phase7_loss = [](const std::string& reason) -> bool
-        {
-            const auto lower = lower_copy_ascii(reason);
-            return lower.find("controller_world_not_gameplay") != std::string::npos ||
-                   lower.find("controller_world_null") != std::string::npos ||
-                   lower.find("controller_world_unavailable") != std::string::npos ||
-                   lower.find("controller_world_transition") != std::string::npos;
-        };
         std::string stability_reason{};
         if (!is_localclient_runtime_stable_for_post_ready(&stability_reason))
         {
             if (m_visual_verify_session_ready)
             {
                 log_line("[visual-verify] session_ready_lost reset=true");
-            }
-            if (is_hard_phase7_loss(stability_reason))
-            {
-                force_close_phase7_for_teardown("session_ready_lost:" + stability_reason);
             }
             reset_visual_verify_debug_state();
             return;
@@ -12525,6 +12503,7 @@ namespace WindroseTextSigns
 
         if (!is_dedicated_runtime_process())
         {
+            maybe_run_phase7_bootstrap_sanitize();
             // Hotkey reliability fallback:
             // capture hardware edge directly in case callback registration misses events
             // while input focus/context changes.
@@ -12548,6 +12527,10 @@ namespace WindroseTextSigns
             m_hotkey_poll_was_down = hotkey_is_down;
 
             tick_pending_hotkey();
+            if (m_phase7_definitive_teardown_armed && !m_phase7_definitive_teardown_reason.empty())
+            {
+                force_close_phase7_for_teardown(m_phase7_definitive_teardown_reason);
+            }
             if (m_phase7_teardown_pending)
             {
                 const bool had_widget = (m_phase7_umg_widget != nullptr);
@@ -12555,7 +12538,7 @@ namespace WindroseTextSigns
                 {
                     close_phase7_umg_editor(true);
                 }
-                log_line("[phase7-umg] close_on_teardown attempted=true removed=" +
+                log_line("[phase7] teardown_committed removed=" +
                          std::string{m_phase7_last_close_removed ? "true" : "false"} +
                          " reason=" + (m_phase7_teardown_pending_reason.empty() ? "unknown" : m_phase7_teardown_pending_reason));
                 reset_phase7_runtime_state();
@@ -12571,66 +12554,15 @@ namespace WindroseTextSigns
             else
             {
                 const auto now = std::chrono::steady_clock::now();
-                const auto reason_lower = lower_ascii(phase7_guard_reason);
-                const bool phase7_open = (m_phase7_umg_widget != nullptr) || m_phase7_umg_in_viewport;
-                const bool hard_invalid =
-                    reason_lower.find("controller_world_not_gameplay") != std::string::npos ||
-                    reason_lower.find("controller_world_null") != std::string::npos ||
-                    reason_lower.find("controller_world_unavailable") != std::string::npos ||
-                    reason_lower.find("controller_world_transition") != std::string::npos ||
-                    reason_lower.find("runtime_role_not_client") != std::string::npos ||
-                    reason_lower.find("dedicated_runtime") != std::string::npos;
-                const bool soft_transient =
-                    reason_lower.find("no_valid_player_controller") != std::string::npos ||
-                    reason_lower.find("controlled_pawn_missing") != std::string::npos ||
-                    reason_lower.find("role_lock_pending") != std::string::npos ||
-                    reason_lower.find("runtime_role_not_localclient") != std::string::npos ||
-                    reason_lower.find("authority_pending") != std::string::npos ||
-                    reason_lower == "session_not_ready";
-                bool should_force_close = true;
-
-                if (phase7_open && !hard_invalid && soft_transient)
+                const bool should_log =
+                    m_phase7_teardown_suppressed_last_reason != phase7_guard_reason ||
+                    m_phase7_teardown_suppressed_last_log.time_since_epoch().count() == 0 ||
+                    (now - m_phase7_teardown_suppressed_last_log) >= std::chrono::seconds(2);
+                if (should_log)
                 {
-                    if (m_phase7_guard_fail_started.time_since_epoch().count() == 0 ||
-                        m_phase7_guard_fail_reason != phase7_guard_reason)
-                    {
-                        m_phase7_guard_fail_started = now;
-                        m_phase7_guard_fail_reason = phase7_guard_reason;
-                        m_phase7_guard_hysteresis_logged = false;
-                    }
-                    const auto guard_fail_ms =
-                        std::chrono::duration_cast<std::chrono::milliseconds>(now - m_phase7_guard_fail_started).count();
-                    if (guard_fail_ms < 1000)
-                    {
-                        if (!m_phase7_guard_hysteresis_logged)
-                        {
-                            log_line("[phase7-umg] teardown_deferred reason=" + phase7_guard_reason +
-                                     " elapsedMs=" + std::to_string(guard_fail_ms) +
-                                     " thresholdMs=1000");
-                            m_phase7_guard_hysteresis_logged = true;
-                        }
-                        should_force_close = false;
-                    }
-                }
-                if (should_force_close &&
-                    m_phase7_umg_widget &&
-                    m_phase7_opened_at.time_since_epoch().count() != 0 &&
-                    m_phase7_last_interaction_at.time_since_epoch().count() != 0)
-                {
-                    const auto open_ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - m_phase7_opened_at).count();
-                    const auto idle_ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - m_phase7_last_interaction_at).count();
-                    if (open_ms >= 10000 && idle_ms >= 10000 && !m_phase7_watchdog_logged)
-                    {
-                        m_phase7_watchdog_logged = true;
-                        log_line("[phase7-umg] phase7_force_close_watchdog reason=guard_unstable_no_interaction openMs=" +
-                                 std::to_string(open_ms) +
-                                 " idleMs=" + std::to_string(idle_ms) +
-                                 " guard=" + phase7_guard_reason);
-                    }
-                }
-                if (should_force_close)
-                {
-                    force_close_phase7_for_teardown(phase7_guard_reason);
+                    log_line("[phase7] teardown_suppressed reason=non_definitive_state detail=" + phase7_guard_reason);
+                    m_phase7_teardown_suppressed_last_reason = phase7_guard_reason;
+                    m_phase7_teardown_suppressed_last_log = now;
                 }
             }
         }
@@ -12695,7 +12627,6 @@ namespace WindroseTextSigns
             m_last_restore_scan = now;
             if (!is_restore_scan_world_active())
             {
-                force_close_phase7_for_teardown("world_inactive");
                 const auto runtime_role_lower = lower_ascii(m_runtime_role);
                 const bool pending_localclient = runtime_role_lower == "localclientpending";
                 const bool locked_localclient_session =
@@ -12720,7 +12651,15 @@ namespace WindroseTextSigns
                     }
                     if ((now - m_world_inactive_since) >= k_world_inactive_reset_debounce)
                     {
-                        reset_session_state("world_inactive");
+                        const bool client_runtime = !is_dedicated_runtime_process();
+                        if (client_runtime && !m_phase7_definitive_teardown_armed)
+                        {
+                            log_line("[session] reset_ignored reason=non_definitive_world_inactive");
+                        }
+                        else
+                        {
+                            reset_session_state("world_inactive");
+                        }
                         m_world_inactive_since = {};
                         m_locked_world_inactive_ignored_logged = false;
                     }
