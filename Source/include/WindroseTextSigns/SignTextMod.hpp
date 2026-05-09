@@ -105,6 +105,7 @@ namespace WindroseTextSigns
         auto open_phase7_umg_editor_for_selection() -> bool;
         auto close_phase7_umg_editor(bool restore_game_input) -> void;
         auto force_close_phase7_for_teardown(const std::string& reason) -> void;
+        auto reset_phase7_runtime_state() -> void;
         auto is_phase7_runtime_interaction_safe(std::string* out_reason = nullptr) -> bool;
         auto tick_phase7_umg_editor() -> void;
         auto install_phase7_keyboard_capture_hook() -> void;
@@ -411,6 +412,14 @@ namespace WindroseTextSigns
         bool m_phase7_umg_in_viewport{false};
         bool m_phase7_teardown_skip_logged{false};
         std::chrono::steady_clock::time_point m_phase7_umg_prewarm_next_try{};
+        bool m_phase7_teardown_pending{false};
+        std::string m_phase7_teardown_pending_reason{};
+        uint64_t m_phase7_open_epoch{0};
+        uint64_t m_phase7_active_epoch{0};
+        std::chrono::steady_clock::time_point m_phase7_opened_at{};
+        std::chrono::steady_clock::time_point m_phase7_last_interaction_at{};
+        bool m_phase7_watchdog_logged{false};
+        bool m_phase7_last_close_removed{false};
 
         std::optional<SelectionCandidate> m_selected{};
         std::array<char, 257> m_text_buffer{};

@@ -4944,6 +4944,11 @@ namespace WindroseTextSigns
         m_phase7_fn_set_visibility = nullptr;
         m_phase7_umg_in_viewport = false;
         m_phase7_ui_input_mode_active = false;
+        m_phase7_active_epoch = 0;
+        m_phase7_teardown_pending = false;
+        m_phase7_teardown_pending_reason.clear();
+        m_phase7_watchdog_logged = false;
+        m_phase7_last_close_removed = false;
         if (!reason.empty())
         {
             log_line("[phase7-umg] widget_cache_invalidated reason=" + reason);
@@ -5160,6 +5165,17 @@ namespace WindroseTextSigns
             log_line("[phase7-umg] open_suppressed reason=loading_or_transition detail=" + ready_reason);
             return false;
         }
+        if (!m_role_lock_acquired)
+        {
+            log_line("[phase7-umg] open_rejected reason=role_not_locked_or_unstable detail=role_lock_pending");
+            return false;
+        }
+        const auto runtime_role_lower = lower_ascii(m_runtime_role);
+        if (runtime_role_lower != "localclient" && runtime_role_lower != "remoteclient")
+        {
+            log_line("[phase7-umg] open_rejected reason=role_not_locked_or_unstable detail=runtime_role_not_client role=" + m_runtime_role);
+            return false;
+        }
         if (!m_selected.has_value())
         {
             return false;
@@ -5209,6 +5225,7 @@ namespace WindroseTextSigns
                     invoke_add_to_viewport(m_phase7_umg_widget, 1000);
             m_phase7_umg_in_viewport = added;
         }
+        const bool collapsed = invoke_with_byte_or_int_param_cached(m_phase7_umg_widget, m_phase7_fn_set_visibility, 1);
         const bool visible = invoke_with_byte_or_int_param_cached(m_phase7_umg_widget, m_phase7_fn_set_visibility, 0);
         const bool input_mode = set_phase7_game_and_ui_input_mode(true);
         const bool focus_keyboard = invoke_no_param_cached(m_phase7_umg_text_box, m_phase7_fn_set_keyboard_focus) ||
@@ -5219,6 +5236,7 @@ namespace WindroseTextSigns
         log_line("[phase7-umg] open_result added=" + std::string{added ? "true" : "false"} +
                  " inputModeApplied=" + std::string{input_mode ? "true" : "false"} +
                  " visible=" + std::string{visible ? "true" : "false"} +
+                 " collapsedFirst=" + std::string{collapsed ? "true" : "false"} +
                  " inputText=" + std::string{input_text ? "true" : "false"} +
                  " focusKeyboard=" + std::string{focus_keyboard ? "true" : "false"} +
                  " focusWidget=" + std::string{focus_widget ? "true" : "false"} +
@@ -5262,25 +5280,30 @@ namespace WindroseTextSigns
         m_phase7_escape_was_down = false;
         m_phase7_enter_requested.store(false);
         m_phase7_escape_requested.store(false);
+        ++m_phase7_open_epoch;
+        m_phase7_active_epoch = m_phase7_open_epoch;
+        m_phase7_opened_at = std::chrono::steady_clock::now();
+        m_phase7_last_interaction_at = m_phase7_opened_at;
+        m_phase7_watchdog_logged = false;
+        m_phase7_teardown_pending = false;
+        m_phase7_teardown_pending_reason.clear();
         return true;
     }
 
     auto SignTextMod::close_phase7_umg_editor(bool restore_game_input) -> void
     {
         m_phase7_keyboard_capture_active.store(false);
+        m_phase7_last_close_removed = false;
         if (m_phase7_umg_widget)
         {
             const bool hidden = invoke_with_byte_or_int_param_cached(m_phase7_umg_widget, m_phase7_fn_set_visibility, 1);
-            bool removed = false;
-            if (!hidden)
-            {
-                removed = invoke_no_param_cached(m_phase7_umg_widget, m_phase7_fn_remove_from_parent) ||
-                    invoke_no_param(
-                        m_phase7_umg_widget,
-                        STR("RemoveFromParent"),
-                        STR("/Script/UMG.Widget:RemoveFromParent"));
-                m_phase7_umg_in_viewport = !removed;
-            }
+            const bool removed = invoke_no_param_cached(m_phase7_umg_widget, m_phase7_fn_remove_from_parent) ||
+                invoke_no_param(
+                    m_phase7_umg_widget,
+                    STR("RemoveFromParent"),
+                    STR("/Script/UMG.Widget:RemoveFromParent"));
+            m_phase7_last_close_removed = removed;
+            m_phase7_umg_in_viewport = !removed;
             log_line("[phase7-umg] close hidden=" + std::string{hidden ? "true" : "false"} +
                      " removedWidget=" + std::string{removed ? "true" : "false"});
         }
@@ -5294,23 +5317,12 @@ namespace WindroseTextSigns
         m_phase7_enter_requested.store(false);
         m_phase7_escape_requested.store(false);
         m_phase7_umg_last_text.clear();
+        m_phase7_active_epoch = 0;
+        m_phase7_watchdog_logged = false;
     }
 
-    auto SignTextMod::force_close_phase7_for_teardown(const std::string& reason) -> void
+    auto SignTextMod::reset_phase7_runtime_state() -> void
     {
-        const bool had_phase7_state =
-            m_phase7_native_widget ||
-            m_phase7_umg_widget ||
-            m_phase7_native_editor_open ||
-            m_phase7_umg_in_viewport ||
-            m_phase7_ui_input_mode_active;
-
-        if (had_phase7_state && !m_phase7_teardown_skip_logged)
-        {
-            log_line("[phase7-umg] skipped during teardown reason=" + reason);
-            m_phase7_teardown_skip_logged = true;
-        }
-
         m_phase7_keyboard_capture_active.store(false);
         m_phase7_enter_requested.store(false);
         m_phase7_escape_requested.store(false);
@@ -5333,6 +5345,41 @@ namespace WindroseTextSigns
         m_phase7_fn_set_keyboard_focus = nullptr;
         m_phase7_fn_set_focus = nullptr;
         m_phase7_fn_set_visibility = nullptr;
+        m_phase7_active_epoch = 0;
+        m_phase7_teardown_pending = false;
+        m_phase7_teardown_pending_reason.clear();
+        m_phase7_watchdog_logged = false;
+    }
+
+    auto SignTextMod::force_close_phase7_for_teardown(const std::string& reason) -> void
+    {
+        const bool had_phase7_state =
+            m_phase7_native_widget ||
+            m_phase7_umg_widget ||
+            m_phase7_native_editor_open ||
+            m_phase7_umg_in_viewport ||
+            m_phase7_ui_input_mode_active;
+
+        if (had_phase7_state && !m_phase7_teardown_skip_logged)
+        {
+            log_line("[phase7-umg] skipped during teardown reason=" + reason);
+            m_phase7_teardown_skip_logged = true;
+        }
+        if (m_phase7_umg_widget && !m_phase7_teardown_pending)
+        {
+            m_phase7_teardown_pending = true;
+            m_phase7_teardown_pending_reason = reason;
+            m_phase7_keyboard_capture_active.store(false);
+            m_phase7_enter_requested.store(false);
+            m_phase7_escape_requested.store(false);
+            m_phase7_enter_was_down = false;
+            m_phase7_escape_was_down = false;
+            return;
+        }
+        if (!m_phase7_umg_widget)
+        {
+            reset_phase7_runtime_state();
+        }
     }
 
     auto SignTextMod::is_phase7_runtime_interaction_safe(std::string* out_reason) -> bool
@@ -5354,6 +5401,18 @@ namespace WindroseTextSigns
             set_reason("session_not_ready");
             return false;
         }
+        if (!m_role_lock_acquired)
+        {
+            set_reason("role_lock_pending");
+            return false;
+        }
+
+        const auto runtime_role_lower = lower_ascii(m_runtime_role);
+        if (runtime_role_lower != "localclient" && runtime_role_lower != "remoteclient")
+        {
+            set_reason("runtime_role_not_client");
+            return false;
+        }
 
         std::string ready_reason{};
         if (!is_session_ready_for_role_resolution(&ready_reason))
@@ -5362,11 +5421,14 @@ namespace WindroseTextSigns
             return false;
         }
 
-        std::string stability_reason{};
-        if (!is_localclient_runtime_stable_for_post_ready(&stability_reason))
+        if (runtime_role_lower == "localclient")
         {
-            set_reason("localclient_unstable:" + stability_reason);
-            return false;
+            std::string stability_reason{};
+            if (!is_localclient_runtime_stable_for_post_ready(&stability_reason))
+            {
+                set_reason("localclient_unstable:" + stability_reason);
+                return false;
+            }
         }
 
         auto* controller = try_get_primary_player_controller();
@@ -5413,6 +5475,13 @@ namespace WindroseTextSigns
         {
             return;
         }
+        const uint64_t open_epoch = m_phase7_active_epoch;
+        const auto now = std::chrono::steady_clock::now();
+        if (open_epoch == 0)
+        {
+            log_line("[phase7-umg] event_ignored reason=stale_epoch detail=no_active_epoch");
+            return;
+        }
 
         const short enter_state = GetAsyncKeyState(k_vk_return);
         const short escape_state = GetAsyncKeyState(k_vk_escape);
@@ -5438,6 +5507,10 @@ namespace WindroseTextSigns
         const bool explicit_enter_intent = enter_requested || enter_edge || enter_pressed_since_poll;
         const bool apply_pressed = explicit_enter_intent && !shift_down;
         const bool cancel_pressed = escape_requested || escape_edge;
+        if (enter_requested || escape_requested || enter_edge || escape_edge || enter_pressed_since_poll || escape_pressed_since_poll)
+        {
+            m_phase7_last_interaction_at = now;
+        }
 
         if (!apply_pressed && !cancel_pressed)
         {
@@ -5484,6 +5557,11 @@ namespace WindroseTextSigns
 
         if (apply_pressed)
         {
+            if (open_epoch != m_phase7_active_epoch)
+            {
+                log_line("[phase7-umg] event_ignored reason=stale_epoch detail=apply");
+                return;
+            }
             std::string text = live_text;
             bool read = live_read;
             if (!read)
@@ -5523,6 +5601,11 @@ namespace WindroseTextSigns
         }
         if (cancel_pressed)
         {
+            if (open_epoch != m_phase7_active_epoch)
+            {
+                log_line("[phase7-umg] event_ignored reason=stale_epoch detail=cancel");
+                return;
+            }
             log_line("[phase7-umg] escape cancel key=" + key +
                      " escapeRequested=" + std::string{escape_requested ? "true" : "false"} +
                      " escapeEdge=" + std::string{escape_edge ? "true" : "false"} +
@@ -12439,6 +12522,18 @@ namespace WindroseTextSigns
             m_hotkey_poll_was_down = hotkey_is_down;
 
             tick_pending_hotkey();
+            if (m_phase7_teardown_pending)
+            {
+                const bool had_widget = (m_phase7_umg_widget != nullptr);
+                if (had_widget)
+                {
+                    close_phase7_umg_editor(true);
+                }
+                log_line("[phase7-umg] close_on_teardown attempted=true removed=" +
+                         std::string{m_phase7_last_close_removed ? "true" : "false"} +
+                         " reason=" + (m_phase7_teardown_pending_reason.empty() ? "unknown" : m_phase7_teardown_pending_reason));
+                reset_phase7_runtime_state();
+            }
             std::string phase7_guard_reason{};
             if (is_phase7_runtime_interaction_safe(&phase7_guard_reason))
             {
@@ -12446,6 +12541,22 @@ namespace WindroseTextSigns
             }
             else
             {
+                if (m_phase7_umg_widget &&
+                    m_phase7_opened_at.time_since_epoch().count() != 0 &&
+                    m_phase7_last_interaction_at.time_since_epoch().count() != 0)
+                {
+                    const auto now = std::chrono::steady_clock::now();
+                    const auto open_ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - m_phase7_opened_at).count();
+                    const auto idle_ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - m_phase7_last_interaction_at).count();
+                    if (open_ms >= 10000 && idle_ms >= 10000 && !m_phase7_watchdog_logged)
+                    {
+                        m_phase7_watchdog_logged = true;
+                        log_line("[phase7-umg] phase7_force_close_watchdog reason=guard_unstable_no_interaction openMs=" +
+                                 std::to_string(open_ms) +
+                                 " idleMs=" + std::to_string(idle_ms) +
+                                 " guard=" + phase7_guard_reason);
+                    }
+                }
                 force_close_phase7_for_teardown(phase7_guard_reason);
             }
         }
