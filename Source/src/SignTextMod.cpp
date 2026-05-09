@@ -5115,12 +5115,9 @@ namespace WindroseTextSigns
         m_phase7_umg_hint = hint;
         cache_phase7_umg_function_pointers();
 
-        const bool added = invoke_with_int_param_cached(m_phase7_umg_widget, m_phase7_fn_add_to_viewport, 1000) ||
-                           invoke_add_to_viewport(m_phase7_umg_widget, 1000);
-        m_phase7_umg_in_viewport = added;
-        const bool hidden = added && invoke_with_byte_or_int_param_cached(m_phase7_umg_widget, m_phase7_fn_set_visibility, 1);
-        log_line("[phase7-umg] prewarm_result built=true added=" + std::string{added ? "true" : "false"} +
-                 " hidden=" + std::string{hidden ? "true" : "false"} +
+        // Prewarm should build the widget tree only; do not add/show during loading/bootstrap.
+        m_phase7_umg_in_viewport = false;
+        log_line(std::string{"[phase7-umg] prewarm_result built=true added=false collapsed=true focus=false"} +
                  " style=" + std::string{(title_text && hint_text && input_text && title_color && hint_color && input_color &&
                                           frame_color && background_color && divider_color && input_frame_color && input_background_color &&
                                           frame_padding && background_padding && input_frame_padding && input_background_padding &&
@@ -5156,6 +5153,12 @@ namespace WindroseTextSigns
 
     auto SignTextMod::open_phase7_umg_editor_for_selection() -> bool
     {
+        std::string ready_reason{};
+        if (!m_session_ready_latched || !is_session_ready_for_role_resolution(&ready_reason))
+        {
+            log_line("[phase7-umg] open_suppressed reason=loading_or_transition detail=" + ready_reason);
+            return false;
+        }
         if (!m_selected.has_value())
         {
             return false;
@@ -5319,16 +5322,40 @@ namespace WindroseTextSigns
             live_read &&
             !shift_down &&
             count_line_breaks(live_text) > count_line_breaks(m_phase7_umg_last_text);
-        const bool apply_pressed = (enter_requested || enter_edge || unshifted_newline_added) && !shift_down;
+        const bool explicit_enter_intent = enter_requested || enter_edge || enter_pressed_since_poll;
+        const bool apply_pressed = explicit_enter_intent && !shift_down;
         const bool cancel_pressed = escape_requested || escape_edge;
 
         if (!apply_pressed && !cancel_pressed)
         {
+            if (unshifted_newline_added && !explicit_enter_intent && !shift_down)
+            {
+                log_line("[phase7-umg] apply_blocked reason=no_explicit_enter enterRequested=" +
+                         std::string{enter_requested ? "true" : "false"} +
+                         " enterEdge=" + std::string{enter_edge ? "true" : "false"} +
+                         " enterAsync=" + std::string{enter_pressed_since_poll ? "true" : "false"} +
+                         " newlineApply=" + std::string{unshifted_newline_added ? "true" : "false"});
+            }
             if (live_read)
             {
                 m_phase7_umg_last_text = live_text;
             }
             return;
+        }
+        if (!m_session_ready_latched)
+        {
+            log_line("[phase7-umg] apply_blocked reason=session_teardown readyLatched=false");
+            close_phase7_umg_editor(true);
+            return;
+        }
+        {
+            std::string ready_reason{};
+            if (!is_session_ready_for_role_resolution(&ready_reason))
+            {
+                log_line("[phase7-umg] apply_blocked reason=session_teardown detail=" + ready_reason);
+                close_phase7_umg_editor(true);
+                return;
+            }
         }
         if (!m_selected.has_value() || !ensure_selected_actor_valid("tick_phase7_umg_editor"))
         {
