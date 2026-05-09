@@ -148,6 +148,34 @@ Modes:
 
 If UPnP is unavailable, manually forward the configured UDP bridge port to the dedicated server.
 
+### Static Server + UPnP Disabled (Recommended Fallback)
+
+If auto route discovery or UPnP is unreliable in your environment, use a static bridge host and disable UPnP explicitly.
+
+Client `Config\WindroseTextSigns.ini`:
+
+```ini
+[General]
+WTS_BRIDGE_SERVER_HOST=your.server.ip.or.hostname
+WTS_BRIDGE_UDP_PORT=45801
+WTS_BRIDGE_UPNP_MODE=off
+```
+
+Dedicated server `Config\WindroseTextSigns.ini`:
+
+```ini
+[General]
+WTS_BRIDGE_SERVER_HOST=auto
+WTS_BRIDGE_UDP_PORT=45801
+WTS_BRIDGE_UPNP_MODE=off
+```
+
+Notes:
+- Client and server must use the same `WTS_BRIDGE_UDP_PORT`.
+- On the client, set `WTS_BRIDGE_SERVER_HOST` to the dedicated server's reachable address.
+- On the dedicated server, leave `WTS_BRIDGE_SERVER_HOST=auto`; do not point it at itself.
+- If connecting over internet, manual UDP port forwarding/NAT rules are required when UPnP is off.
+
 ## Save Data
 
 WindroseTextSigns stores text data outside the mod folder so it can survive mod deletion or reinstall when the user keeps the `R5\Saved` folder.
