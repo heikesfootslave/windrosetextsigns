@@ -4806,6 +4806,7 @@ namespace WindroseTextSigns
 
         m_phase7_native_widget = widget;
         m_phase7_native_editor_open = true;
+        m_phase7_teardown_skip_logged = false;
         log_line("[phase7] open_native_editor success widget=" + narrow_ascii(widget->GetFullName()) +
                  " inputModeApplied=" + std::string{input_mode ? "true" : "false"});
         return true;
@@ -5256,6 +5257,7 @@ namespace WindroseTextSigns
         {
             return false;
         }
+        m_phase7_teardown_skip_logged = false;
         m_phase7_enter_was_down = false;
         m_phase7_escape_was_down = false;
         m_phase7_enter_requested.store(false);
@@ -5292,6 +5294,117 @@ namespace WindroseTextSigns
         m_phase7_enter_requested.store(false);
         m_phase7_escape_requested.store(false);
         m_phase7_umg_last_text.clear();
+    }
+
+    auto SignTextMod::force_close_phase7_for_teardown(const std::string& reason) -> void
+    {
+        const bool had_phase7_state =
+            m_phase7_native_widget ||
+            m_phase7_umg_widget ||
+            m_phase7_native_editor_open ||
+            m_phase7_umg_in_viewport ||
+            m_phase7_ui_input_mode_active;
+
+        if (had_phase7_state && !m_phase7_teardown_skip_logged)
+        {
+            log_line("[phase7-umg] skipped during teardown reason=" + reason);
+            m_phase7_teardown_skip_logged = true;
+        }
+
+        m_phase7_keyboard_capture_active.store(false);
+        m_phase7_enter_requested.store(false);
+        m_phase7_escape_requested.store(false);
+        m_phase7_enter_was_down = false;
+        m_phase7_escape_was_down = false;
+        m_phase7_ui_input_mode_active = false;
+        m_phase7_umg_in_viewport = false;
+        m_phase7_umg_last_text.clear();
+        m_phase7_native_editor_open = false;
+        m_phase7_native_widget = nullptr;
+        m_phase7_umg_widget = nullptr;
+        m_phase7_umg_text_box = nullptr;
+        m_phase7_umg_title = nullptr;
+        m_phase7_umg_hint = nullptr;
+        m_phase7_umg_apply_button = nullptr;
+        m_phase7_umg_clear_button = nullptr;
+        m_phase7_umg_cancel_button = nullptr;
+        m_phase7_fn_add_to_viewport = nullptr;
+        m_phase7_fn_remove_from_parent = nullptr;
+        m_phase7_fn_set_keyboard_focus = nullptr;
+        m_phase7_fn_set_focus = nullptr;
+        m_phase7_fn_set_visibility = nullptr;
+    }
+
+    auto SignTextMod::is_phase7_runtime_interaction_safe(std::string* out_reason) -> bool
+    {
+        const auto set_reason = [&](const std::string& reason) {
+            if (out_reason)
+            {
+                *out_reason = reason;
+            }
+        };
+
+        if (is_dedicated_runtime_process())
+        {
+            set_reason("dedicated_runtime");
+            return false;
+        }
+        if (!m_session_ready_latched)
+        {
+            set_reason("session_not_ready");
+            return false;
+        }
+
+        std::string ready_reason{};
+        if (!is_session_ready_for_role_resolution(&ready_reason))
+        {
+            set_reason("session_not_ready:" + ready_reason);
+            return false;
+        }
+
+        std::string stability_reason{};
+        if (!is_localclient_runtime_stable_for_post_ready(&stability_reason))
+        {
+            set_reason("localclient_unstable:" + stability_reason);
+            return false;
+        }
+
+        auto* controller = try_get_primary_player_controller();
+        if (!controller || !is_uobject_reflection_safe(controller))
+        {
+            set_reason("no_valid_player_controller");
+            return false;
+        }
+        if (!controller->IsA(AActor::StaticClass()))
+        {
+            set_reason("controller_not_actor");
+            return false;
+        }
+        auto* controller_actor = Cast<AActor>(controller);
+        if (!controller_actor)
+        {
+            set_reason("controller_cast_failed");
+            return false;
+        }
+        auto* world = controller_actor->GetWorld();
+        if (!world)
+        {
+            set_reason("controller_world_null");
+            return false;
+        }
+        const auto world_name = lower_ascii(narrow_ascii(world->GetName()));
+        if (world_name.empty() ||
+            world_name == "none" ||
+            world_name.find("transition") != std::string::npos ||
+            world_name.find("lobby") != std::string::npos ||
+            world_name.find("entrance") != std::string::npos)
+        {
+            set_reason("controller_world_not_gameplay");
+            return false;
+        }
+
+        set_reason("ok");
+        return true;
     }
 
     auto SignTextMod::tick_phase7_umg_editor() -> void
@@ -11507,10 +11620,12 @@ namespace WindroseTextSigns
             m_hosted_ready_sequence_complete = false;
         }
         m_hosted_post_ready_reconcile_done = false;
+        force_close_phase7_for_teardown("session_reset_" + reason);
         invalidate_phase7_umg_widget_cache("session_reset_" + reason);
         m_phase7_umg_prewarm_attempted = false;
         m_phase7_umg_prewarm_succeeded = false;
         m_phase7_umg_prewarm_next_try = {};
+        m_phase7_teardown_skip_logged = false;
         m_pending_world_inactive_ignored_logged = false;
         m_locked_world_inactive_ignored_logged = false;
         m_world_inactive_since = {};
@@ -12164,6 +12279,7 @@ namespace WindroseTextSigns
             {
                 log_line("[visual-verify] session_ready_lost reset=true");
             }
+            force_close_phase7_for_teardown("session_ready_lost:" + stability_reason);
             reset_visual_verify_debug_state();
             return;
         }
@@ -12183,6 +12299,7 @@ namespace WindroseTextSigns
             {
                 log_line("[visual-verify] session_ready_lost reset=true");
             }
+            force_close_phase7_for_teardown("session_ready_lost:not_session_ready");
             reset_visual_verify_debug_state();
             return;
         }
@@ -12322,7 +12439,15 @@ namespace WindroseTextSigns
             m_hotkey_poll_was_down = hotkey_is_down;
 
             tick_pending_hotkey();
-            tick_phase7_umg_editor();
+            std::string phase7_guard_reason{};
+            if (is_phase7_runtime_interaction_safe(&phase7_guard_reason))
+            {
+                tick_phase7_umg_editor();
+            }
+            else
+            {
+                force_close_phase7_for_teardown(phase7_guard_reason);
+            }
         }
         tick_pending_fallback_hotkeys();
         tick_file_triggers();
@@ -12336,6 +12461,7 @@ namespace WindroseTextSigns
                 if (is_session_ready_for_role_resolution(&ready_reason))
                 {
                     m_session_ready_latched = true;
+                    m_phase7_teardown_skip_logged = false;
                     m_ready_baseline_live_keys.clear();
                     m_ready_baseline_capture_remaining_scans = 2;
                     auto* controller = try_get_primary_player_controller();
@@ -12384,6 +12510,7 @@ namespace WindroseTextSigns
             m_last_restore_scan = now;
             if (!is_restore_scan_world_active())
             {
+                force_close_phase7_for_teardown("world_inactive");
                 const auto runtime_role_lower = lower_ascii(m_runtime_role);
                 const bool pending_localclient = runtime_role_lower == "localclientpending";
                 const bool locked_localclient_session =
