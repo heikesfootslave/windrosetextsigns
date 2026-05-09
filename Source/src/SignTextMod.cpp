@@ -4126,13 +4126,11 @@ namespace WindroseTextSigns
 
     auto SignTextMod::open_log() -> void
     {
-        // One-session log: start fresh each play session.
-        const auto previous_log_path = m_mod_root / "WindroseTextSigns.previous.log";
         m_log_path = m_mod_root / "WindroseTextSigns.log";
+        m_log.open(m_log_path, std::ios::out | std::ios::app | std::ios::binary);
         std::error_code ec{};
-        std::filesystem::remove(previous_log_path, ec);
-        m_log.open(m_log_path, std::ios::out | std::ios::trunc);
-        m_log_bytes_written = 0;
+        const auto existing_size = std::filesystem::exists(m_log_path, ec) ? std::filesystem::file_size(m_log_path, ec) : 0;
+        m_log_bytes_written = ec ? 0 : static_cast<size_t>(existing_size);
         m_log_size_cap_hit = false;
         m_bootstrap_started = std::chrono::steady_clock::now();
         m_last_log_payload.clear();
@@ -4169,7 +4167,9 @@ namespace WindroseTextSigns
 
     auto SignTextMod::write_log_row(const std::string& row) -> void
     {
-        constexpr size_t k_max_log_bytes = 1024 * 1024;
+        constexpr size_t k_max_log_bytes = 2 * 1024 * 1024;
+        constexpr size_t k_bootstrap_target_bytes = 256 * 1024;
+        constexpr size_t k_bootstrap_hard_max_bytes = 307 * 1024;
         const size_t row_bytes = row.size() + 1;
         if (m_log.is_open() && m_log_bytes_written + row_bytes <= k_max_log_bytes)
         {
@@ -4183,7 +4183,10 @@ namespace WindroseTextSigns
             return;
         }
 
-        // Rolling tail cap: keep newest content and trim oldest head lines as needed.
+        // Rolling cap with bootstrap budget:
+        // - preserve newest complete bootstrap blocks up to target budget
+        // - preserve newest non-bootstrap tail with remaining bytes
+        // - if still oversized, reduce oldest bootstrap blocks until <= hard cap and file cap
         if (m_log.is_open())
         {
             m_log.flush();
@@ -4200,71 +4203,163 @@ namespace WindroseTextSigns
 
         if (content.size() > k_max_log_bytes)
         {
-            constexpr size_t k_bootstrap_head_soft_cap = 256 * 1024;
-            constexpr size_t k_min_tail_bytes = 256 * 1024;
+            struct LineSpan
+            {
+                size_t start{0};
+                size_t end{0};
+            };
+            struct Block
+            {
+                size_t begin_line{0};
+                size_t end_line{0};
+                size_t bytes{0};
+            };
 
-            size_t head_keep_bytes = 0;
-            if (const auto end_pos = content.find("[session] bootstrap_end"); end_pos != std::string::npos)
+            std::vector<LineSpan> lines{};
+            lines.reserve(content.size() / 64);
+            size_t cursor = 0;
+            while (cursor < content.size())
             {
-                const auto line_end = content.find('\n', end_pos);
-                head_keep_bytes = (line_end == std::string::npos) ? content.size() : (line_end + 1);
-            }
-            else if (const auto begin_pos = content.find("[session] bootstrap_begin"); begin_pos != std::string::npos)
-            {
-                const auto line_end = content.find('\n', begin_pos);
-                head_keep_bytes = (line_end == std::string::npos) ? content.size() : (line_end + 1);
-            }
-
-            const size_t max_head_by_tail = (k_max_log_bytes > k_min_tail_bytes)
-                ? (k_max_log_bytes - k_min_tail_bytes)
-                : 0;
-            if (head_keep_bytes > k_bootstrap_head_soft_cap)
-            {
-                head_keep_bytes = k_bootstrap_head_soft_cap;
-            }
-            if (head_keep_bytes > max_head_by_tail)
-            {
-                head_keep_bytes = max_head_by_tail;
-            }
-
-            std::string head{};
-            if (head_keep_bytes > 0)
-            {
-                head = content.substr(0, head_keep_bytes);
-            }
-
-            size_t tail_budget = k_max_log_bytes - head.size();
-            if (tail_budget > content.size())
-            {
-                tail_budget = content.size();
-            }
-            size_t tail_start = content.size() - tail_budget;
-            if (tail_start < head.size())
-            {
-                tail_start = head.size();
-            }
-
-            std::string tail = content.substr(tail_start);
-            if (!head.empty())
-            {
-                if (const auto nl = tail.find('\n'); nl != std::string::npos)
+                const auto next_nl = content.find('\n', cursor);
+                if (next_nl == std::string::npos)
                 {
-                    tail.erase(0, nl + 1);
+                    lines.push_back(LineSpan{cursor, content.size()});
+                    break;
+                }
+                lines.push_back(LineSpan{cursor, next_nl + 1});
+                cursor = next_nl + 1;
+            }
+
+            std::vector<Block> blocks{};
+            std::vector<uint8_t> line_in_block(lines.size(), 0);
+            for (size_t i = 0; i < lines.size(); ++i)
+            {
+                const std::string_view line_view{content.data() + lines[i].start, lines[i].end - lines[i].start};
+                if (line_view.find("[session] bootstrap_begin") == std::string_view::npos)
+                {
+                    continue;
+                }
+                size_t j = i;
+                while (j < lines.size())
+                {
+                    const std::string_view end_line{content.data() + lines[j].start, lines[j].end - lines[j].start};
+                    if (end_line.find("[session] bootstrap_end") != std::string_view::npos)
+                    {
+                        break;
+                    }
+                    ++j;
+                }
+                if (j >= lines.size())
+                {
+                    continue;
+                }
+
+                size_t block_bytes = 0;
+                for (size_t k = i; k <= j; ++k)
+                {
+                    line_in_block[k] = 1;
+                    block_bytes += (lines[k].end - lines[k].start);
+                }
+                blocks.push_back(Block{i, j, block_bytes});
+                i = j;
+            }
+
+            std::vector<uint8_t> keep_block(blocks.size(), 0);
+            size_t kept_bootstrap_bytes = 0;
+            for (size_t bi = blocks.size(); bi > 0; --bi)
+            {
+                const size_t idx = bi - 1;
+                const auto block_bytes = blocks[idx].bytes;
+                if (block_bytes > k_bootstrap_hard_max_bytes)
+                {
+                    continue;
+                }
+
+                if (kept_bootstrap_bytes + block_bytes <= k_bootstrap_target_bytes ||
+                    (kept_bootstrap_bytes == 0 && block_bytes <= k_bootstrap_hard_max_bytes))
+                {
+                    keep_block[idx] = 1;
+                    kept_bootstrap_bytes += block_bytes;
                 }
             }
-            else if (const auto nl = tail.find('\n'); nl != std::string::npos)
+
+            std::string bootstrap_kept{};
+            bootstrap_kept.reserve(kept_bootstrap_bytes);
+            for (size_t bi = 0; bi < blocks.size(); ++bi)
             {
-                tail.erase(0, nl + 1);
+                if (!keep_block[bi])
+                {
+                    continue;
+                }
+                const auto& block = blocks[bi];
+                for (size_t li = block.begin_line; li <= block.end_line; ++li)
+                {
+                    bootstrap_kept.append(content, lines[li].start, lines[li].end - lines[li].start);
+                }
             }
 
-            content = head + tail;
+            std::vector<uint8_t> kept_bootstrap_lines(lines.size(), 0);
+            for (size_t bi = 0; bi < blocks.size(); ++bi)
+            {
+                if (!keep_block[bi])
+                {
+                    continue;
+                }
+                for (size_t li = blocks[bi].begin_line; li <= blocks[bi].end_line; ++li)
+                {
+                    kept_bootstrap_lines[li] = 1;
+                }
+            }
+
+            std::string non_bootstrap{};
+            non_bootstrap.reserve(content.size() - bootstrap_kept.size());
+            for (size_t li = 0; li < lines.size(); ++li)
+            {
+                if (line_in_block[li] && kept_bootstrap_lines[li])
+                {
+                    continue;
+                }
+                if (line_in_block[li] && !kept_bootstrap_lines[li])
+                {
+                    continue;
+                }
+                non_bootstrap.append(content, lines[li].start, lines[li].end - lines[li].start);
+            }
+
+            const size_t non_bootstrap_budget = (bootstrap_kept.size() >= k_max_log_bytes)
+                ? 0
+                : (k_max_log_bytes - bootstrap_kept.size());
+            size_t tail_start = 0;
+            if (non_bootstrap.size() > non_bootstrap_budget)
+            {
+                tail_start = non_bootstrap.size() - non_bootstrap_budget;
+                if (const auto nl = non_bootstrap.find('\n', tail_start); nl != std::string::npos)
+                {
+                    tail_start = nl + 1;
+                }
+            }
+
+            std::string trimmed_non_bootstrap = non_bootstrap.substr(tail_start);
+            content = bootstrap_kept + trimmed_non_bootstrap;
             if (content.size() > k_max_log_bytes)
             {
                 const auto overflow = content.size() - k_max_log_bytes;
-                content.erase(0, overflow);
-                if (const auto nl = content.find('\n'); nl != std::string::npos)
+                if (overflow < trimmed_non_bootstrap.size())
                 {
-                    content.erase(0, nl + 1);
+                    trimmed_non_bootstrap.erase(0, overflow);
+                    if (const auto nl = trimmed_non_bootstrap.find('\n'); nl != std::string::npos)
+                    {
+                        trimmed_non_bootstrap.erase(0, nl + 1);
+                    }
+                    content = bootstrap_kept + trimmed_non_bootstrap;
+                }
+                else
+                {
+                    content = content.substr(content.size() - k_max_log_bytes);
+                    if (const auto nl = content.find('\n'); nl != std::string::npos)
+                    {
+                        content.erase(0, nl + 1);
+                    }
                 }
             }
         }
@@ -4351,6 +4446,7 @@ namespace WindroseTextSigns
         m_player_marker_replication_probe_enabled = is_player_marker_replication_probe_enabled();
         m_player_marker_replication_probe_action_trigger_enabled = is_player_marker_replication_probe_action_trigger_enabled();
         m_verbose_log = config_bool_value("WTS_VERBOSE_LOG", false);
+        m_f8_latency_breakdown_enabled = config_bool_value("WTS_F8_LATENCY_BREAKDOWN_ENABLED", true);
         m_behavior_trace_enabled = config_bool_value("WTS_BEHAVIOR_TRACE_ENABLED", false);
         m_visual_verify_debug_force_reapply = config_bool_value("WTS_VISUAL_VERIFY_DEBUG_FORCE_REAPPLY", false);
         m_localclient_motion_reapply_enabled = config_bool_value("WTS_LOCALCLIENT_MOTION_REAPPLY_ENABLED", true);
@@ -4838,6 +4934,11 @@ namespace WindroseTextSigns
                  narrow_ascii(root->GetClassPrivate() ? root->GetClassPrivate()->GetFullName() : RC::StringType{}) +
                  " textBoxClass=" +
                  narrow_ascii(text_box->GetClassPrivate() ? text_box->GetClassPrivate()->GetFullName() : RC::StringType{}));
+        if (m_f8_latency_breakdown_enabled && m_f8_latency_trace.active && !m_f8_latency_trace.construct_seen)
+        {
+            m_f8_latency_trace.construct = std::chrono::steady_clock::now();
+            m_f8_latency_trace.construct_seen = true;
+        }
 
         const auto actor_world_id = m_selected->world_id.empty() ? build_world_id_for_actor(m_selected->actor) : m_selected->world_id;
         configure_sidecar_for_actor(m_selected->actor, actor_world_id);
@@ -4958,6 +5059,35 @@ namespace WindroseTextSigns
                  " slot=" + std::string{(frame_slot && slot_pos && slot_size && slot_align && title_slot && title_pos && title_size && divider_slot && divider_pos && divider_size && input_slot && input_pos && input_size && hint_slot && hint_pos && hint_size) ? "true" : "false"} +
                  " content=" + std::string{(frame_content && background_content && input_frame_content && input_background_content && set_content) ? "true" : "false"} +
                  " key=" + key);
+        if (m_f8_latency_breakdown_enabled && m_f8_latency_trace.active)
+        {
+            const auto now = std::chrono::steady_clock::now();
+            const auto ms_from = [&](const std::chrono::steady_clock::time_point& start,
+                                     const std::chrono::steady_clock::time_point& end,
+                                     bool valid) -> long long
+            {
+                if (!valid)
+                {
+                    return -1;
+                }
+                return std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+            };
+
+            const bool target_valid = m_f8_latency_trace.target_seen;
+            const bool construct_valid = m_f8_latency_trace.construct_seen;
+            const long long edge_to_target_ms = ms_from(m_f8_latency_trace.edge, m_f8_latency_trace.target, target_valid);
+            const long long target_to_construct_ms =
+                ms_from(m_f8_latency_trace.target, m_f8_latency_trace.construct, target_valid && construct_valid);
+            const long long construct_to_open_ms = ms_from(m_f8_latency_trace.construct, now, construct_valid);
+            const long long edge_to_open_ms = ms_from(m_f8_latency_trace.edge, now, true);
+            log_line("[input-latency] f8_open pressId=" + std::to_string(m_f8_latency_trace.press_id) +
+                     " edge_to_target_ms=" + std::to_string(edge_to_target_ms) +
+                     " target_to_construct_children_ok_ms=" + std::to_string(target_to_construct_ms) +
+                     " construct_children_ok_to_open_result_ms=" + std::to_string(construct_to_open_ms) +
+                     " edge_to_open_result_ms=" + std::to_string(edge_to_open_ms) +
+                     " umgAdded=" + std::string{added ? "true" : "false"});
+            m_f8_latency_trace.active = false;
+        }
 
         if (!added)
         {
@@ -6463,12 +6593,26 @@ namespace WindroseTextSigns
             if (m_hotkey_retry_remaining == 0)
             {
                 log_line("[target] hotkey selection retries_exhausted");
+                if (m_f8_latency_breakdown_enabled && m_f8_latency_trace.active)
+                {
+                    const auto now_fail = std::chrono::steady_clock::now();
+                    const long long edge_to_fail_ms =
+                        std::chrono::duration_cast<std::chrono::milliseconds>(now_fail - m_f8_latency_trace.edge).count();
+                    log_line("[input-latency] f8_open_failed pressId=" + std::to_string(m_f8_latency_trace.press_id) +
+                             " stage=target edge_to_failure_ms=" + std::to_string(edge_to_fail_ms));
+                    m_f8_latency_trace.active = false;
+                }
                 m_ui_open = m_phase7_imgui_fallback_enabled;
             }
             return;
         }
 
         m_hotkey_retry_remaining = 0;
+        if (m_f8_latency_breakdown_enabled && m_f8_latency_trace.active && !m_f8_latency_trace.target_seen)
+        {
+            m_f8_latency_trace.target = now;
+            m_f8_latency_trace.target_seen = true;
+        }
         m_selected = selected;
         m_selected->world_id = selected->world_id;
         const auto actor_world_id = m_selected->world_id.empty() ? build_world_id_for_actor(m_selected->actor) : m_selected->world_id;
@@ -6504,6 +6648,15 @@ namespace WindroseTextSigns
                  " nativeSupported=" + std::string{m_phase7_native_supported ? "true" : "false"} +
                  " umgOpened=" + std::string{umg_opened ? "true" : "false"} +
                  " win32Default=false");
+        if (m_f8_latency_breakdown_enabled && m_f8_latency_trace.active)
+        {
+            const auto now_fail = std::chrono::steady_clock::now();
+            const long long edge_to_fail_ms =
+                std::chrono::duration_cast<std::chrono::milliseconds>(now_fail - m_f8_latency_trace.edge).count();
+            log_line("[input-latency] f8_open_failed pressId=" + std::to_string(m_f8_latency_trace.press_id) +
+                     " stage=editor_open edge_to_failure_ms=" + std::to_string(edge_to_fail_ms));
+            m_f8_latency_trace.active = false;
+        }
     }
 
     auto SignTextMod::ensure_selected_label_for_action(const std::string& action_name) -> bool
@@ -13553,6 +13706,16 @@ namespace WindroseTextSigns
             {
                 m_hotkey_requested.store(true);
                 m_last_player_activity = std::chrono::steady_clock::now();
+                if (m_f8_latency_breakdown_enabled)
+                {
+                    m_f8_latency_trace.active = true;
+                    m_f8_latency_trace.target_seen = false;
+                    m_f8_latency_trace.construct_seen = false;
+                    m_f8_latency_trace.edge = m_last_player_activity;
+                    m_f8_latency_trace.target = {};
+                    m_f8_latency_trace.construct = {};
+                    ++m_f8_latency_trace.press_id;
+                }
                 log_line("[input] hotkey polled_edge key=" + m_hotkey_name);
             }
             m_hotkey_poll_was_down = hotkey_is_down;

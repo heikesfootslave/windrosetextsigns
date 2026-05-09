@@ -337,6 +337,7 @@ namespace WindroseTextSigns
         std::string m_world_folder_id{};
         bool m_sidecar_authoritative{false};
         bool m_verbose_log{false};
+        bool m_f8_latency_breakdown_enabled{true};
         bool m_behavior_trace_enabled{false};
         uint64_t m_revision{0};
         std::string m_session_id{};
@@ -438,6 +439,16 @@ namespace WindroseTextSigns
         std::thread m_phase7_keyboard_hook_thread{};
         std::string m_phase7_umg_last_text{};
         std::string m_phase7_native_probe_summary{};
+        struct F8LatencyTraceState
+        {
+            bool active{false};
+            bool target_seen{false};
+            bool construct_seen{false};
+            std::chrono::steady_clock::time_point edge{};
+            std::chrono::steady_clock::time_point target{};
+            std::chrono::steady_clock::time_point construct{};
+            uint64_t press_id{0};
+        } m_f8_latency_trace{};
         RC::Unreal::UObject* m_phase7_native_widget{};
         RC::Unreal::UObject* m_phase7_umg_widget{};
         RC::Unreal::UObject* m_phase7_umg_text_box{};
