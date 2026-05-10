@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.3
+- Added F8 input latency breakdown telemetry (per-press edge->target->construct->open timing) and default-enabled ini control.
+- Improved Phase7 teardown policy to reduce false in-session UI teardown/auto-close during transient readiness churn.
+- Added bootstrap/session reset hardening with expanded epoch state clears and additional reset diagnostics.
+- Hardened RemoteClient route bootstrap with stricter loopback handling and direct-connect fallback candidate extraction from connection logs.
+- Improved restore/apply resiliency with bounded short retries for transient component-create failures.
+- Updated log retention policy:
+  - increased cap to 2MB
+  - append across sessions
+  - bounded bootstrap-history retention budget
+
 ## 0.1.2-prototype
 - Hardened role/bootstrap flow around session-ready gating to reduce role/route churn during world-load transitions.
 - Improved authoritative prune safety and stale-record handling across Solo/Hosted/Dedicated paths, including additional suppression/confirm telemetry.

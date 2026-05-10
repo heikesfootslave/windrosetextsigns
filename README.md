@@ -88,6 +88,7 @@ WTS_BRIDGE_SERVER_HOST=auto
 WTS_BRIDGE_UDP_PORT=45801
 WTS_BRIDGE_UPNP_MODE=auto
 WTS_BRIDGE_UPNP_ENABLED=true
+WTS_F8_LATENCY_BREAKDOWN_ENABLED=true
 ```
 
 ### Hotkey
@@ -97,6 +98,23 @@ Change the edit hotkey with:
 ```ini
 WTS_HOTKEY=F8
 ```
+
+### F8 Latency Telemetry
+
+Per-press editor-open latency breakdown logging is enabled by default:
+
+```ini
+WTS_F8_LATENCY_BREAKDOWN_ENABLED=true
+```
+
+This emits a compact one-line trace per F8 open:
+
+- edge -> target selection
+- target -> UMG construct
+- construct -> open_result
+- total edge -> open_result
+
+Use it to diagnose reports where the editor opens slowly on some machines.
 
 ### Targeting
 
@@ -218,8 +236,18 @@ Raw font files alone are not enough for `TextRenderComponent`. A custom font nee
 - Auto server route discovery may not work for every network setup.
 - UPnP depends on the router and local network configuration.
 - Static IP or manual port forwarding may be needed for some dedicated servers.
+- Rare UE4SS-layer crashes may still occur on session exit in some environments; keep both `WindroseTextSigns.log` and `R5.log` for triage.
 
 ## Known Issues
 
 - Very quickly destroying and rebuilding a sign may result in the text coming back.
 - Workaround: Wait 5-10 seconds before rebuilding.
+
+## Logging Behavior
+
+- `WindroseTextSigns.log` now appends across sessions instead of resetting each launch.
+- Log size is capped at 2MB.
+- Bootstrap history is retained with a bounded budget:
+  - target: 256KB (12.5% of cap)
+  - hard max: 307KB (15% of cap)
+- When trimming is required, oldest non-bootstrap runtime lines are trimmed first, then oldest bootstrap blocks if still over cap.

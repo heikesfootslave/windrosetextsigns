@@ -6,7 +6,6 @@ project(${TARGET})
 add_library(${TARGET} SHARED
     src/dllmain.cpp
     src/NativeBridge.cpp
-    src/RelayHttp.cpp
     src/SignTextMod.cpp
     src/UpnpNat.cpp
 )
