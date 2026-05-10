@@ -164,6 +164,9 @@ namespace WindroseTextSigns
             const std::string& world_id,
             bool first_seen_live_after_ready,
             bool is_ready_baseline_key) -> bool;
+        auto reset_localclient_role_lock_restore_pass_state() -> void;
+        auto schedule_localclient_role_lock_restore_passes(const std::string& reason) -> void;
+        auto maybe_run_localclient_role_lock_restore_passes(std::chrono::steady_clock::time_point now) -> void;
         auto maybe_run_hosted_post_ready_reconcile() -> void;
         auto is_localclient_runtime_stable_for_post_ready(std::string* out_reason = nullptr) -> bool;
         auto is_session_ready_for_role_resolution(std::string* out_reason = nullptr) -> bool;
@@ -564,5 +567,11 @@ namespace WindroseTextSigns
         std::unordered_map<std::string, int> m_visual_verify_recently_rendered_streak{};
         std::unordered_map<std::string, int> m_visual_verify_no_render_streak{};
         std::unordered_map<std::string, float> m_visual_verify_last_render_time_seen{};
+        bool m_role_lock_restore_pass1_pending{false};
+        bool m_role_lock_restore_pass1_done{false};
+        bool m_role_lock_restore_pass2_pending{false};
+        bool m_role_lock_restore_pass2_done{false};
+        uint64_t m_role_lock_restore_epoch{0};
+        std::chrono::steady_clock::time_point m_role_lock_restore_pass2_due{};
     };
 }

@@ -6537,6 +6537,7 @@ namespace WindroseTextSigns
             m_ready_baseline_live_keys.clear();
             m_ready_baseline_capture_remaining_scans = 0;
             m_restore_scan_cycle_counter = 0;
+            reset_localclient_role_lock_restore_pass_state();
             reset_visual_verify_debug_state();
             reset_bridge_snapshot_state("sidecar_route_change");
             m_bridge_next_snapshot_request = std::chrono::steady_clock::now();
@@ -9609,6 +9610,7 @@ namespace WindroseTextSigns
         m_bridge_route_force_non_loopback = false;
         m_bridge_route_recovery_logged = false;
         m_bridge_route_retry_consumed = false;
+        reset_localclient_role_lock_restore_pass_state();
         if (m_bridge_route_auto_enabled)
         {
             m_bridge_remote_server_host.clear();
@@ -9662,6 +9664,7 @@ namespace WindroseTextSigns
                           " bridgeRole=" + m_role_lock_bridge_role +
                           " worldId=" + (m_role_lock_world_id.empty() ? "unknown" : m_role_lock_world_id) +
                           " reason=" + reason);
+        schedule_localclient_role_lock_restore_passes("role_lock_acquired");
     }
 
     auto SignTextMod::update_bridge_health(const std::chrono::steady_clock::time_point now) -> void
@@ -11784,6 +11787,120 @@ namespace WindroseTextSigns
         return false;
     }
 
+    auto SignTextMod::reset_localclient_role_lock_restore_pass_state() -> void
+    {
+        m_role_lock_restore_pass1_pending = false;
+        m_role_lock_restore_pass1_done = false;
+        m_role_lock_restore_pass2_pending = false;
+        m_role_lock_restore_pass2_done = false;
+        m_role_lock_restore_epoch = 0;
+        m_role_lock_restore_pass2_due = {};
+    }
+
+    auto SignTextMod::schedule_localclient_role_lock_restore_passes(const std::string& reason) -> void
+    {
+        if (is_dedicated_runtime_process())
+        {
+            return;
+        }
+        if (!m_sidecar_authoritative || lower_ascii(m_runtime_role) != "localclient")
+        {
+            return;
+        }
+        if (!m_session_ready_latched || !m_role_lock_acquired)
+        {
+            return;
+        }
+
+        const auto now = std::chrono::steady_clock::now();
+        m_role_lock_restore_pass1_pending = true;
+        m_role_lock_restore_pass1_done = false;
+        m_role_lock_restore_pass2_pending = true;
+        m_role_lock_restore_pass2_done = false;
+        m_role_lock_restore_epoch = m_session_epoch;
+        m_role_lock_restore_pass2_due = now + std::chrono::seconds(8);
+        log_line("[save] role_lock_restore_scheduled reason=" + reason +
+                 " epoch=" + std::to_string(m_role_lock_restore_epoch) +
+                 " pass2DelaySec=8");
+    }
+
+    auto SignTextMod::maybe_run_localclient_role_lock_restore_passes(const std::chrono::steady_clock::time_point now) -> void
+    {
+        if (is_dedicated_runtime_process() ||
+            !m_sidecar_authoritative ||
+            lower_ascii(m_runtime_role) != "localclient" ||
+            !m_session_ready_latched ||
+            !m_role_lock_acquired)
+        {
+            return;
+        }
+        if (m_role_lock_restore_epoch != m_session_epoch)
+        {
+            return;
+        }
+
+        int pass_to_run = 0;
+        if (m_role_lock_restore_pass1_pending && !m_role_lock_restore_pass1_done)
+        {
+            pass_to_run = 1;
+        }
+        else if (m_role_lock_restore_pass2_pending &&
+                 !m_role_lock_restore_pass2_done &&
+                 m_role_lock_restore_pass2_due.time_since_epoch().count() != 0 &&
+                 now >= m_role_lock_restore_pass2_due)
+        {
+            pass_to_run = 2;
+        }
+
+        if (pass_to_run == 0)
+        {
+            return;
+        }
+
+        uint32_t matched_labels = 0;
+        uint32_t restore_calls = 0;
+        UObjectGlobals::ForEachUObject([&](UObject* object, int32, int32) {
+            if (!object || !object->IsA(AActor::StaticClass()))
+            {
+                return LoopAction::Continue;
+            }
+            auto* actor = Cast<AActor>(object);
+            if (!actor || !is_probable_label_actor(actor))
+            {
+                return LoopAction::Continue;
+            }
+            const auto stable_id = extract_stable_id(actor);
+            const auto actor_world_id = build_world_id_for_actor(actor);
+            configure_sidecar_for_actor(actor, actor_world_id);
+            const auto world_id = active_storage_world_id(actor_world_id);
+            const auto key = build_storage_key(world_id, stable_id);
+            if (m_labels.find(key) == m_labels.end())
+            {
+                return LoopAction::Continue;
+            }
+            ++matched_labels;
+            restore_known_text_if_any(actor, stable_id, true);
+            ++restore_calls;
+            return LoopAction::Continue;
+        });
+
+        if (pass_to_run == 1)
+        {
+            m_role_lock_restore_pass1_done = true;
+            m_role_lock_restore_pass1_pending = false;
+        }
+        else
+        {
+            m_role_lock_restore_pass2_done = true;
+            m_role_lock_restore_pass2_pending = false;
+        }
+
+        log_line("[save] role_lock_restore_pass pass=" + std::to_string(pass_to_run) +
+                 " matched=" + std::to_string(matched_labels) +
+                 " restoreCalls=" + std::to_string(restore_calls) +
+                 " epoch=" + std::to_string(m_session_epoch));
+    }
+
     auto SignTextMod::mark_suspect_rebuild(
         const std::string& key,
         const std::string& stable_id,
@@ -13210,6 +13327,7 @@ namespace WindroseTextSigns
         std::string localclient_stability_reason{};
         if (is_localclient_runtime_stable_for_post_ready(&localclient_stability_reason))
         {
+            maybe_run_localclient_role_lock_restore_passes(now);
             maybe_run_hosted_post_ready_reconcile();
             tick_localclient_visual_verify_debug(now);
         }
