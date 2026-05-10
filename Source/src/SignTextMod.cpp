@@ -5328,18 +5328,30 @@ namespace WindroseTextSigns
     auto SignTextMod::open_phase7_umg_editor_for_selection() -> bool
     {
         std::string ready_reason{};
-        if (!m_session_ready_latched || !is_session_ready_for_role_resolution(&ready_reason))
+        const bool inprocess_ready = is_session_ready_for_role_resolution(&ready_reason);
+        if (!inprocess_ready)
         {
             log_line("[phase7-umg] open_suppressed reason=loading_or_transition detail=" + ready_reason);
             return false;
         }
-        if (!m_role_lock_acquired)
+        auto runtime_role_lower = lower_ascii(m_runtime_role);
+        if (!m_role_lock_acquired && runtime_role_lower == "localclientpending")
+        {
+            // Try once to finalize role when runtime is already in gameplay-ready state.
+            tick_localclient_role_resolution();
+            runtime_role_lower = lower_ascii(m_runtime_role);
+        }
+        const bool allow_pending_localclient_open =
+            !m_role_lock_acquired &&
+            runtime_role_lower == "localclientpending";
+        if (!m_role_lock_acquired && !allow_pending_localclient_open)
         {
             log_line("[phase7-umg] open_rejected reason=role_not_locked_or_unstable detail=role_lock_pending");
             return false;
         }
-        const auto runtime_role_lower = lower_ascii(m_runtime_role);
-        if (runtime_role_lower != "localclient" && runtime_role_lower != "remoteclient")
+        if (runtime_role_lower != "localclient" &&
+            runtime_role_lower != "remoteclient" &&
+            !allow_pending_localclient_open)
         {
             log_line("[phase7-umg] open_rejected reason=role_not_locked_or_unstable detail=runtime_role_not_client role=" + m_runtime_role);
             return false;
@@ -12780,6 +12792,28 @@ namespace WindroseTextSigns
         const bool local_ready_equivalent =
             m_hosted_ready_sequence_complete ||
             (m_hosted_ready_datakeeper_seen && m_hosted_ready_hide_loading_seen);
+        const bool gameplay_ready_inprocess =
+            controlled_pawn != nullptr &&
+            !world_name.empty() &&
+            world_name != "none" &&
+            world_name.find("transition") == std::string::npos &&
+            world_name.find("lobby") == std::string::npos &&
+            world_name.find("entrance") == std::string::npos;
+        const bool local_ready_signals_seen =
+            m_hosted_ready_datakeeper_seen ||
+            m_hosted_ready_hide_loading_seen ||
+            m_hosted_ready_player_ready_seen ||
+            m_hosted_ready_sequence_complete;
+        const bool pending_localclient_inprocess_fallback =
+            runtime_role_lower == "localclientpending" &&
+            authority_mode_lower == "worldauthoritypending" &&
+            gameplay_ready_inprocess &&
+            local_ready_signals_seen;
+        if (pending_localclient_inprocess_fallback)
+        {
+            set_reason("ready_inprocess_pending_fallback");
+            return true;
+        }
         if (!authority_source_resolved && !local_ready_equivalent)
         {
             set_reason("authority_or_local_ready_pending");
@@ -13559,7 +13593,8 @@ namespace WindroseTextSigns
                     auto* controller_actor = controller && controller->IsA(AActor::StaticClass()) ? Cast<AActor>(controller) : nullptr;
                     m_session_ready_world_id = controller_actor ? build_world_id_for_actor(controller_actor) : std::string{};
                     log_line("[session] ready_latched epoch=" + std::to_string(m_session_epoch) +
-                             " world=" + (m_session_ready_world_id.empty() ? "unknown" : m_session_ready_world_id));
+                             " world=" + (m_session_ready_world_id.empty() ? "unknown" : m_session_ready_world_id) +
+                             " reason=" + (ready_reason.empty() ? "unknown" : ready_reason));
                     trace_behavior_sm("session_ready_latched",
                                       "epoch=" + std::to_string(m_session_epoch) +
                                       " world=" + (m_session_ready_world_id.empty() ? "unknown" : m_session_ready_world_id));
