@@ -4097,6 +4097,7 @@ namespace
 
 namespace WindroseTextSigns
 {
+    auto parse_retry_delay_ms_config(const std::string& raw_value) -> std::array<uint32_t, 3>;
     auto invoke_get_text_value(UObject* context, std::string& out_text) -> bool;
     auto read_text_property_value_no_process_event(UObject* context, std::string& out_text) -> bool;
 
@@ -4603,6 +4604,9 @@ namespace WindroseTextSigns
         m_native_transport_inventory_probe_enabled = is_native_transport_inventory_probe_enabled();
         m_f8_latency_breakdown_enabled = config_bool_value("WTS_F8_LATENCY_BREAKDOWN_ENABLED", true);
         m_behavior_trace_enabled = config_bool_value("WTS_BEHAVIOR_TRACE_ENABLED", false);
+        m_create_null_short_retry_enabled = config_bool_value("WTS_CREATE_NULL_SHORT_RETRY_ENABLED", true);
+        m_create_null_retry_delays_ms = parse_retry_delay_ms_config(
+            config_string_value("WTS_CREATE_NULL_RETRY_DELAYS_MS", "250,750,1500"));
         m_visual_verify_debug_force_reapply = config_bool_value("WTS_VISUAL_VERIFY_DEBUG_FORCE_REAPPLY", false);
         m_localclient_motion_reapply_enabled = config_bool_value("WTS_LOCALCLIENT_MOTION_REAPPLY_ENABLED", true);
         m_localclient_controller_probe_interval_sec = std::clamp(
@@ -5056,6 +5060,35 @@ namespace WindroseTextSigns
                     STR("/Script/UMG.Widget:SetFocus"));
             }
         }
+    }
+
+    auto parse_retry_delay_ms_config(const std::string& raw_value) -> std::array<uint32_t, 3>
+    {
+        std::array<uint32_t, 3> parsed{250, 750, 1500};
+        std::stringstream ss(raw_value);
+        std::string token{};
+        size_t idx = 0;
+        while (std::getline(ss, token, ',') && idx < parsed.size())
+        {
+            const auto trimmed = trim_copy_ascii(token);
+            if (trimmed.empty())
+            {
+                ++idx;
+                continue;
+            }
+            const auto value = safe_stoi(trimmed, static_cast<int>(parsed[idx]));
+            parsed[idx] = static_cast<uint32_t>(std::clamp(value, 50, 10000));
+            ++idx;
+        }
+
+        for (size_t i = 1; i < parsed.size(); ++i)
+        {
+            if (parsed[i] <= parsed[i - 1])
+            {
+                parsed[i] = parsed[i - 1] + 100;
+            }
+        }
+        return parsed;
     }
 
     auto SignTextMod::invalidate_phase7_umg_widget_cache(const std::string& reason) -> void
@@ -6965,6 +6998,73 @@ namespace WindroseTextSigns
         return found;
     }
 
+    auto SignTextMod::is_actor_ready_for_restore_retry(AActor* actor, std::string* out_reason) -> bool
+    {
+        const auto set_reason = [&](const std::string& reason) {
+            if (out_reason)
+            {
+                *out_reason = reason;
+            }
+        };
+
+        if (!actor || !is_actor_pointer_live(actor))
+        {
+            set_reason("actor_not_live");
+            return false;
+        }
+
+        bool pending_kill = false;
+        if (invoke_bool_return_no_param(
+                actor,
+                STR("IsPendingKill"),
+                STR("/Script/CoreUObject.Object:IsPendingKill"),
+                pending_kill) &&
+            pending_kill)
+        {
+            set_reason("actor_pending_kill");
+            return false;
+        }
+        bool pending_prop = false;
+        if (get_bool_property_if_present(actor, "bpendingkill", pending_prop) && pending_prop)
+        {
+            set_reason("actor_pending_kill_prop");
+            return false;
+        }
+        bool destroyed_prop = false;
+        if (get_bool_property_if_present(actor, "bbeingdestroyed", destroyed_prop) && destroyed_prop)
+        {
+            set_reason("actor_being_destroyed");
+            return false;
+        }
+
+        auto* world = actor->GetWorld();
+        if (!world)
+        {
+            set_reason("actor_world_missing");
+            return false;
+        }
+        const auto world_name = lower_ascii(narrow_ascii(world->GetName()));
+        if (world_name.empty() ||
+            world_name == "none" ||
+            world_name.find("transition") != std::string::npos ||
+            world_name.find("lobby") != std::string::npos ||
+            world_name.find("entrance") != std::string::npos)
+        {
+            set_reason("actor_world_transitional");
+            return false;
+        }
+
+        auto* root = get_object_property_if_present(actor, "RootComponent");
+        if (!root)
+        {
+            set_reason("actor_root_missing");
+            return false;
+        }
+
+        set_reason("ready");
+        return true;
+    }
+
     auto SignTextMod::ensure_selected_actor_valid(const std::string& reason) -> bool
     {
         if (!m_selected.has_value())
@@ -8488,6 +8588,8 @@ namespace WindroseTextSigns
         m_rendered_text_cache.erase(key);
         m_component_name_cache.erase(key);
         m_phase4_next_retry.erase(key);
+        m_create_null_retry_states.erase(key);
+        m_phase4_last_failure_reason.erase(key);
         save_sidecar_json("bridge_clear", key, stable_id, world_id);
         broadcast_bridge_clear(stable_id, world_id, "bridge_clear");
         log_line("[bridge] server_clear_accepted key=" + key +
@@ -8694,6 +8796,8 @@ namespace WindroseTextSigns
         m_rendered_text_cache.erase(key);
         m_component_name_cache.erase(key);
         m_phase4_next_retry.erase(key);
+        m_create_null_retry_states.erase(key);
+        m_phase4_last_failure_reason.erase(key);
         save_sidecar_json("bridge_cache_clear", key, stable_id, local_world_id);
         UObjectGlobals::ForEachUObject([&](UObject* object, int32, int32) {
             if (!object || !object->IsA(AActor::StaticClass()))
@@ -8892,6 +8996,8 @@ namespace WindroseTextSigns
                 m_rendered_text_cache.erase(key);
                 m_component_name_cache.erase(key);
                 m_phase4_next_retry.erase(key);
+                m_create_null_retry_states.erase(key);
+                m_phase4_last_failure_reason.erase(key);
             }
 
             write_recovery_candidate(reason, removed);
@@ -10412,7 +10518,9 @@ namespace WindroseTextSigns
         {
             const bool removed = destroy_managed_text_component(actor, key);
             m_rendered_text_cache.erase(key);
+            m_phase4_last_failure_reason.erase(key);
             m_phase4_next_retry.erase(key);
+            m_create_null_retry_states.erase(key);
             log_line("[phase4] apply_empty_text_clear key=" + key + " removed=" + std::string{removed ? "true" : "false"});
             return removed;
         }
@@ -10463,7 +10571,39 @@ namespace WindroseTextSigns
         }
         if (!text_component)
         {
-            m_phase4_next_retry[key] = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+            m_phase4_last_failure_reason[key] = "CreateTextComponent";
+            if (m_create_null_short_retry_enabled)
+            {
+                auto& retry_state = m_create_null_retry_states[key];
+                const bool fresh_retry_context =
+                    retry_state.session_epoch != m_session_epoch ||
+                    retry_state.world_id != world_id ||
+                    retry_state.stable_id != stable_id ||
+                    retry_state.actor_ptr != reinterpret_cast<uintptr_t>(actor) ||
+                    retry_state.attempt_idx == 0 ||
+                    retry_state.attempt_idx > m_create_null_retry_delays_ms.size();
+                if (fresh_retry_context)
+                {
+                    retry_state.session_epoch = m_session_epoch;
+                    retry_state.world_id = world_id;
+                    retry_state.stable_id = stable_id;
+                    retry_state.actor_ptr = reinterpret_cast<uintptr_t>(actor);
+                    retry_state.attempt_idx = 1;
+                    retry_state.next_due =
+                        std::chrono::steady_clock::now() + std::chrono::milliseconds(m_create_null_retry_delays_ms[0]);
+                    std::ostringstream delays{};
+                    delays << m_create_null_retry_delays_ms[0]
+                           << "," << m_create_null_retry_delays_ms[1]
+                           << "," << m_create_null_retry_delays_ms[2];
+                    log_line("[apply-retry] scheduled key=" + key +
+                             " delays_ms=" + delays.str() +
+                             " reason=create_null");
+                }
+            }
+            else
+            {
+                m_phase4_next_retry[key] = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+            }
             log_line("[phase4] apply_failed reason=CreateTextComponent actor=" + narrow_ascii(actor->GetFullName()) +
                      " key=" + key + " reusedExisting=" + std::string{reused_existing ? "true" : "false"});
             return false;
@@ -10524,13 +10664,17 @@ namespace WindroseTextSigns
         }
         if (!text_applied)
         {
+            m_phase4_last_failure_reason[key] = "SetTextFailed";
             m_phase4_next_retry[key] = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+            m_create_null_retry_states.erase(key);
             log_line("[phase4] apply_failed reason=SetTextFailed key=" + key +
                      " component=" + narrow_ascii(text_component->GetFullName()));
             return false;
         }
 
+        m_phase4_last_failure_reason.erase(key);
         m_phase4_next_retry.erase(key);
+        m_create_null_retry_states.erase(key);
         m_rendered_text_cache[key] = text_value;
         std::ostringstream loc{};
         loc << std::fixed << std::setprecision(2)
@@ -10698,8 +10842,10 @@ namespace WindroseTextSigns
                  " worldId=" + world_id + " path=" + m_sidecar_path.string());
         m_labels.erase(key);
         m_rendered_text_cache.erase(key);
+        m_phase4_last_failure_reason.erase(key);
         m_component_name_cache.erase(key);
         m_phase4_next_retry.erase(key);
+        m_create_null_retry_states.erase(key);
         m_seen_live_label_keys.erase(key);
         m_missing_label_scan_counts.erase(key);
         if (!m_sidecar_authoritative)
@@ -10768,6 +10914,74 @@ namespace WindroseTextSigns
                      " remainingGuardMs=" + std::to_string(remaining_ms));
         };
 
+        std::optional<uint32_t> create_retry_attempt{};
+        if (auto create_retry = m_create_null_retry_states.find(key); create_retry != m_create_null_retry_states.end())
+        {
+            auto& state = create_retry->second;
+            const bool stale_context =
+                state.session_epoch != m_session_epoch ||
+                state.world_id != actor_world_id ||
+                state.stable_id != stable_id ||
+                state.actor_ptr != reinterpret_cast<uintptr_t>(actor);
+            if (stale_context)
+            {
+                log_line("[apply-retry] canceled key=" + key + " reason=context_changed");
+                m_create_null_retry_states.erase(create_retry);
+            }
+            else if (const auto suppress = m_suspect_rebuild_states.find(key); suppress != m_suspect_rebuild_states.end())
+            {
+                log_line("[apply-retry] blocked key=" + key + " reason=suspect_rebuild");
+                m_create_null_retry_states.erase(create_retry);
+                return;
+            }
+            else if (has_recent_destroy_confirmation(stable_id, actor_world_id))
+            {
+                log_line("[apply-retry] blocked key=" + key + " reason=trusted_destroy");
+                m_create_null_retry_states.erase(create_retry);
+                return;
+            }
+            else if (const auto retry_guard = m_phase4_next_retry.find(key);
+                     retry_guard != m_phase4_next_retry.end() && std::chrono::steady_clock::now() < retry_guard->second)
+            {
+                log_line("[apply-retry] blocked key=" + key + " reason=suppressed");
+                m_create_null_retry_states.erase(create_retry);
+                return;
+            }
+            else
+            {
+                const auto now = std::chrono::steady_clock::now();
+                if (now < state.next_due)
+                {
+                    const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(state.next_due - now);
+                    log_restore_skip_guard("create_null_retry_pending", remaining);
+                    return;
+                }
+
+                std::string actor_ready_reason{};
+                const bool actor_ready = is_actor_ready_for_restore_retry(actor, &actor_ready_reason);
+                log_line("[apply-retry] attempt key=" + key +
+                         " idx=" + std::to_string(state.attempt_idx) +
+                         " actorReady=" + std::string{actor_ready ? "true" : "false"} +
+                         " actorReadyReason=" + actor_ready_reason);
+                if (!actor_ready)
+                {
+                    if (state.attempt_idx < m_create_null_retry_delays_ms.size())
+                    {
+                        ++state.attempt_idx;
+                        state.next_due =
+                            now + std::chrono::milliseconds(m_create_null_retry_delays_ms[state.attempt_idx - 1]);
+                    }
+                    else
+                    {
+                        log_line("[apply-retry] exhausted key=" + key);
+                        m_create_null_retry_states.erase(create_retry);
+                    }
+                    return;
+                }
+                create_retry_attempt = state.attempt_idx;
+            }
+        }
+
         if (const auto suspect = m_suspect_rebuild_states.find(key); suspect != m_suspect_rebuild_states.end())
         {
             const auto now = std::chrono::steady_clock::now();
@@ -10810,6 +11024,40 @@ namespace WindroseTextSigns
                           " stableId=" + stable_id +
                           " bypassRetryGuard=" + std::string{force_bypass_retry_guard ? "true" : "false"});
         const bool applied = apply_text_to_actor_component(actor, found->second.text);
+        if (create_retry_attempt.has_value())
+        {
+            if (applied)
+            {
+                log_line("[apply-retry] success key=" + key +
+                         " idx=" + std::to_string(*create_retry_attempt));
+                m_create_null_retry_states.erase(key);
+            }
+            else if (const auto state_it = m_create_null_retry_states.find(key); state_it != m_create_null_retry_states.end())
+            {
+                const auto failure_it = m_phase4_last_failure_reason.find(key);
+                const auto failure_reason = (failure_it != m_phase4_last_failure_reason.end()) ? failure_it->second : std::string{};
+                if (failure_reason == "CreateTextComponent")
+                {
+                    auto& state = state_it->second;
+                    if (state.attempt_idx < m_create_null_retry_delays_ms.size())
+                    {
+                        ++state.attempt_idx;
+                        state.next_due = std::chrono::steady_clock::now() +
+                            std::chrono::milliseconds(m_create_null_retry_delays_ms[state.attempt_idx - 1]);
+                    }
+                    else
+                    {
+                        log_line("[apply-retry] exhausted key=" + key);
+                        m_create_null_retry_states.erase(state_it);
+                    }
+                }
+                else
+                {
+                    log_line("[apply-retry] canceled key=" + key + " reason=non_create_failure");
+                    m_create_null_retry_states.erase(state_it);
+                }
+            }
+        }
         trace_behavior_sm("restore_result",
                           "key=" + key +
                           " stableId=" + stable_id +
@@ -11697,6 +11945,8 @@ namespace WindroseTextSigns
         m_rendered_text_cache.erase(key);
         m_component_name_cache.erase(key);
         m_phase4_next_retry.erase(key);
+        m_create_null_retry_states.erase(key);
+        m_phase4_last_failure_reason.erase(key);
         m_missing_label_scan_counts.erase(key);
         m_suspect_rebuild_states.erase(key);
         const bool removed_component = destroy_managed_text_component(actor, key);
@@ -12438,6 +12688,8 @@ namespace WindroseTextSigns
         m_suspect_rebuild_states.clear();
         m_recent_construct_slot_signals.clear();
         m_restore_skip_guard_log_buckets.clear();
+        m_phase4_last_failure_reason.clear();
+        m_create_null_retry_states.clear();
         m_bridge_route_retry_consumed = false;
         m_localclient_controller_probe_cached = nullptr;
         m_localclient_controller_probe_cache_valid = false;
@@ -13404,8 +13656,10 @@ namespace WindroseTextSigns
                     // Without this, reconnect can retain stale "already rendered" state and
                     // skip reapplying visible text even though actors/components were rebuilt.
                     m_rendered_text_cache.clear();
+                    m_phase4_last_failure_reason.clear();
                     m_component_name_cache.clear();
                     m_phase4_next_retry.clear();
+                    m_create_null_retry_states.clear();
                     m_label_text_visual_logged_keys.clear();
                     m_dedicated_restore_active_since = {};
                     m_dedicated_restore_stable_since = {};
@@ -13566,6 +13820,8 @@ namespace WindroseTextSigns
                                 m_rendered_text_cache.erase(key);
                                 m_component_name_cache.erase(key);
                                 m_phase4_next_retry.erase(key);
+                                m_create_null_retry_states.erase(key);
+                                m_phase4_last_failure_reason.erase(key);
                                 m_missing_label_scan_counts.erase(key);
                                 m_first_seen_construct_hold_states.erase(key);
                                 if (m_text_buffer_bound_key == key)
@@ -13605,6 +13861,8 @@ namespace WindroseTextSigns
                                     m_rendered_text_cache.erase(key);
                                     m_component_name_cache.erase(key);
                                     m_phase4_next_retry.erase(key);
+                                    m_create_null_retry_states.erase(key);
+                                    m_phase4_last_failure_reason.erase(key);
                                     m_missing_label_scan_counts.erase(key);
                                     m_first_seen_construct_hold_states.erase(key);
                                     if (m_text_buffer_bound_key == key)
@@ -13725,6 +13983,8 @@ namespace WindroseTextSigns
                                 m_rendered_text_cache.erase(key);
                                 m_component_name_cache.erase(key);
                                 m_phase4_next_retry.erase(key);
+                                m_create_null_retry_states.erase(key);
+                                m_phase4_last_failure_reason.erase(key);
                                 m_missing_label_scan_counts.erase(key);
                                 m_first_seen_construct_hold_states.erase(key);
                                 if (m_text_buffer_bound_key == key)
@@ -13775,6 +14035,8 @@ namespace WindroseTextSigns
                                 m_rendered_text_cache.erase(key);
                                 m_component_name_cache.erase(key);
                                 m_phase4_next_retry.erase(key);
+                                m_create_null_retry_states.erase(key);
+                                m_phase4_last_failure_reason.erase(key);
                                 m_first_seen_construct_hold_states.erase(key);
                                 if (m_text_buffer_bound_key == key)
                                 {
@@ -13788,6 +14050,8 @@ namespace WindroseTextSigns
                         else if (suspect_decision == SuspectRebuildDecision::UnsuppressRestoreOnce)
                         {
                             m_phase4_next_retry.erase(key);
+                            m_create_null_retry_states.erase(key);
+                            m_phase4_last_failure_reason.erase(key);
                             forced_unsuppress_restore_once = true;
                             log_line("[save] prune_rebuilt_label deferred key=" + key +
                                      " stableId=" + stable_id +
@@ -14080,6 +14344,8 @@ namespace WindroseTextSigns
                     m_rendered_text_cache.erase(key);
                     m_component_name_cache.erase(key);
                     m_phase4_next_retry.erase(key);
+                    m_create_null_retry_states.erase(key);
+                    m_phase4_last_failure_reason.erase(key);
                     m_seen_live_label_keys.erase(key);
                     m_live_label_actor_ptrs.erase(key);
                     m_missing_label_scan_counts.erase(key);

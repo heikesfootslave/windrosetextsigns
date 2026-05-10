@@ -181,6 +181,7 @@ namespace WindroseTextSigns
             const std::string& reason) -> void;
         auto ensure_selected_label_for_action(const std::string& action_name) -> bool;
         auto is_actor_pointer_live(RC::Unreal::AActor* actor) const -> bool;
+        auto is_actor_ready_for_restore_retry(RC::Unreal::AActor* actor, std::string* out_reason = nullptr) -> bool;
         auto ensure_selected_actor_valid(const std::string& reason) -> bool;
         auto try_select_label_from_camera() -> std::optional<SelectionCandidate>;
         auto try_get_primary_player_controller() -> RC::Unreal::UObject*;
@@ -315,6 +316,8 @@ namespace WindroseTextSigns
         std::chrono::steady_clock::time_point m_worldid_last_defer_log{};
         bool m_f8_latency_breakdown_enabled{true};
         bool m_behavior_trace_enabled{false};
+        bool m_create_null_short_retry_enabled{true};
+        std::array<uint32_t, 3> m_create_null_retry_delays_ms{250, 750, 1500};
         uint64_t m_revision{0};
         std::string m_session_id{};
         BridgeRole m_bridge_role{BridgeRole::Unknown};
@@ -461,9 +464,20 @@ namespace WindroseTextSigns
         std::chrono::steady_clock::time_point m_last_restore_scan_diag{};
         std::chrono::steady_clock::time_point m_last_ui_tick_log{};
         std::unordered_map<std::string, std::string> m_rendered_text_cache{};
+        std::unordered_map<std::string, std::string> m_phase4_last_failure_reason{};
         std::unordered_set<std::string> m_label_text_visual_logged_keys{};
         std::unordered_map<std::string, std::string> m_component_name_cache{};
         std::unordered_map<std::string, std::chrono::steady_clock::time_point> m_phase4_next_retry{};
+        struct CreateNullRetryState
+        {
+            std::string stable_id{};
+            std::string world_id{};
+            uint64_t session_epoch{0};
+            uintptr_t actor_ptr{0};
+            uint32_t attempt_idx{1};
+            std::chrono::steady_clock::time_point next_due{};
+        };
+        std::unordered_map<std::string, CreateNullRetryState> m_create_null_retry_states{};
         std::unordered_set<std::string> m_seen_live_label_keys{};
         std::unordered_map<std::string, uintptr_t> m_live_label_actor_ptrs{};
         std::unordered_map<std::string, uint32_t> m_missing_label_scan_counts{};
