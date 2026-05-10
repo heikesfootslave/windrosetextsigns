@@ -80,6 +80,12 @@ namespace WindroseTextSigns
             On = 1,
             Auto = 2
         };
+        enum class WorldIdBindPhase : uint32_t
+        {
+            Unbound = 0,
+            ProvisionalIdSeen = 1,
+            StableIdLatched = 2
+        };
 
         auto resolve_mod_root() -> std::filesystem::path;
         auto configure_data_root() -> void;
@@ -161,6 +167,7 @@ namespace WindroseTextSigns
         auto maybe_run_hosted_post_ready_reconcile() -> void;
         auto is_localclient_runtime_stable_for_post_ready(std::string* out_reason = nullptr) -> bool;
         auto is_session_ready_for_role_resolution(std::string* out_reason = nullptr) -> bool;
+        auto is_world_id_latched_for_authoritative_localclient_bind(std::string* out_reason = nullptr) -> bool;
         auto reset_session_state(const std::string& reason) -> void;
         auto reset_visual_verify_debug_state() -> void;
         auto tick_localclient_visual_verify_debug(std::chrono::steady_clock::time_point now) -> void;
@@ -293,6 +300,16 @@ namespace WindroseTextSigns
         std::string m_save_profile_root{};
         std::string m_world_folder_id{};
         bool m_sidecar_authoritative{false};
+        WorldIdBindPhase m_worldid_bind_phase{WorldIdBindPhase::Unbound};
+        std::string m_worldid_provisional_id{};
+        std::string m_worldid_latched_id{};
+        uint32_t m_worldid_stability_seen_count{0};
+        std::chrono::steady_clock::time_point m_worldid_stability_last_observed{};
+        std::chrono::steady_clock::time_point m_worldid_generation_last_signal{};
+        std::string m_worldid_generation_last_marker_id{};
+        bool m_worldid_generation_in_progress{false};
+        std::string m_worldid_last_defer_reason{};
+        std::chrono::steady_clock::time_point m_worldid_last_defer_log{};
         bool m_f8_latency_breakdown_enabled{true};
         bool m_behavior_trace_enabled{false};
         uint64_t m_revision{0};
@@ -314,6 +331,8 @@ namespace WindroseTextSigns
         std::unordered_set<std::string> m_bridge_route_rejected_candidates_logged{};
         std::unordered_set<std::string> m_bridge_route_fallback_candidates_logged{};
         bool m_bridge_route_bootstrap_pause_logged{false};
+        std::chrono::steady_clock::time_point m_bridge_route_wait_last_log{};
+        std::string m_bridge_route_wait_last_reason{};
         int m_bridge_udp_port{45801};
         bool m_bridge_upnp_enabled{false};
         BridgeUpnpMode m_bridge_upnp_mode{BridgeUpnpMode::Off};
@@ -487,6 +506,8 @@ namespace WindroseTextSigns
         bool m_destroy_signal_log_initialized{false};
         std::chrono::steady_clock::time_point m_destroy_signal_last_poll{};
         uint32_t m_destroy_confirm_ttl_sec{10};
+        std::chrono::steady_clock::time_point m_definitive_session_start_last_trigger{};
+        std::string m_definitive_session_start_last_signature{};
         std::chrono::steady_clock::time_point m_last_player_activity{};
         std::chrono::steady_clock::time_point m_pending_role_watchdog_started{};
         bool m_pending_role_watchdog_logged{false};

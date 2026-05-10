@@ -532,15 +532,28 @@ namespace
             std::vector<std::string> remote_hosts{};
             std::vector<std::string> remote_publics{};
             std::vector<std::pair<std::string, std::string>> fallback_direct_candidates{};
+            auto lower_ascii_local = [](std::string value) {
+                std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
+                    return static_cast<char>(std::tolower(c));
+                });
+                return value;
+            };
             auto append_fallback_candidate = [&](const std::string& ip, const std::string& source) {
                 if (!parse_ipv4_octets(ip).has_value())
                 {
                     return;
                 }
-                for (const auto& existing : fallback_direct_candidates)
+                for (auto& existing : fallback_direct_candidates)
                 {
                     if (existing.first == ip)
                     {
+                        const auto existing_source = lower_ascii_local(existing.second);
+                        const auto incoming_source = lower_ascii_local(source);
+                        if (existing_source == "start_direct_connection" &&
+                            incoming_source != "start_direct_connection")
+                        {
+                            existing.second = source;
+                        }
                         return;
                     }
                 }
@@ -702,11 +715,22 @@ namespace
                 std::vector<std::string> same_lan_hosts_from_direct{};
                 std::vector<std::string> public_hosts_from_direct{};
                 std::vector<std::string> other_hosts_from_direct{};
+                bool explicit_loopback_direct_evidence = false;
                 for (const auto& entry : fallback_direct_candidates)
                 {
                     const auto& ip = entry.first;
+                    if (ip == "127.0.0.1")
+                    {
+                        const auto source_lower = lower_ascii_local(entry.second);
+                        if (source_lower == "remoteaddr_endpoint" ||
+                            source_lower == "browse_endpoint" ||
+                            source_lower == "loadmap_endpoint")
+                        {
+                            explicit_loopback_direct_evidence = true;
+                        }
+                        continue;
+                    }
                     const bool same_machine_direct =
-                        ip == "127.0.0.1" ||
                         std::find(local_hosts.begin(), local_hosts.end(), ip) != local_hosts.end();
                     if (same_machine_direct)
                     {
@@ -737,6 +761,11 @@ namespace
                     {
                         append_unique_ip(other_hosts_from_direct, ip);
                     }
+                }
+
+                if (explicit_loopback_direct_evidence)
+                {
+                    append_unique_ip(same_machine_hosts, "127.0.0.1");
                 }
 
                 if (!same_machine_hosts.empty())
@@ -4456,7 +4485,7 @@ namespace WindroseTextSigns
             bridge_host_config_lower.empty() ||
             bridge_host_config_lower == "auto" ||
             bridge_host_config_lower == "discover";
-        m_bridge_remote_server_host = m_bridge_route_auto_enabled ? "127.0.0.1" : m_bridge_remote_server_host_config;
+        m_bridge_remote_server_host = m_bridge_route_auto_enabled ? std::string{} : m_bridge_remote_server_host_config;
         m_bridge_udp_port = std::clamp(
             safe_stoi(config_string_value("WTS_BRIDGE_UDP_PORT", "45801"), 45801),
             1,
@@ -6230,6 +6259,21 @@ namespace WindroseTextSigns
             return;
         }
 
+        const bool localclient_authoritative_target =
+            !is_dedicated_runtime_process() &&
+            authoritative &&
+            lower_ascii(runtime_role) == "localclient";
+        if (localclient_authoritative_target &&
+            m_worldid_bind_phase == WorldIdBindPhase::StableIdLatched &&
+            is_hex_world_id(m_worldid_latched_id) &&
+            is_hex_world_id(world_folder_id) &&
+            lower_ascii(world_folder_id) != lower_ascii(m_worldid_latched_id))
+        {
+            log_line("[worldid] switch_blocked reason=existing_world_protection current=" +
+                     m_worldid_latched_id + " incoming=" + world_folder_id);
+            return;
+        }
+
         const bool world_changed =
             !m_world_folder_id.empty() &&
             !world_folder_id.empty() &&
@@ -6391,7 +6435,11 @@ namespace WindroseTextSigns
         const auto safe_world_id = sanitize_path_segment(world_id.empty() ? std::string{"unknown-world"} : world_id);
         if (local_authority)
         {
-            auto world_folder_id = m_world_folder_id;
+            auto world_folder_id = m_worldid_latched_id;
+            if (!is_hex_world_id(world_folder_id))
+            {
+                world_folder_id = m_world_folder_id;
+            }
             if (!is_hex_world_id(world_folder_id))
             {
                 if (!profile_root.empty())
@@ -8921,8 +8969,19 @@ namespace WindroseTextSigns
 
         if (!discovered.found || discovered.host.empty())
         {
-            log_line("[bridge-route] waiting reason=no_candidate logPath=" +
-                     (m_bridge_route_log_path.empty() ? "unknown" : m_bridge_route_log_path.string()));
+            const auto wait_reason = std::string{"no_candidate|"} +
+                                     (m_bridge_route_log_path.empty() ? "unknown" : m_bridge_route_log_path.string());
+            const bool should_log_wait =
+                m_bridge_route_wait_last_reason != wait_reason ||
+                m_bridge_route_wait_last_log.time_since_epoch().count() == 0 ||
+                (now - m_bridge_route_wait_last_log) >= std::chrono::seconds(15);
+            if (should_log_wait)
+            {
+                log_line("[bridge-route] waiting reason=no_candidate logPath=" +
+                         (m_bridge_route_log_path.empty() ? "unknown" : m_bridge_route_log_path.string()));
+                m_bridge_route_wait_last_reason = wait_reason;
+                m_bridge_route_wait_last_log = now;
+            }
             return;
         }
 
@@ -8974,8 +9033,19 @@ namespace WindroseTextSigns
 
         if (viable_candidates.empty())
         {
-            log_line("[bridge-route] waiting reason=no_viable_candidate candidates=" + summarize_ips(ordered_candidates) +
-                     " localHosts=" + (discovered.local_host_summary.empty() ? "none" : discovered.local_host_summary));
+            const auto wait_reason = std::string{"no_viable_candidate|"} + summarize_ips(ordered_candidates) +
+                                     "|" + (discovered.local_host_summary.empty() ? "none" : discovered.local_host_summary);
+            const bool should_log_wait =
+                m_bridge_route_wait_last_reason != wait_reason ||
+                m_bridge_route_wait_last_log.time_since_epoch().count() == 0 ||
+                (now - m_bridge_route_wait_last_log) >= std::chrono::seconds(15);
+            if (should_log_wait)
+            {
+                log_line("[bridge-route] waiting reason=no_viable_candidate candidates=" + summarize_ips(ordered_candidates) +
+                         " localHosts=" + (discovered.local_host_summary.empty() ? "none" : discovered.local_host_summary));
+                m_bridge_route_wait_last_reason = wait_reason;
+                m_bridge_route_wait_last_log = now;
+            }
             return;
         }
 
@@ -9007,6 +9077,8 @@ namespace WindroseTextSigns
             m_bridge_route_locked_host = selected_host;
             m_bridge_route_loopback_same_machine_ok =
                 (selected_host == "127.0.0.1" && discovered.same_machine_evidence);
+            m_bridge_route_wait_last_reason.clear();
+            m_bridge_route_wait_last_log = {};
             log_line("[bridge-route] lock_acquired host=" + m_bridge_route_locked_host +
                      " reason=first_viable_candidate");
             trace_behavior_sm("route_lock_acquired",
@@ -9033,6 +9105,8 @@ namespace WindroseTextSigns
         m_bridge_route_locked_host = selected_host;
         m_bridge_route_loopback_same_machine_ok =
             (selected_host == "127.0.0.1" && discovered.same_machine_evidence);
+        m_bridge_route_wait_last_reason.clear();
+        m_bridge_route_wait_last_log = {};
         log_line("[bridge-route] discovered host=" + m_bridge_remote_server_host +
                  " reason=" + discovered.reason +
                  " port=" + std::to_string(m_bridge_udp_port) +
@@ -9121,6 +9195,7 @@ namespace WindroseTextSigns
         NativeBridge::instance().set_role(desired);
         reset_bridge_snapshot_state("role_change_" + reason);
         m_bridge_route_last_candidates.clear();
+        m_bridge_route_last_discovered_host.clear();
         m_bridge_route_lock_acquired = false;
         m_bridge_route_locked_host.clear();
         m_bridge_route_loopback_same_machine_ok = false;
@@ -9129,7 +9204,16 @@ namespace WindroseTextSigns
         m_bridge_route_rejected_candidates_logged.clear();
         m_bridge_route_fallback_candidates_logged.clear();
         m_bridge_route_bootstrap_pause_logged = false;
+        m_bridge_route_wait_last_log = {};
+        m_bridge_route_wait_last_reason.clear();
         m_bridge_upnp_timeout_logged = false;
+        if (m_bridge_route_auto_enabled)
+        {
+            m_bridge_remote_server_host.clear();
+            NativeBridge::instance().set_remote_server(
+                m_bridge_remote_server_host,
+                static_cast<uint16_t>(m_bridge_udp_port));
+        }
         if (desired != BridgeRole::DedicatedServer && desired != BridgeRole::ListenHost)
         {
             m_bridge_upnp_last_policy.clear();
@@ -9365,13 +9449,23 @@ namespace WindroseTextSigns
         m_role_lock_world_id.clear();
         m_bridge_route_lock_acquired = false;
         m_bridge_route_locked_host.clear();
+        m_bridge_route_last_discovered_host.clear();
         m_bridge_route_loopback_same_machine_ok = false;
         m_bridge_route_rejected_candidates_logged.clear();
         m_bridge_route_fallback_candidates_logged.clear();
         m_bridge_route_bootstrap_pause_logged = false;
+        m_bridge_route_wait_last_log = {};
+        m_bridge_route_wait_last_reason.clear();
         m_bridge_route_force_non_loopback = false;
         m_bridge_route_recovery_logged = false;
         m_bridge_route_retry_consumed = false;
+        if (m_bridge_route_auto_enabled)
+        {
+            m_bridge_remote_server_host.clear();
+            NativeBridge::instance().set_remote_server(
+                m_bridge_remote_server_host,
+                static_cast<uint16_t>(m_bridge_udp_port));
+        }
         if (had_lock)
         {
             log_line("[role] lock_released reason=" + reason);
@@ -9470,22 +9564,15 @@ namespace WindroseTextSigns
             return;
         }
 
-        m_bridge_health_unhealthy = true;
-        if (!m_bridge_health_warning_logged)
+        const auto waited_sec = std::chrono::duration_cast<std::chrono::seconds>(wait_time).count();
+        if (!m_bridge_route_retry_consumed)
         {
-            m_bridge_health_warning_logged = true;
-            const auto waited_sec = std::chrono::duration_cast<std::chrono::seconds>(wait_time).count();
-            if (!m_bridge_route_retry_consumed)
-            {
-                m_bridge_route_retry_consumed = true;
-                m_bridge_route_lock_acquired = false;
-                m_bridge_route_locked_host.clear();
-                m_bridge_route_loopback_same_machine_ok = false;
-                m_bridge_route_bootstrap_pause_logged = false;
-                m_bridge_route_next_check = now;
-                m_bridge_next_snapshot_request = now;
-                log_line("[bridge-route] retry_reselect reason=no_snapshot_ack waitedSec=" + std::to_string(waited_sec));
-            }
+            m_bridge_route_retry_consumed = true;
+            m_bridge_route_lock_acquired = false;
+            m_bridge_route_locked_host.clear();
+            m_bridge_route_last_discovered_host.clear();
+            m_bridge_route_loopback_same_machine_ok = false;
+            m_bridge_route_bootstrap_pause_logged = false;
             if (m_bridge_remote_server_host == "127.0.0.1" &&
                 !m_bridge_route_loopback_same_machine_ok)
             {
@@ -9496,11 +9583,31 @@ namespace WindroseTextSigns
                 m_bridge_route_force_non_loopback = true;
                 m_bridge_route_recovery_logged = false;
             }
+            if (m_bridge_route_auto_enabled)
+            {
+                m_bridge_remote_server_host.clear();
+                NativeBridge::instance().set_remote_server(
+                    m_bridge_remote_server_host,
+                    static_cast<uint16_t>(m_bridge_udp_port));
+            }
+            m_bridge_route_next_check = now;
+            m_bridge_next_snapshot_request = now;
+            m_bridge_sync_wait_started = {};
+            m_bridge_health_unhealthy = false;
+            m_bridge_health_warning_logged = false;
+            log_line("[bridge-route] retry_reselect reason=no_snapshot_ack waitedSec=" + std::to_string(waited_sec));
+            return;
+        }
+
+        m_bridge_health_unhealthy = true;
+        if (!m_bridge_health_warning_logged)
+        {
+            m_bridge_health_warning_logged = true;
             log_line("[bridge-health] degraded reason=no_snapshot_ack role=RemoteClient" +
                      std::string(" waitedSec=") + std::to_string(waited_sec) +
                      " pending=" + std::to_string(m_bridge_pending_request_keys.size()) +
                      " routeHost=" + m_bridge_remote_server_host +
-                     " routeLocked=" + std::string{m_bridge_route_lock_acquired ? "true" : "false"} +
+                     " routeLocked=true" +
                      " upnpEnabled=" + std::string{m_bridge_upnp_enabled ? "true" : "false"} +
                      " mitigation=check_host_udp_45801_or_set_WTS_BRIDGE_SERVER_HOST_static");
         }
@@ -10621,6 +10728,11 @@ namespace WindroseTextSigns
             set_reason("session_ready_or_role_lock_pending");
             return false;
         }
+        if (m_worldid_bind_phase != WorldIdBindPhase::StableIdLatched || !is_hex_world_id(m_worldid_latched_id))
+        {
+            set_reason("worldid_bind_not_stable");
+            return false;
+        }
 
         if (!authority_source_resolved)
         {
@@ -10663,6 +10775,178 @@ namespace WindroseTextSigns
         }
 
         set_reason("ready");
+        return true;
+    }
+
+    auto SignTextMod::is_world_id_latched_for_authoritative_localclient_bind(std::string* out_reason) -> bool
+    {
+        const auto set_reason = [&](const std::string& reason) {
+            if (out_reason)
+            {
+                *out_reason = reason;
+            }
+        };
+
+        if (is_dedicated_runtime_process())
+        {
+            set_reason("dedicated_runtime");
+            return true;
+        }
+
+        if (!m_session_ready_latched)
+        {
+            set_reason("session_ready_not_latched");
+            return false;
+        }
+
+        auto* controller = try_get_primary_player_controller();
+        auto* controller_actor = controller && controller->IsA(AActor::StaticClass()) ? Cast<AActor>(controller) : nullptr;
+        if (!controller_actor || !controller_actor->GetWorld())
+        {
+            set_reason("controller_world_unavailable");
+            return false;
+        }
+
+        std::filesystem::path profile_root{};
+        if (!m_save_profile_root.empty() && std::filesystem::exists(m_save_profile_root))
+        {
+            profile_root = std::filesystem::path{m_save_profile_root};
+        }
+        else
+        {
+            const auto profile_roots = collect_local_client_save_profile_roots();
+            if (!profile_roots.empty())
+            {
+                profile_root = profile_roots.front();
+            }
+        }
+
+        std::string connected_world_id{};
+        if (auto connected_island_id = try_latest_connected_island_id_from_local_log();
+            connected_island_id.has_value() && is_hex_world_id(*connected_island_id))
+        {
+            connected_world_id = *connected_island_id;
+        }
+        std::string profile_world_id{};
+        if (!profile_root.empty())
+        {
+            if (auto chosen = choose_world_id_for_profile(profile_root); chosen.has_value() && is_hex_world_id(*chosen))
+            {
+                profile_world_id = *chosen;
+            }
+        }
+        std::string session_world_id{};
+        if (is_hex_world_id(m_session_ready_world_id))
+        {
+            session_world_id = m_session_ready_world_id;
+        }
+
+        std::string candidate_world_id{};
+        std::string candidate_source{};
+        if (!connected_world_id.empty())
+        {
+            candidate_world_id = connected_world_id;
+            candidate_source = "connected_island_id";
+        }
+        else if (!session_world_id.empty())
+        {
+            candidate_world_id = session_world_id;
+            candidate_source = "session_ready_world_id";
+        }
+        else if (!profile_world_id.empty())
+        {
+            candidate_world_id = profile_world_id;
+            candidate_source = "profile_worlds_root";
+        }
+
+        if (candidate_world_id.empty() || !is_hex_world_id(candidate_world_id))
+        {
+            set_reason("no_hex_candidate");
+            return false;
+        }
+
+        const auto now = std::chrono::steady_clock::now();
+        const bool generation_signal_recent =
+            m_worldid_generation_in_progress &&
+            m_worldid_generation_last_signal.time_since_epoch().count() != 0 &&
+            (now - m_worldid_generation_last_signal) <= std::chrono::seconds(6);
+        const uint32_t required_seen = generation_signal_recent ? 4u : 3u;
+
+        if (m_worldid_bind_phase == WorldIdBindPhase::StableIdLatched &&
+            is_hex_world_id(m_worldid_latched_id))
+        {
+            if (lower_ascii(m_worldid_latched_id) == lower_ascii(candidate_world_id))
+            {
+                set_reason("stable_latched");
+                return true;
+            }
+            const auto now_log = std::chrono::steady_clock::now();
+            const auto block_reason = std::string{"existing_world_protection|"} + m_worldid_latched_id + "|" + candidate_world_id;
+            const bool should_log =
+                m_worldid_last_defer_reason != block_reason ||
+                m_worldid_last_defer_log.time_since_epoch().count() == 0 ||
+                (now_log - m_worldid_last_defer_log) >= std::chrono::seconds(3);
+            if (should_log)
+            {
+                log_line("[worldid] switch_blocked reason=existing_world_protection current=" +
+                         m_worldid_latched_id + " incoming=" + candidate_world_id);
+                m_worldid_last_defer_reason = block_reason;
+                m_worldid_last_defer_log = now_log;
+            }
+            set_reason("existing_world_protection");
+            return false;
+        }
+
+        if (m_worldid_bind_phase == WorldIdBindPhase::Unbound ||
+            lower_ascii(m_worldid_provisional_id) != lower_ascii(candidate_world_id))
+        {
+            m_worldid_bind_phase = WorldIdBindPhase::ProvisionalIdSeen;
+            m_worldid_provisional_id = candidate_world_id;
+            m_worldid_stability_seen_count = 1;
+            m_worldid_stability_last_observed = now;
+            log_line("[worldid] provisional_seen id=" + candidate_world_id + " source=" + candidate_source);
+            log_line("[worldid] stability_progress id=" + candidate_world_id +
+                     " seen=1 required=" + std::to_string(required_seen));
+            set_reason("provisional_seeded");
+            return false;
+        }
+
+        if (m_worldid_stability_last_observed.time_since_epoch().count() == 0 ||
+            (now - m_worldid_stability_last_observed) >= std::chrono::milliseconds(350))
+        {
+            m_worldid_stability_last_observed = now;
+            ++m_worldid_stability_seen_count;
+            log_line("[worldid] stability_progress id=" + candidate_world_id +
+                     " seen=" + std::to_string(m_worldid_stability_seen_count) +
+                     " required=" + std::to_string(required_seen));
+        }
+
+        if (m_worldid_stability_seen_count < required_seen)
+        {
+            const std::string defer_reason = generation_signal_recent ? "generation_in_progress" : "stability_window";
+            const bool should_log =
+                m_worldid_last_defer_reason != defer_reason ||
+                m_worldid_last_defer_log.time_since_epoch().count() == 0 ||
+                (now - m_worldid_last_defer_log) >= std::chrono::seconds(3);
+            if (should_log)
+            {
+                log_line("[worldid] latch_deferred reason=" + defer_reason);
+                m_worldid_last_defer_reason = defer_reason;
+                m_worldid_last_defer_log = now;
+            }
+            set_reason(defer_reason);
+            return false;
+        }
+
+        m_worldid_bind_phase = WorldIdBindPhase::StableIdLatched;
+        m_worldid_latched_id = candidate_world_id;
+        m_worldid_generation_in_progress = false;
+        m_worldid_last_defer_reason.clear();
+        m_worldid_last_defer_log = {};
+        log_line("[worldid] stable_latched id=" + candidate_world_id +
+                 " epoch=" + std::to_string(m_session_epoch) +
+                 " reason=session_ready_consensus");
+        set_reason("stable_latched");
         return true;
     }
 
@@ -10795,9 +11079,122 @@ namespace WindroseTextSigns
             std::regex::icase};
         std::istringstream lines{chunk};
         std::string line{};
+        bool definitive_start_reset_fired = false;
+        const auto gameplay_world_hint_from_line = [](const std::string& lower_line) -> std::string {
+            auto extract_token = [&](size_t start_pos) -> std::string {
+                if (start_pos == std::string::npos || start_pos >= lower_line.size())
+                {
+                    return {};
+                }
+                size_t end_pos = start_pos;
+                while (end_pos < lower_line.size())
+                {
+                    const char ch = lower_line[end_pos];
+                    if (std::isspace(static_cast<unsigned char>(ch)) ||
+                        ch == ',' || ch == ';' || ch == ')' || ch == ']' || ch == '"' || ch == '\'')
+                    {
+                        break;
+                    }
+                    ++end_pos;
+                }
+                return lower_line.substr(start_pos, end_pos - start_pos);
+            };
+
+            size_t maps_pos = lower_line.find("/game/maps/");
+            if (maps_pos != std::string::npos)
+            {
+                return extract_token(maps_pos);
+            }
+            maps_pos = lower_line.find("game/maps/");
+            if (maps_pos != std::string::npos)
+            {
+                return extract_token(maps_pos);
+            }
+            return {};
+        };
+        const auto is_non_gameplay_hint = [](const std::string& hint_lower) -> bool {
+            return hint_lower.empty() ||
+                   hint_lower.find("lobby") != std::string::npos ||
+                   hint_lower.find("transition") != std::string::npos ||
+                   hint_lower.find("entrance") != std::string::npos;
+        };
         while (std::getline(lines, line))
         {
             const auto line_lower = lower_ascii(line);
+
+            const bool advisory_generation_marker =
+                line_lower.find("createisland") != std::string::npos ||
+                line_lower.find("createworlddescription") != std::string::npos;
+            if (advisory_generation_marker)
+            {
+                m_worldid_generation_in_progress = true;
+                m_worldid_generation_last_signal = now;
+                std::smatch world_id_match{};
+                if (std::regex_search(line, world_id_match, guid_any_rx) && world_id_match.size() >= 2)
+                {
+                    auto marker_id = world_id_match[1].str();
+                    std::transform(marker_id.begin(), marker_id.end(), marker_id.begin(), [](unsigned char c) {
+                        return static_cast<char>(std::toupper(c));
+                    });
+                    if (is_hex_world_id(marker_id) && marker_id != m_worldid_generation_last_marker_id)
+                    {
+                        m_worldid_generation_last_marker_id = marker_id;
+                        log_line("[worldid] provisional_seen id=" + marker_id + " source=r5_generation_marker");
+                    }
+                }
+            }
+
+            if (!definitive_start_reset_fired)
+            {
+                std::string definitive_signal{};
+                std::string world_hint{};
+                const bool level_open_or_loadmap =
+                    line_lower.find("ur5datakeeper::openlevel") != std::string::npos ||
+                    line_lower.find("logload: loadmap:") != std::string::npos ||
+                    line_lower.find("loadmap:") != std::string::npos;
+                if (level_open_or_loadmap)
+                {
+                    world_hint = gameplay_world_hint_from_line(line_lower);
+                    if (!is_non_gameplay_hint(world_hint))
+                    {
+                        definitive_signal = "level_open_started";
+                    }
+                }
+                if (definitive_signal.empty())
+                {
+                    const bool bringing_world_up_for_play =
+                        line_lower.find("bringing world") != std::string::npos &&
+                        line_lower.find("up for play") != std::string::npos;
+                    if (bringing_world_up_for_play)
+                    {
+                        world_hint = gameplay_world_hint_from_line(line_lower);
+                        if (!is_non_gameplay_hint(world_hint))
+                        {
+                            definitive_signal = "world_play_begin";
+                        }
+                    }
+                }
+
+                if (!definitive_signal.empty())
+                {
+                    const auto signature = definitive_signal + "|" + world_hint;
+                    constexpr auto k_definitive_start_debounce = std::chrono::seconds(4);
+                    const bool within_debounce =
+                        m_definitive_session_start_last_trigger.time_since_epoch().count() != 0 &&
+                        (now - m_definitive_session_start_last_trigger) < k_definitive_start_debounce &&
+                        m_definitive_session_start_last_signature == signature;
+                    if (!within_debounce)
+                    {
+                        m_definitive_session_start_last_trigger = now;
+                        m_definitive_session_start_last_signature = signature;
+                        log_line("[session] definitive_start_detected signal=" + definitive_signal +
+                                 " worldHint=" + world_hint);
+                        reset_session_state("definitive_session_start");
+                        log_line("[session] reset_extended_clears applied=true");
+                        definitive_start_reset_fired = true;
+                    }
+                }
+            }
 
             if (line_lower.find("world client") != std::string::npos &&
                 !m_hosted_ready_world_client_seen)
@@ -11584,7 +11981,15 @@ namespace WindroseTextSigns
         m_pending_resolution_last_block_reason.clear();
 
         const auto controller_world_id = build_world_id_for_actor(controller_actor);
-        configure_sidecar_for_actor(controller_actor, controller_world_id);
+        std::string worldid_latch_reason{};
+        if (!is_world_id_latched_for_authoritative_localclient_bind(&worldid_latch_reason))
+        {
+            log_blocked("worldid_latch_pending_" + worldid_latch_reason);
+            return;
+        }
+
+        const auto latched_world_id = m_worldid_latched_id;
+        configure_sidecar_for_actor(controller_actor, latched_world_id);
         if (lower_ascii(m_runtime_role) == "localclient")
         {
             m_pending_role_watchdog_started = {};
@@ -11593,12 +11998,12 @@ namespace WindroseTextSigns
             log_line("[role] pending_resolution_success runtimeRole=" + m_runtime_role +
                      " authorityMode=" + m_authority_mode +
                      " bridgeRole=" + bridge_role_name(m_bridge_role) +
-                     " worldId=" + controller_world_id);
+                     " worldId=" + latched_world_id);
             trace_behavior_sm("role_pending_success",
                               "runtimeRole=" + m_runtime_role +
                               " authorityMode=" + m_authority_mode +
                               " bridgeRole=" + bridge_role_name(m_bridge_role) +
-                              " worldId=" + controller_world_id +
+                              " worldId=" + latched_world_id +
                               " path=existing_localclient");
             return;
         }
@@ -11617,17 +12022,11 @@ namespace WindroseTextSigns
                 profile_root = profile_roots.front();
             }
         }
-        auto world_folder_id = m_world_folder_id;
-        if (!is_hex_world_id(world_folder_id) && !profile_root.empty())
-        {
-            if (auto chosen = choose_world_id_for_profile(profile_root); chosen.has_value())
-            {
-                world_folder_id = *chosen;
-            }
-        }
+        auto world_folder_id = m_worldid_latched_id;
         if (!is_hex_world_id(world_folder_id))
         {
-            world_folder_id = sanitize_path_segment(controller_world_id.empty() ? std::string{"unknown-world"} : controller_world_id);
+            log_blocked("worldid_latch_invalid_for_fallback_route");
+            return;
         }
         const auto data_root = !profile_root.empty()
             ? profile_root / "WindroseTextSigns" / world_folder_id
@@ -11664,6 +12063,7 @@ namespace WindroseTextSigns
         const auto old_epoch = m_session_epoch;
         const bool had_ready = m_session_ready_latched;
         const bool had_locks = m_role_lock_acquired || m_bridge_route_lock_acquired;
+        const bool force_reset = reason == "definitive_session_start";
         const bool preserve_hosted_ready_markers =
             reason == "world_inactive" && lower_ascii(m_runtime_role) == "localclientpending";
         const bool had_ready_markers =
@@ -11672,7 +12072,8 @@ namespace WindroseTextSigns
             m_hosted_ready_datakeeper_seen ||
             m_hosted_ready_hide_loading_seen ||
             m_hosted_ready_sequence_complete;
-        if (!had_ready &&
+        if (!force_reset &&
+            !had_ready &&
             !had_locks &&
             !had_ready_markers &&
             m_bridge_role == BridgeRole::Unknown)
@@ -11682,6 +12083,16 @@ namespace WindroseTextSigns
         ++m_session_epoch;
         m_session_ready_latched = false;
         m_session_ready_world_id.clear();
+        m_worldid_bind_phase = WorldIdBindPhase::Unbound;
+        m_worldid_provisional_id.clear();
+        m_worldid_latched_id.clear();
+        m_worldid_stability_seen_count = 0;
+        m_worldid_stability_last_observed = {};
+        m_worldid_generation_last_signal = {};
+        m_worldid_generation_last_marker_id.clear();
+        m_worldid_generation_in_progress = false;
+        m_worldid_last_defer_reason.clear();
+        m_worldid_last_defer_log = {};
         m_pending_role_watchdog_started = {};
         m_pending_role_watchdog_logged = false;
         m_pending_resolution_last_block_reason.clear();
@@ -11715,14 +12126,27 @@ namespace WindroseTextSigns
         m_phase7_umg_prewarm_succeeded = false;
         m_phase7_umg_prewarm_next_try = {};
         m_phase7_teardown_skip_logged = false;
+        m_phase7_teardown_suppressed_last_reason.clear();
+        m_phase7_teardown_suppressed_last_log = {};
+        m_phase7_guard_fail_started = {};
+        m_phase7_guard_fail_reason.clear();
+        m_phase7_guard_hysteresis_logged = false;
         m_pending_world_inactive_ignored_logged = false;
         m_locked_world_inactive_ignored_logged = false;
         m_world_inactive_since = {};
         m_ready_baseline_live_keys.clear();
         m_ready_baseline_capture_remaining_scans = 0;
         m_first_seen_construct_hold_states.clear();
+        m_suspect_rebuild_states.clear();
+        m_recent_construct_slot_signals.clear();
         m_restore_skip_guard_log_buckets.clear();
         m_bridge_route_retry_consumed = false;
+        m_localclient_controller_probe_cached = nullptr;
+        m_localclient_controller_probe_cache_valid = false;
+        m_localclient_controller_probe_last = {};
+        m_destroy_signal_log_path.clear();
+        m_destroy_signal_log_offset = 0;
+        m_destroy_signal_log_initialized = false;
         reset_visual_verify_debug_state();
         reset_role_route_locks("session_reset_" + reason);
         reset_bridge_snapshot_state("session_reset_" + reason);
