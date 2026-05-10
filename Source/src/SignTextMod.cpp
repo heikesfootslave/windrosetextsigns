@@ -76,9 +76,26 @@ namespace
         unsigned long time;
         uintptr_t dwExtraInfo;
     };
+    struct WtsProcessentry32w
+    {
+        unsigned long dwSize;
+        unsigned long cntUsage;
+        unsigned long th32ProcessID;
+        uintptr_t th32DefaultHeapID;
+        unsigned long th32ModuleID;
+        unsigned long cntThreads;
+        unsigned long th32ParentProcessID;
+        long pcPriClassBase;
+        unsigned long dwFlags;
+        wchar_t szExeFile[260];
+    };
     extern "C" __declspec(dllimport) short __stdcall GetAsyncKeyState(int vKey);
     extern "C" __declspec(dllimport) unsigned long __stdcall GetModuleFileNameA(void* hModule, char* lpFilename, unsigned long nSize);
     extern "C" __declspec(dllimport) unsigned long __stdcall GetCurrentThreadId();
+    extern "C" __declspec(dllimport) void* __stdcall CreateToolhelp32Snapshot(unsigned long dwFlags, unsigned long th32ProcessID);
+    extern "C" __declspec(dllimport) int __stdcall Process32FirstW(void* hSnapshot, WtsProcessentry32w* lppe);
+    extern "C" __declspec(dllimport) int __stdcall Process32NextW(void* hSnapshot, WtsProcessentry32w* lppe);
+    extern "C" __declspec(dllimport) int __stdcall CloseHandle(void* hObject);
     extern "C" __declspec(dllimport) WtsHhook __stdcall SetWindowsHookExW(int idHook, WtsHookproc lpfn, void* hmod, unsigned long dwThreadId);
     extern "C" __declspec(dllimport) int __stdcall UnhookWindowsHookEx(WtsHhook hhk);
     extern "C" __declspec(dllimport) WtsLresult __stdcall CallNextHookEx(WtsHhook hhk, int nCode, WtsWparam wParam, WtsLparam lParam);
@@ -92,6 +109,7 @@ namespace
     constexpr unsigned int k_wm_syskeydown = 0x0104;
     constexpr unsigned int k_wm_syskeyup = 0x0105;
     constexpr unsigned int k_wm_quit = 0x0012;
+    constexpr unsigned long k_th32cs_snapprocess = 0x00000002;
     constexpr int k_default_hotkey_vk = 0x77;
     constexpr int k_vk_return = 0x0D;
     constexpr int k_vk_escape = 0x1B;
@@ -327,6 +345,7 @@ namespace
         std::string remote_public_candidate{};
         std::string local_host_summary{};
         bool same_machine_evidence{false};
+        bool same_machine_process_evidence{false};
         std::vector<std::string> ordered_candidates{};
         std::vector<std::pair<std::string, std::string>> fallback_direct_candidates{};
     };
@@ -502,6 +521,79 @@ namespace
         return candidates;
     }
 
+    auto wts_lower_ascii_from_wide(const wchar_t* text) -> std::string
+    {
+        if (!text)
+        {
+            return {};
+        }
+
+        std::string out{};
+        out.reserve(260);
+        for (size_t i = 0; text[i] != L'\0'; ++i)
+        {
+            const wchar_t wc = text[i];
+            if (wc >= 0 && wc <= 0x7F)
+            {
+                out.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(wc))));
+            }
+        }
+        return out;
+    }
+
+    auto has_local_dedicated_server_process_evidence() -> bool
+    {
+        static std::chrono::steady_clock::time_point last_probe{};
+        static bool cached_result{false};
+
+        const auto now = std::chrono::steady_clock::now();
+        if (last_probe.time_since_epoch().count() != 0 &&
+            (now - last_probe) < std::chrono::seconds(3))
+        {
+            return cached_result;
+        }
+
+        last_probe = now;
+        cached_result = false;
+
+        const auto snapshot = CreateToolhelp32Snapshot(k_th32cs_snapprocess, 0);
+        if (!snapshot || snapshot == reinterpret_cast<void*>(static_cast<intptr_t>(-1)))
+        {
+            return false;
+        }
+
+        WtsProcessentry32w entry{};
+        entry.dwSize = sizeof(WtsProcessentry32w);
+        if (!Process32FirstW(snapshot, &entry))
+        {
+            CloseHandle(snapshot);
+            return false;
+        }
+
+        uint32_t r5_shipping_count = 0;
+        do
+        {
+            const auto exe_name = wts_lower_ascii_from_wide(entry.szExeFile);
+            if (exe_name.find("windroseserver") != std::string::npos)
+            {
+                cached_result = true;
+                break;
+            }
+            if (exe_name == "r5-win64-shipping.exe")
+            {
+                ++r5_shipping_count;
+                if (r5_shipping_count >= 2)
+                {
+                    cached_result = true;
+                    break;
+                }
+            }
+        } while (Process32NextW(snapshot, &entry));
+
+        CloseHandle(snapshot);
+        return cached_result;
+    }
+
     auto discover_bridge_route_from_r5_log(const std::filesystem::path& preferred) -> BridgeRouteDiscovery
     {
         static const std::regex candidate_rx{
@@ -623,6 +715,8 @@ namespace
             result.remote_public_candidate = remote_publics.empty() ? std::string{} : remote_publics.front();
             result.local_host_summary = summarize_ips(local_hosts);
             result.fallback_direct_candidates = fallback_direct_candidates;
+            const bool process_same_machine_evidence = has_local_dedicated_server_process_evidence();
+            result.same_machine_process_evidence = process_same_machine_evidence;
 
             bool same_machine = false;
             for (const auto& remote_host : remote_hosts)
@@ -659,6 +753,46 @@ namespace
                     result.host = result.ordered_candidates.front();
                     result.reason = "same_machine_host_candidate";
                     return result;
+                }
+            }
+
+            if (!same_machine && process_same_machine_evidence)
+            {
+                const bool loopback_local_observed =
+                    std::find(local_hosts.begin(), local_hosts.end(), "127.0.0.1") != local_hosts.end();
+                bool loopback_direct_observed = false;
+                for (const auto& direct_candidate : fallback_direct_candidates)
+                {
+                    if (direct_candidate.first == "127.0.0.1")
+                    {
+                        loopback_direct_observed = true;
+                        break;
+                    }
+                }
+
+                if (loopback_local_observed || loopback_direct_observed)
+                {
+                    result.same_machine_evidence = true;
+                    append_unique_ip(result.ordered_candidates, "127.0.0.1");
+                    for (const auto& local_host : local_hosts)
+                    {
+                        append_unique_ip(result.ordered_candidates, local_host);
+                    }
+                    for (const auto& remote_public : remote_publics)
+                    {
+                        append_unique_ip(result.ordered_candidates, remote_public);
+                    }
+                    for (const auto& remote_host : remote_hosts)
+                    {
+                        append_unique_ip(result.ordered_candidates, remote_host);
+                    }
+                    if (!result.ordered_candidates.empty())
+                    {
+                        result.found = true;
+                        result.host = result.ordered_candidates.front();
+                        result.reason = "same_machine_process_candidate";
+                        return result;
+                    }
                 }
             }
 
@@ -763,7 +897,7 @@ namespace
                     }
                 }
 
-                if (explicit_loopback_direct_evidence)
+                if (explicit_loopback_direct_evidence && process_same_machine_evidence)
                 {
                     append_unique_ip(same_machine_hosts, "127.0.0.1");
                 }
