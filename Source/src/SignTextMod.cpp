@@ -5082,6 +5082,8 @@ namespace WindroseTextSigns
         m_phase7_guard_fail_started = {};
         m_phase7_guard_fail_reason.clear();
         m_phase7_guard_hysteresis_logged = false;
+        m_phase7_stale_epoch_last_log = {};
+        m_phase7_stale_epoch_last_detail.clear();
         if (!reason.empty())
         {
             log_line("[phase7-umg] widget_cache_invalidated reason=" + reason);
@@ -5487,6 +5489,8 @@ namespace WindroseTextSigns
         m_phase7_guard_fail_started = {};
         m_phase7_guard_fail_reason.clear();
         m_phase7_guard_hysteresis_logged = false;
+        m_phase7_stale_epoch_last_log = {};
+        m_phase7_stale_epoch_last_detail.clear();
     }
 
     auto SignTextMod::arm_phase7_definitive_teardown(const std::string& reason) -> void
@@ -5659,9 +5663,21 @@ namespace WindroseTextSigns
         }
         const uint64_t open_epoch = m_phase7_active_epoch;
         const auto now = std::chrono::steady_clock::now();
+        const auto log_stale_epoch = [&](const std::string& detail) {
+            const bool should_log =
+                m_phase7_stale_epoch_last_detail != detail ||
+                m_phase7_stale_epoch_last_log.time_since_epoch().count() == 0 ||
+                (now - m_phase7_stale_epoch_last_log) >= std::chrono::seconds(5);
+            if (should_log)
+            {
+                log_line("[phase7-umg] event_ignored reason=stale_epoch detail=" + detail);
+                m_phase7_stale_epoch_last_detail = detail;
+                m_phase7_stale_epoch_last_log = now;
+            }
+        };
         if (open_epoch == 0)
         {
-            log_line("[phase7-umg] event_ignored reason=stale_epoch detail=no_active_epoch");
+            log_stale_epoch("no_active_epoch");
             return;
         }
 
@@ -5741,7 +5757,7 @@ namespace WindroseTextSigns
         {
             if (open_epoch != m_phase7_active_epoch)
             {
-                log_line("[phase7-umg] event_ignored reason=stale_epoch detail=apply");
+                log_stale_epoch("apply");
                 return;
             }
             std::string text = live_text;
@@ -5785,7 +5801,7 @@ namespace WindroseTextSigns
         {
             if (open_epoch != m_phase7_active_epoch)
             {
-                log_line("[phase7-umg] event_ignored reason=stale_epoch detail=cancel");
+                log_stale_epoch("cancel");
                 return;
             }
             log_line("[phase7-umg] escape cancel key=" + key +
@@ -11252,6 +11268,29 @@ namespace WindroseTextSigns
                    hint_lower.find("transition") != std::string::npos ||
                    hint_lower.find("entrance") != std::string::npos;
         };
+        const auto try_begin_definitive_reset = [&](const std::string& category,
+                                                    const std::string& signal,
+                                                    const std::string& world_hint) -> bool {
+            constexpr auto k_definitive_reset_debounce = std::chrono::seconds(30);
+            const auto signature = category + "|" + signal + "|" + world_hint;
+            const bool within_debounce =
+                m_definitive_session_reset_last_trigger.time_since_epoch().count() != 0 &&
+                (now - m_definitive_session_reset_last_trigger) < k_definitive_reset_debounce &&
+                m_definitive_session_reset_last_category == category &&
+                m_definitive_session_reset_last_signature == signature;
+            if (within_debounce)
+            {
+                log_line("[session] reset_suppressed reason=debounce_30s category=" + category +
+                         " signal=" + signal +
+                         " worldHint=" + (world_hint.empty() ? "none" : world_hint));
+                return false;
+            }
+
+            m_definitive_session_reset_last_trigger = now;
+            m_definitive_session_reset_last_category = category;
+            m_definitive_session_reset_last_signature = signature;
+            return true;
+        };
         while (std::getline(lines, line))
         {
             const auto line_lower = lower_ascii(line);
@@ -11280,7 +11319,6 @@ namespace WindroseTextSigns
 
             if (!definitive_start_reset_fired)
             {
-                std::string definitive_signal{};
                 std::string world_hint{};
                 const bool level_open_or_loadmap =
                     line_lower.find("ur5datakeeper::openlevel") != std::string::npos ||
@@ -11291,41 +11329,46 @@ namespace WindroseTextSigns
                     world_hint = gameplay_world_hint_from_line(line_lower);
                     if (!is_non_gameplay_hint(world_hint))
                     {
-                        definitive_signal = "level_open_started";
+                        m_definitive_session_start_candidate_active = true;
+                        m_definitive_session_start_candidate_signal = "level_open_started";
+                        m_definitive_session_start_candidate_world_hint = world_hint;
                     }
                 }
-                if (definitive_signal.empty())
+                const bool bringing_world_up_for_play =
+                    line_lower.find("bringing world") != std::string::npos &&
+                    line_lower.find("up for play") != std::string::npos;
+                if (bringing_world_up_for_play)
                 {
-                    const bool bringing_world_up_for_play =
-                        line_lower.find("bringing world") != std::string::npos &&
-                        line_lower.find("up for play") != std::string::npos;
-                    if (bringing_world_up_for_play)
+                    world_hint = gameplay_world_hint_from_line(line_lower);
+                    if (!is_non_gameplay_hint(world_hint))
                     {
-                        world_hint = gameplay_world_hint_from_line(line_lower);
-                        if (!is_non_gameplay_hint(world_hint))
-                        {
-                            definitive_signal = "world_play_begin";
-                        }
+                        m_definitive_session_start_candidate_active = true;
+                        m_definitive_session_start_candidate_signal = "world_play_begin";
+                        m_definitive_session_start_candidate_world_hint = world_hint;
                     }
                 }
 
-                if (!definitive_signal.empty())
+                if (m_definitive_session_start_candidate_active)
                 {
-                    const auto signature = definitive_signal + "|" + world_hint;
-                    constexpr auto k_definitive_start_debounce = std::chrono::seconds(4);
-                    const bool within_debounce =
-                        m_definitive_session_start_last_trigger.time_since_epoch().count() != 0 &&
-                        (now - m_definitive_session_start_last_trigger) < k_definitive_start_debounce &&
-                        m_definitive_session_start_last_signature == signature;
-                    if (!within_debounce)
+                    std::string ready_reason{};
+                    const bool start_confirmed = is_session_ready_for_role_resolution(&ready_reason);
+                    if (start_confirmed)
                     {
-                        m_definitive_session_start_last_trigger = now;
-                        m_definitive_session_start_last_signature = signature;
-                        log_line("[session] definitive_start_detected signal=" + definitive_signal +
-                                 " worldHint=" + world_hint);
-                        reset_session_state("definitive_session_start");
-                        log_line("[session] reset_extended_clears applied=true");
-                        definitive_start_reset_fired = true;
+                        const auto detected_signal = m_definitive_session_start_candidate_signal.empty()
+                            ? std::string{"world_play_begin_confirmed"}
+                            : m_definitive_session_start_candidate_signal + "_confirmed";
+                        const auto detected_world_hint = m_definitive_session_start_candidate_world_hint;
+                        if (try_begin_definitive_reset("start", detected_signal, detected_world_hint))
+                        {
+                            log_line("[session] definitive_start_detected signal=" + detected_signal +
+                                     " worldHint=" + (detected_world_hint.empty() ? "none" : detected_world_hint));
+                            reset_session_state("definitive_session_start");
+                            log_line("[session] reset_extended_clears applied=true");
+                            definitive_start_reset_fired = true;
+                        }
+                        m_definitive_session_start_candidate_active = false;
+                        m_definitive_session_start_candidate_signal.clear();
+                        m_definitive_session_start_candidate_world_hint.clear();
                     }
                 }
             }
@@ -11385,23 +11428,22 @@ namespace WindroseTextSigns
                 line_lower.find("change state readytoplay => saidfarewell") != std::string::npos;
             if (farewell_transition)
             {
-                arm_phase7_definitive_teardown("sent_farewell");
+                if (try_begin_definitive_reset("end", "sent_farewell", "none"))
+                {
+                    log_line("[session] definitive_end_detected signal=sent_farewell");
+                    arm_phase7_definitive_teardown("sent_farewell");
+                }
             }
             const bool request_exit =
                 line_lower.find("requestexit(") != std::string::npos ||
                 line_lower.find("engine exit requested") != std::string::npos;
             if (request_exit)
             {
-                arm_phase7_definitive_teardown("engine_request_exit");
-            }
-            const bool lobby_or_transition_travel =
-                ((line_lower.find("open level") != std::string::npos ||
-                  line_lower.find("loadmap:") != std::string::npos) &&
-                 (line_lower.find("/game/maps/lobby/") != std::string::npos ||
-                  line_lower.find("r5transitionmap") != std::string::npos));
-            if (lobby_or_transition_travel)
-            {
-                arm_phase7_definitive_teardown("travel_lobby_transition");
+                if (try_begin_definitive_reset("end", "engine_request_exit", "none"))
+                {
+                    log_line("[session] definitive_end_detected signal=engine_request_exit");
+                    arm_phase7_definitive_teardown("engine_request_exit");
+                }
             }
 
             if (!parse_destroy_construct_signals)
@@ -12227,6 +12269,9 @@ namespace WindroseTextSigns
         m_worldid_generation_in_progress = false;
         m_worldid_last_defer_reason.clear();
         m_worldid_last_defer_log = {};
+        m_definitive_session_start_candidate_active = false;
+        m_definitive_session_start_candidate_signal.clear();
+        m_definitive_session_start_candidate_world_hint.clear();
         m_pending_role_watchdog_started = {};
         m_pending_role_watchdog_logged = false;
         m_pending_resolution_last_block_reason.clear();
@@ -12265,6 +12310,8 @@ namespace WindroseTextSigns
         m_phase7_guard_fail_started = {};
         m_phase7_guard_fail_reason.clear();
         m_phase7_guard_hysteresis_logged = false;
+        m_phase7_stale_epoch_last_log = {};
+        m_phase7_stale_epoch_last_detail.clear();
         m_pending_world_inactive_ignored_logged = false;
         m_locked_world_inactive_ignored_logged = false;
         m_world_inactive_since = {};

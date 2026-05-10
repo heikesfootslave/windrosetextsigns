@@ -446,6 +446,8 @@ namespace WindroseTextSigns
         std::chrono::steady_clock::time_point m_phase7_guard_fail_started{};
         std::string m_phase7_guard_fail_reason{};
         bool m_phase7_guard_hysteresis_logged{false};
+        std::chrono::steady_clock::time_point m_phase7_stale_epoch_last_log{};
+        std::string m_phase7_stale_epoch_last_detail{};
 
         std::optional<SelectionCandidate> m_selected{};
         std::array<char, 257> m_text_buffer{};
@@ -506,8 +508,12 @@ namespace WindroseTextSigns
         bool m_destroy_signal_log_initialized{false};
         std::chrono::steady_clock::time_point m_destroy_signal_last_poll{};
         uint32_t m_destroy_confirm_ttl_sec{10};
-        std::chrono::steady_clock::time_point m_definitive_session_start_last_trigger{};
-        std::string m_definitive_session_start_last_signature{};
+        std::chrono::steady_clock::time_point m_definitive_session_reset_last_trigger{};
+        std::string m_definitive_session_reset_last_signature{};
+        std::string m_definitive_session_reset_last_category{};
+        bool m_definitive_session_start_candidate_active{false};
+        std::string m_definitive_session_start_candidate_signal{};
+        std::string m_definitive_session_start_candidate_world_hint{};
         std::chrono::steady_clock::time_point m_last_player_activity{};
         std::chrono::steady_clock::time_point m_pending_role_watchdog_started{};
         bool m_pending_role_watchdog_logged{false};
