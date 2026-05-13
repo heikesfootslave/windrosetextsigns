@@ -4739,6 +4739,10 @@ namespace WindroseTextSigns
             return;
         }
         register_keydown_event(static_cast<Input::Key>(m_hotkey_vk), [this]() {
+            // The lambda just records the press; the open-or-toggle-close decision and any
+            // logging happens in tick_pending_hotkey, which runs on the safe game-tick
+            // context. Keeping side effects (other than atomic stores) out of the keydown
+            // callback mirrors the surrounding RETURN / ESCAPE handlers.
             m_hotkey_requested.store(true);
         });
         register_keydown_event(Input::Key::RETURN, [this]() {
@@ -4753,7 +4757,7 @@ namespace WindroseTextSigns
                 m_phase7_escape_requested.store(true);
             }
         });
-        log_line("[input] Registered hotkeys: " + m_hotkey_name + "=target/open_editor");
+        log_line("[input] Registered hotkeys: " + m_hotkey_name + "=target/open_editor/toggle_close");
     }
 
     auto SignTextMod::install_phase7_keyboard_capture_hook() -> void
@@ -7170,6 +7174,34 @@ namespace WindroseTextSigns
         const auto now = std::chrono::steady_clock::now();
         if (new_request)
         {
+            // Toggle-close: if the editor is already visible / active, treat the hotkey
+            // press as a close request and skip the open-retry sequence. This gives users
+            // a non-Esc way to dismiss the editor on builds where SetInputModeUIOnly is not
+            // exposed as a UFunction (Windrose UE5.6 - native_ui_probe reports
+            // inputGameAndUI=0 / inputGameOnly=0), so Esc cannot be suppressed and leaks
+            // to the game's pause menu binding. We deliberately don't check
+            // m_phase7_umg_widget here - that pointer is cached at prewarm and never reset
+            // to null on close, so it is not a useful "is the editor currently visible"
+            // indicator.
+            const bool editor_is_open = m_phase7_active_epoch != 0 ||
+                                        m_phase7_umg_in_viewport ||
+                                        m_phase7_native_editor_open ||
+                                        m_phase7_ui_input_mode_active ||
+                                        m_ui_open;
+            log_line(std::string{"[input] hotkey edge editorOpen="} +
+                     (editor_is_open ? "true" : "false") +
+                     " activeEpoch=" + std::to_string(m_phase7_active_epoch) +
+                     " umgInViewport=" + (m_phase7_umg_in_viewport ? "true" : "false") +
+                     " nativeOpen=" + (m_phase7_native_editor_open ? "true" : "false") +
+                     " uiInputActive=" + (m_phase7_ui_input_mode_active ? "true" : "false") +
+                     " uiOpen=" + (m_ui_open ? "true" : "false"));
+            if (editor_is_open)
+            {
+                m_phase7_escape_requested.store(true);
+                m_hotkey_retry_remaining = 0;
+                return;
+            }
+
             // One keypress should survive transient viewpoint/controller hiccups.
             // 25 attempts at 60ms gives a ~1.5s window. The previous 8-attempt budget
             // (~480ms) was too tight on machines with slow F8 latency: users reported
