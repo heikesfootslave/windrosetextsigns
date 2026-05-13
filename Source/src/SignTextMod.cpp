@@ -5765,23 +5765,24 @@ namespace WindroseTextSigns
             !shift_down &&
             count_line_breaks(live_text) > count_line_breaks(m_phase7_umg_last_text);
         const bool explicit_enter_intent = enter_requested || enter_edge || enter_pressed_since_poll;
-        const bool apply_pressed = explicit_enter_intent && !shift_down;
+        // On some builds (Windrose UE5.6 in particular) the EditableTextBox consumes the
+        // Enter key to insert a newline character before our UE4SS register_keydown_event hook
+        // or GetAsyncKeyState see the press. The user-visible symptom is "I have to press
+        // Enter several times before Apply triggers" (Ageous noted this on the Nexus posts
+        // thread: "the game still captures them first"). When an unshifted newline appears
+        // in the text without an explicit-enter signal, treat that as the implicit apply
+        // intent - the user pressed Enter, Shift was not held, README contract says that's
+        // apply, and apply_text_to_selected_label already strips the trailing newline.
+        const bool implicit_enter_via_newline = unshifted_newline_added && !shift_down;
+        const bool apply_pressed = (explicit_enter_intent && !shift_down) || implicit_enter_via_newline;
         const bool cancel_pressed = escape_requested || escape_edge;
-        if (enter_requested || escape_requested || enter_edge || escape_edge || enter_pressed_since_poll || escape_pressed_since_poll)
+        if (enter_requested || escape_requested || enter_edge || escape_edge || enter_pressed_since_poll || escape_pressed_since_poll || implicit_enter_via_newline)
         {
             m_phase7_last_interaction_at = now;
         }
 
         if (!apply_pressed && !cancel_pressed)
         {
-            if (unshifted_newline_added && !explicit_enter_intent && !shift_down)
-            {
-                log_line("[phase7-umg] apply_blocked reason=no_explicit_enter enterRequested=" +
-                         std::string{enter_requested ? "true" : "false"} +
-                         " enterEdge=" + std::string{enter_edge ? "true" : "false"} +
-                         " enterAsync=" + std::string{enter_pressed_since_poll ? "true" : "false"} +
-                         " newlineApply=" + std::string{unshifted_newline_added ? "true" : "false"});
-            }
             if (live_read)
             {
                 m_phase7_umg_last_text = live_text;
