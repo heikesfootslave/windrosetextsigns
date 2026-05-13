@@ -10737,7 +10737,7 @@ namespace WindroseTextSigns
         const auto normalized_text_value = strip_terminal_line_breaks(text_value);
         const auto fit = fit_text_for_plaque(normalized_text_value);
         rec.text = fit.wrapped_text;
-        rec.font_size = std::clamp(fit.font_size, 10.0f, 20.0f);
+        rec.font_size = std::clamp(fit.font_size, 12.0f, 24.0f);
         rec.asset = m_selected->asset.empty() ? detect_label_asset(actor) : m_selected->asset;
         if (has_existing_record && is_confirmed_label_text_kind(rec.kind))
         {
