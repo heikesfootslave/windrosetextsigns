@@ -10930,6 +10930,28 @@ namespace WindroseTextSigns
         {
             return;
         }
+        // Top-level destroy guard: if a destroy-construct correlation was observed for this
+        // slot within the destroy-confirm TTL, do not restore the cached text onto the rebuilt
+        // actor. Previously this check only ran inside the create-null retry branch, so a fresh
+        // actor (no retry-state) could pick up stale m_labels[key] and the user would see the
+        // previous sign's text reappear on a newly built sign within ~10 seconds (the workaround
+        // documented in README's "Wait 5-10 seconds before rebuilding").
+        // Pending create-null retry for this key is also canceled here, mirroring the existing
+        // retry-side guard so we don't keep trying to attach a stale text after the slot was
+        // destroyed.
+        if (has_recent_destroy_confirmation(stable_id, actor_world_id))
+        {
+            if (auto create_retry = m_create_null_retry_states.find(key);
+                create_retry != m_create_null_retry_states.end())
+            {
+                log_line("[apply-retry] blocked key=" + key + " reason=trusted_destroy_top_guard");
+                m_create_null_retry_states.erase(create_retry);
+            }
+            log_line("[save] restore_blocked_recent_destroy key=" + key +
+                     " stableId=" + stable_id +
+                     " worldId=" + actor_world_id);
+            return;
+        }
         const auto log_restore_skip_guard = [&](const std::string& reason, const std::chrono::milliseconds remaining) {
             const auto remaining_ms = static_cast<int64_t>(std::max<int64_t>(0, remaining.count()));
             const uint32_t remaining_bucket_sec = static_cast<uint32_t>((remaining_ms + 999) / 1000);
