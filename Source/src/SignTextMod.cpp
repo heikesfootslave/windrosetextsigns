@@ -7170,7 +7170,11 @@ namespace WindroseTextSigns
         if (new_request)
         {
             // One keypress should survive transient viewpoint/controller hiccups.
-            m_hotkey_retry_remaining = 8;
+            // 25 attempts at 60ms gives a ~1.5s window. The previous 8-attempt budget
+            // (~480ms) was too tight on machines with slow F8 latency: users reported
+            // having to press F8 multiple times because the controller/camera resolve
+            // didn't finish inside the retry window.
+            m_hotkey_retry_remaining = 25;
             m_hotkey_retry_next = now;
             if (m_f8_latency_breakdown_enabled && !m_f8_latency_trace.active)
             {
