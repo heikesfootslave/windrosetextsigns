@@ -10154,9 +10154,8 @@ namespace WindroseTextSigns
 
         // Fallback: text components created through AddComponentByClass do not keep
         // our requested name, and after a restart the in-memory cache is gone. For
-        // wooden labels there should not be a native TextRenderComponent, so recover
-        // the first one and blank any older duplicates left by previous prototype
-        // builds instead of creating more overlapping text components.
+        // row-per-component rendering we must not blank "duplicates" here because
+        // they may be legitimate row components.
         std::vector<UObject*> fallback_components_to_manage{};
         auto fallback_components = actor->GetComponentsByClass(UActorComponent::StaticClass());
         for (int32_t i = 0; i < fallback_components.Num(); ++i)
@@ -10176,20 +10175,13 @@ namespace WindroseTextSigns
         if (!fallback_components_to_manage.empty())
         {
             auto* fallback = fallback_components_to_manage.front();
-            for (size_t i = 1; i < fallback_components_to_manage.size(); ++i)
-            {
-                auto* duplicate = fallback_components_to_manage[i];
-                (void)invoke_set_hidden_in_game(duplicate, true);
-                (void)invoke_set_visibility(duplicate, false);
-                (void)invoke_set_text(duplicate, "");
-            }
             m_component_name_cache[storage_key] = narrow_ascii(fallback->GetFullName());
             if (fallback_components_to_manage.size() > 1)
             {
                 log_line("[phase4] component_recovered key=" + storage_key +
                          " count=" + std::to_string(fallback_components_to_manage.size()) +
                          " keeping=" + narrow_ascii(fallback->GetFullName()) +
-                         " action=blank_duplicate_components");
+                         " action=preserve_row_components");
             }
             return fallback;
         }
@@ -10846,6 +10838,57 @@ namespace WindroseTextSigns
             (void)invoke_set_text(stale_row_component, "");
         };
 
+        // Recovery path after restart: row components may exist with engine-generated
+        // names. Seed row-key cache from existing text components so we reuse them
+        // instead of creating fresh components and later suppressing rows.
+        {
+            bool missing_row_cache = false;
+            for (int row_index = 0; row_index < 4; ++row_index)
+            {
+                const auto row_storage_key = make_managed_row_storage_key(key, row_index);
+                if (m_component_name_cache.find(row_storage_key) == m_component_name_cache.end())
+                {
+                    missing_row_cache = true;
+                    break;
+                }
+            }
+            if (missing_row_cache)
+            {
+                std::vector<UObject*> text_components{};
+                auto components = actor->GetComponentsByClass(UActorComponent::StaticClass());
+                for (int32_t i = 0; i < components.Num(); ++i)
+                {
+                    auto* component = components[i];
+                    if (!component)
+                    {
+                        continue;
+                    }
+                    const auto component_class = lower_ascii(narrow_ascii(component->GetClassPrivate()->GetFullName()));
+                    if (component_class.find("textrendercomponent") == std::string::npos)
+                    {
+                        continue;
+                    }
+                    text_components.push_back(component);
+                }
+                if (!text_components.empty())
+                {
+                    std::sort(text_components.begin(), text_components.end(), [&](UObject* lhs, UObject* rhs) {
+                        return lower_ascii(narrow_ascii(lhs->GetFullName())) < lower_ascii(narrow_ascii(rhs->GetFullName()));
+                    });
+                    const int map_count = std::min<int>(4, static_cast<int>(text_components.size()));
+                    for (int row_index = 0; row_index < map_count; ++row_index)
+                    {
+                        const auto row_storage_key = make_managed_row_storage_key(key, row_index);
+                        m_component_name_cache[row_storage_key] = narrow_ascii(text_components[static_cast<size_t>(row_index)]->GetFullName());
+                    }
+                    m_component_name_cache.erase(key);
+                    log_line("[phase4] row_component_recovered key=" + key +
+                             " mapped=" + std::to_string(map_count) +
+                             " totalTextComponents=" + std::to_string(text_components.size()));
+                }
+            }
+        }
+
         for (int row_index = row_count; row_index < 4; ++row_index)
         {
             clear_row_component(make_managed_row_storage_key(key, row_index));
@@ -11433,16 +11476,7 @@ namespace WindroseTextSigns
             return false;
         }
 
-        UObject* controlled_pawn = nullptr;
-        const bool got_pawn_from_fn = invoke_object_return_no_param(
-            controller,
-            STR("GetPawn"),
-            STR("/Script/Engine.Controller:GetPawn"),
-            controlled_pawn);
-        if (!got_pawn_from_fn || !controlled_pawn)
-        {
-            controlled_pawn = get_object_property_if_present(controller, "Pawn");
-        }
+        UObject* controlled_pawn = get_object_property_if_present(controller, "Pawn");
         if (!controlled_pawn)
         {
             controlled_pawn = get_object_property_if_present(controller, "AcknowledgedPawn");
@@ -13030,16 +13064,7 @@ namespace WindroseTextSigns
             return false;
         }
 
-        UObject* controlled_pawn = nullptr;
-        const bool got_pawn_from_fn = invoke_object_return_no_param(
-            controller,
-            STR("GetPawn"),
-            STR("/Script/Engine.Controller:GetPawn"),
-            controlled_pawn);
-        if (!got_pawn_from_fn || !controlled_pawn)
-        {
-            controlled_pawn = get_object_property_if_present(controller, "Pawn");
-        }
+        UObject* controlled_pawn = get_object_property_if_present(controller, "Pawn");
         if (!controlled_pawn)
         {
             controlled_pawn = get_object_property_if_present(controller, "AcknowledgedPawn");
@@ -13206,16 +13231,7 @@ namespace WindroseTextSigns
             return false;
         }
 
-        UObject* controlled_pawn = nullptr;
-        const bool got_pawn_from_fn = invoke_object_return_no_param(
-            controller,
-            STR("GetPawn"),
-            STR("/Script/Engine.Controller:GetPawn"),
-            controlled_pawn);
-        if (!got_pawn_from_fn || !controlled_pawn)
-        {
-            controlled_pawn = get_object_property_if_present(controller, "Pawn");
-        }
+        UObject* controlled_pawn = get_object_property_if_present(controller, "Pawn");
         if (!controlled_pawn)
         {
             controlled_pawn = get_object_property_if_present(controller, "AcknowledgedPawn");
