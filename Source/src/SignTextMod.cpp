@@ -5769,8 +5769,8 @@ namespace WindroseTextSigns
         m_phase7_escape_was_down = escape_down;
 
         std::string live_text{};
-        const bool live_read = invoke_get_text_value(m_phase7_umg_text_box, live_text) ||
-            read_text_property_value_no_process_event(m_phase7_umg_text_box, live_text);
+        const bool live_read = read_text_property_value_no_process_event(m_phase7_umg_text_box, live_text) ||
+            invoke_get_text_value(m_phase7_umg_text_box, live_text);
         const bool unshifted_newline_added =
             live_read &&
             !shift_down &&
@@ -5837,8 +5837,8 @@ namespace WindroseTextSigns
             bool read = live_read;
             if (!read)
             {
-                read = invoke_get_text_value(m_phase7_umg_text_box, text) ||
-                    read_text_property_value_no_process_event(m_phase7_umg_text_box, text);
+                read = read_text_property_value_no_process_event(m_phase7_umg_text_box, text) ||
+                    invoke_get_text_value(m_phase7_umg_text_box, text);
             }
             if (unshifted_newline_added)
             {
@@ -6018,10 +6018,7 @@ namespace WindroseTextSigns
         {
             return false;
         }
-        auto* fn = find_function_by_chain_or_path(
-            context,
-            STR("GetText"),
-            STR("/Script/UMG.EditableText:GetText"));
+        auto* fn = context->GetFunctionByNameInChain(STR("GetText"));
         if (!fn || !is_uobject_reflection_safe(context))
         {
             return false;
