@@ -1452,13 +1452,13 @@ namespace
 
     auto fit_text_for_plaque(std::string_view input_text) -> AutoSizeResult
     {
-        constexpr float k_font_min = 10.0f;
-        constexpr float k_font_max = 20.0f;
+        constexpr float k_font_min = 12.0f;
+        constexpr float k_font_max = 24.0f;
         constexpr int k_rows_min = 1;
         constexpr int k_rows_max = 4;
         constexpr float k_chars_at_font_min = 12.0f;
         constexpr float k_chars_at_font_max = 0.0f;
-        constexpr float k_line_step_factor = 0.60f;
+        constexpr float k_line_step_factor = 0.40f;
         constexpr float k_vertical_budget = 24.0f;
 
         AutoSizeResult best{};
