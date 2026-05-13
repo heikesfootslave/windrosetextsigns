@@ -1450,16 +1450,16 @@ namespace
         return rows;
     }
 
-    auto fit_text_for_plaque(std::string_view input_text) -> AutoSizeResult
+    auto fit_text_for_plaque(std::string_view input_text, float char_width_factor) -> AutoSizeResult
     {
         constexpr float k_font_min = 12.0f;
         constexpr float k_font_max = 24.0f;
         constexpr int k_rows_min = 1;
         constexpr int k_rows_max = 4;
-        constexpr float k_chars_at_font_min = 12.0f;
-        constexpr float k_chars_at_font_max = 0.0f;
+        constexpr float k_horizontal_budget = 150.0f;
         constexpr float k_line_step_factor = 0.40f;
         constexpr float k_vertical_budget = 24.0f;
+        const float width_factor = std::clamp(char_width_factor, 0.20f, 2.00f);
 
         AutoSizeResult best{};
         best.font_size = k_font_min;
@@ -1481,11 +1481,10 @@ namespace
             return best;
         }
 
-        const float span = std::max(0.001f, (k_font_max - k_font_min));
         for (float font = k_font_max; font >= k_font_min; font -= 0.5f)
         {
-            const float t = (font - k_font_min) / span;
-            const float chars_f = k_chars_at_font_min + ((k_chars_at_font_max - k_chars_at_font_min) * t);
+            const float estimated_char_width = std::max(0.001f, font * width_factor);
+            const float chars_f = k_horizontal_budget / estimated_char_width;
             const int char_limit = std::max(1, static_cast<int>(std::floor(chars_f)));
             AutoSizeResult candidate{};
             candidate.font_size = font;
@@ -4614,6 +4613,10 @@ namespace WindroseTextSigns
             0.1f,
             1.0f);
         m_world_text_font_enabled = config_bool_value("WTS_WORLD_TEXT_FONT_ENABLED", false);
+        m_autosize_char_width_factor = std::clamp(
+            safe_stof(config_string_value("WTS_AUTOSIZE_CHAR_WIDTH_FACTOR", "0.62"), 0.62f),
+            0.20f,
+            2.00f);
         const auto hotkey_config_value = config_string_value("WTS_HOTKEY", "F8");
         m_hotkey_vk = hotkey_vk_from_config(hotkey_config_value, k_default_hotkey_vk);
         m_hotkey_name = display_name_for_vk(m_hotkey_vk);
@@ -4692,6 +4695,7 @@ namespace WindroseTextSigns
         log_line("[save] destroy_confirm_ttl_sec=" + std::to_string(m_destroy_confirm_ttl_sec));
         log_line("[save] localclient_controller_probe_interval_sec=" + std::to_string(m_localclient_controller_probe_interval_sec));
         log_line("[save] localclient_motion_reapply_enabled=" + std::string{m_localclient_motion_reapply_enabled ? "true" : "false"});
+        log_line("[autosize] char_width_factor=" + std::to_string(m_autosize_char_width_factor));
         if (m_behavior_trace_enabled)
         {
             log_line("[trace-sm] config enabled=true");
@@ -10735,7 +10739,7 @@ namespace WindroseTextSigns
         rec.stable_id = m_selected->stable_id;
         rec.world_id = world_id;
         const auto normalized_text_value = strip_terminal_line_breaks(text_value);
-        const auto fit = fit_text_for_plaque(normalized_text_value);
+        const auto fit = fit_text_for_plaque(normalized_text_value, m_autosize_char_width_factor);
         rec.text = fit.wrapped_text;
         rec.font_size = std::clamp(fit.font_size, 12.0f, 24.0f);
         rec.asset = m_selected->asset.empty() ? detect_label_asset(actor) : m_selected->asset;
@@ -10801,6 +10805,7 @@ namespace WindroseTextSigns
         log_line("[autosize] key=" + key +
                  " rows=" + std::to_string(fit.rows) +
                  " charLimit=" + std::to_string(fit.char_limit) +
+                 " widthFactor=" + std::to_string(m_autosize_char_width_factor) +
                  " fontSize=" + std::to_string(rec.font_size) +
                  " truncated=" + std::string{fit.truncated ? "true" : "false"});
         log_line("[apply] request key=" + key + " stableId=" + rec.stable_id +
@@ -14601,6 +14606,7 @@ namespace WindroseTextSigns
         if (auto found = m_labels.find(key); found != m_labels.end())
         {
             static bool live_surface_tune = true;
+            float autosize_char_width_factor_value = std::clamp(m_autosize_char_width_factor, 0.20f, 2.00f);
             float axis_value = std::clamp(found->second.surface_axis, 0.0f, 1.0f);
             int sign_value = (found->second.surface_sign < 0) ? -1 : 1;
             float depth_value = found->second.depth_offset;
@@ -14616,6 +14622,11 @@ namespace WindroseTextSigns
             ImGui::Separator();
             ImGui::Text("Surface Debug Tuning");
             ImGui::Checkbox("Live surface tuning", &live_surface_tune);
+            if (ImGui::DragFloat("Autosize Char Width Factor", &autosize_char_width_factor_value, 0.01f, 0.20f, 2.00f, "%.2f"))
+            {
+                m_autosize_char_width_factor = std::clamp(autosize_char_width_factor_value, 0.20f, 2.00f);
+                log_line("[autosize] char_width_factor_updated value=" + std::to_string(m_autosize_char_width_factor));
+            }
             bool axis_changed = ImGui::DragFloat("surfaceAxis Blend (0.00=X, 1.00=Y)", &axis_value, 0.01f, 0.0f, 1.0f, "%.2f");
             ImGui::SameLine();
             ImGui::Text("surfaceSign");

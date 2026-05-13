@@ -557,6 +557,7 @@ namespace WindroseTextSigns
         bool m_world_text_font_enabled{false};
         bool m_world_text_font_resolved{false};
         bool m_world_text_font_missing_logged{false};
+        float m_autosize_char_width_factor{0.62f};
         float m_localclient_controller_probe_interval_sec{0.2f};
         std::chrono::steady_clock::time_point m_localclient_controller_probe_last{};
         RC::Unreal::UObject* m_localclient_controller_probe_cached{};
