@@ -5229,7 +5229,13 @@ namespace WindroseTextSigns
 
         const bool root_set = set_object_property_if_present(tree, "RootWidget", root);
         const bool title_text = invoke_umg_set_text(title, "Sign Text");
-        const bool hint_text = invoke_umg_set_text(hint, "Enter  Apply\nShift+Enter  New line\nEsc  Cancel");
+        // Show the configured hotkey as the canonical close key. On builds where
+        // SetInputModeUIOnly is unavailable (Windrose UE5.6) Esc still works but also
+        // opens the game's pause menu, so steering users to the hotkey-toggle path is
+        // the better UX. The hotkey-name comes from the INI (WTS_HOTKEY=...).
+        const std::string hint_message =
+            "Enter  Apply\nShift+Enter  New line\n" + m_hotkey_name + "  Cancel";
+        const bool hint_text = invoke_umg_set_text(hint, hint_message.c_str());
         const bool input_text = invoke_umg_set_text(text_box, "");
         const bool title_color =
             invoke_set_rgba_value(title, STR("SetColorAndOpacity"), nullptr, 0.91f, 0.88f, 0.81f, 1.0f) ||
