@@ -13,6 +13,7 @@
 #include <string>
 #include <string_view>
 #include <thread>
+#include <utility>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -222,7 +223,10 @@ namespace WindroseTextSigns
         auto diagnose_or_patch_label_visual(RC::Unreal::AActor* actor, const std::string& storage_key, const std::string& reason) -> bool;
         auto resolve_world_text_font_asset() -> RC::Unreal::UObject*;
         auto apply_world_text_font(RC::Unreal::UObject* text_component) -> bool;
+        auto has_world_text_font_override_pak() -> bool;
+        auto resolve_world_text_font_size_limits() -> std::pair<float, float>;
         auto make_managed_component_name(const std::string& storage_key) const -> std::string;
+        auto make_managed_row_storage_key(const std::string& storage_key, int row_index) const -> std::string;
         auto find_managed_text_component(RC::Unreal::AActor* actor, const std::string& storage_key) -> RC::Unreal::UObject*;
         auto create_managed_text_component(RC::Unreal::AActor* actor, const std::string& storage_key, const RC::Unreal::FVector& relative_location) -> RC::Unreal::UObject*;
         auto destroy_managed_text_component(RC::Unreal::AActor* actor, const std::string& storage_key) -> bool;
@@ -557,7 +561,10 @@ namespace WindroseTextSigns
         bool m_world_text_font_enabled{false};
         bool m_world_text_font_resolved{false};
         bool m_world_text_font_missing_logged{false};
-        float m_autosize_char_width_factor{0.62f};
+        bool m_world_text_font_override_pak_detected{false};
+        bool m_world_text_font_override_pak_checked{false};
+        float m_autosize_char_width_factor{0.85f};
+        float m_row_gap_factor{0.50f};
         float m_localclient_controller_probe_interval_sec{0.2f};
         std::chrono::steady_clock::time_point m_localclient_controller_probe_last{};
         RC::Unreal::UObject* m_localclient_controller_probe_cached{};

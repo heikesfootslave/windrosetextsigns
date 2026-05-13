@@ -1450,10 +1450,14 @@ namespace
         return rows;
     }
 
-    auto fit_text_for_plaque(std::string_view input_text, float char_width_factor) -> AutoSizeResult
+    auto fit_text_for_plaque(
+        std::string_view input_text,
+        float char_width_factor,
+        float font_min,
+        float font_max) -> AutoSizeResult
     {
-        constexpr float k_font_min = 12.0f;
-        constexpr float k_font_max = 24.0f;
+        const float k_font_min = std::clamp(font_min, 1.0f, 512.0f);
+        const float k_font_max = std::max(k_font_min, std::clamp(font_max, 1.0f, 512.0f));
         constexpr int k_rows_min = 1;
         constexpr int k_rows_max = 4;
         constexpr float k_horizontal_budget = 150.0f;
@@ -2644,16 +2648,19 @@ namespace
 
     auto find_function_by_chain_or_path(UObject* context, const TCHAR* in_chain_name, const TCHAR* path_name) -> UFunction*
     {
+        if (path_name)
+        {
+            if (auto* fn = UObjectGlobals::StaticFindObject<UFunction*>(nullptr, nullptr, path_name))
+            {
+                return fn;
+            }
+        }
         if (context && in_chain_name && is_uobject_reflection_safe(context))
         {
             if (auto* fn = context->GetFunctionByNameInChain(in_chain_name))
             {
                 return fn;
             }
-        }
-        if (path_name)
-        {
-            return UObjectGlobals::StaticFindObject<UFunction*>(nullptr, nullptr, path_name);
         }
         return nullptr;
     }
@@ -2712,8 +2719,12 @@ namespace
 
     auto invoke_object_return_no_param(UObject* context, const TCHAR* in_chain_name, const TCHAR* path_name, UObject*& out_value) -> bool
     {
+        if (!context || !is_uobject_reflection_safe(context))
+        {
+            return false;
+        }
         auto* fn = find_function_by_chain_or_path(context, in_chain_name, path_name);
-        if (!context || !fn || !is_uobject_reflection_safe(context))
+        if (!fn || !is_uobject_reflection_safe(context))
         {
             return false;
         }
@@ -4614,8 +4625,12 @@ namespace WindroseTextSigns
             1.0f);
         m_world_text_font_enabled = config_bool_value("WTS_WORLD_TEXT_FONT_ENABLED", false);
         m_autosize_char_width_factor = std::clamp(
-            safe_stof(config_string_value("WTS_AUTOSIZE_CHAR_WIDTH_FACTOR", "0.62"), 0.62f),
+            safe_stof(config_string_value("WTS_AUTOSIZE_CHAR_WIDTH_FACTOR", "0.85"), 0.85f),
             0.20f,
+            2.00f);
+        m_row_gap_factor = std::clamp(
+            safe_stof(config_string_value("WTS_ROW_GAP_FACTOR", "0.50"), 0.50f),
+            0.00f,
             2.00f);
         const auto hotkey_config_value = config_string_value("WTS_HOTKEY", "F8");
         m_hotkey_vk = hotkey_vk_from_config(hotkey_config_value, k_default_hotkey_vk);
@@ -4696,6 +4711,7 @@ namespace WindroseTextSigns
         log_line("[save] localclient_controller_probe_interval_sec=" + std::to_string(m_localclient_controller_probe_interval_sec));
         log_line("[save] localclient_motion_reapply_enabled=" + std::string{m_localclient_motion_reapply_enabled ? "true" : "false"});
         log_line("[autosize] char_width_factor=" + std::to_string(m_autosize_char_width_factor));
+        log_line("[autosize] row_gap_factor=" + std::to_string(m_row_gap_factor));
         if (m_behavior_trace_enabled)
         {
             log_line("[trace-sm] config enabled=true");
@@ -9989,6 +10005,83 @@ namespace WindroseTextSigns
         return out.str();
     }
 
+    auto SignTextMod::make_managed_row_storage_key(const std::string& storage_key, int row_index) const -> std::string
+    {
+        const int clamped_row = std::clamp(row_index, 0, 3);
+        return storage_key + "|row=" + std::to_string(clamped_row);
+    }
+
+    auto SignTextMod::has_world_text_font_override_pak() -> bool
+    {
+        if (m_world_text_font_override_pak_checked)
+        {
+            return m_world_text_font_override_pak_detected;
+        }
+
+        std::vector<std::filesystem::path> roots{};
+        if (auto from_cwd = find_r5_root_from_path(std::filesystem::current_path()); from_cwd.has_value())
+        {
+            roots.push_back(*from_cwd);
+        }
+        if (auto from_mod = find_r5_root_from_path(m_mod_root); from_mod.has_value())
+        {
+            roots.push_back(*from_mod);
+        }
+        if (const auto exe_path = current_executable_path(); !exe_path.empty())
+        {
+            if (auto from_exe = find_r5_root_from_path(exe_path.parent_path()); from_exe.has_value())
+            {
+                roots.push_back(*from_exe);
+            }
+        }
+
+        m_world_text_font_override_pak_checked = true;
+        m_world_text_font_override_pak_detected = false;
+
+        const std::array<std::string, 3> required_suffixes = {
+            ".pak",
+            ".utoc",
+            ".ucas"};
+
+        for (const auto& root : roots)
+        {
+            std::error_code ec{};
+            const auto mods_dir = root / "Content" / "Paks" / "~mods";
+            if (!std::filesystem::exists(mods_dir, ec))
+            {
+                continue;
+            }
+
+            size_t hit_count = 0;
+            for (const auto& suffix : required_suffixes)
+            {
+                const auto candidate = mods_dir / ("0_WindroseTextSigns_RDFOverride_P" + suffix);
+                if (std::filesystem::exists(candidate, ec))
+                {
+                    ++hit_count;
+                }
+            }
+            if (hit_count >= 2)
+            {
+                m_world_text_font_override_pak_detected = true;
+                break;
+            }
+        }
+
+        log_line("[phase4-font] override_pak_detected=" +
+                 std::string{m_world_text_font_override_pak_detected ? "true" : "false"});
+        return m_world_text_font_override_pak_detected;
+    }
+
+    auto SignTextMod::resolve_world_text_font_size_limits() -> std::pair<float, float>
+    {
+        if (has_world_text_font_override_pak())
+        {
+            return {12.0f, 24.0f};
+        }
+        return {10.0f, 20.0f};
+    }
+
     auto SignTextMod::find_managed_text_component(AActor* actor, const std::string& storage_key) -> UObject*
     {
         if (!actor)
@@ -10030,6 +10123,12 @@ namespace WindroseTextSigns
                 m_component_name_cache[storage_key] = narrow_ascii(component->GetFullName());
                 return component;
             }
+        }
+
+        const bool is_row_component_key = storage_key.find("|row=") != std::string::npos;
+        if (is_row_component_key)
+        {
+            return nullptr;
         }
 
         // Fallback: text components created through AddComponentByClass do not keep
@@ -10354,13 +10453,31 @@ namespace WindroseTextSigns
 
     auto SignTextMod::destroy_managed_text_component(AActor* actor, const std::string& storage_key) -> bool
     {
+        std::vector<std::string> managed_keys{};
+        managed_keys.reserve(5);
+        managed_keys.push_back(storage_key);
+        for (int row = 0; row < 4; ++row)
+        {
+            managed_keys.push_back(make_managed_row_storage_key(storage_key, row));
+        }
+
+        std::unordered_set<std::string> expected_names{};
+        for (const auto& key : managed_keys)
+        {
+            expected_names.insert(lower_ascii(make_managed_component_name(key)));
+        }
+
         if (!actor)
         {
-            m_component_name_cache.erase(storage_key);
+            for (const auto& key : managed_keys)
+            {
+                m_component_name_cache.erase(key);
+            }
             return false;
         }
 
         bool any_removed = false;
+        bool matched_managed_component = false;
         auto components = actor->GetComponentsByClass(UActorComponent::StaticClass());
         for (int32_t i = 0; i < components.Num(); ++i)
         {
@@ -10375,13 +10492,65 @@ namespace WindroseTextSigns
                 continue;
             }
 
+            const auto component_name = lower_ascii(narrow_ascii(component->GetName()));
+            const auto component_full_name = lower_ascii(narrow_ascii(component->GetFullName()));
+            bool is_managed_match = expected_names.find(component_name) != expected_names.end();
+            if (!is_managed_match)
+            {
+                for (const auto& key : managed_keys)
+                {
+                    if (const auto found = m_component_name_cache.find(key);
+                        found != m_component_name_cache.end() &&
+                        lower_ascii(found->second) == component_full_name)
+                    {
+                        is_managed_match = true;
+                        break;
+                    }
+                }
+            }
+
+            if (!is_managed_match)
+            {
+                continue;
+            }
+
+            matched_managed_component = true;
+
             const bool hidden_applied = invoke_set_hidden_in_game(component, true);
             const bool visibility_applied = invoke_set_visibility(component, false);
             const bool blanked = invoke_set_text(component, "");
             any_removed = any_removed || hidden_applied || visibility_applied || blanked;
         }
 
-        m_component_name_cache.erase(storage_key);
+        // Backward compatibility: old builds may have one recovered unnamed component
+        // for the base key. If no managed rows were matched, clear any text render
+        // components on this actor once to avoid stale overlap.
+        if (!matched_managed_component)
+        {
+            for (int32_t i = 0; i < components.Num(); ++i)
+            {
+                auto* component = components[i];
+                if (!component)
+                {
+                    continue;
+                }
+                const auto component_class = lower_ascii(narrow_ascii(component->GetClassPrivate()->GetFullName()));
+                if (component_class.find("textrendercomponent") == std::string::npos)
+                {
+                    continue;
+                }
+
+                const bool hidden_applied = invoke_set_hidden_in_game(component, true);
+                const bool visibility_applied = invoke_set_visibility(component, false);
+                const bool blanked = invoke_set_text(component, "");
+                any_removed = any_removed || hidden_applied || visibility_applied || blanked;
+            }
+        }
+
+        for (const auto& key : managed_keys)
+        {
+            m_component_name_cache.erase(key);
+        }
         return any_removed;
     }
 
@@ -10579,14 +10748,37 @@ namespace WindroseTextSigns
             desired_a = std::clamp(rec.color_a, 0.0f, 1.0f);
         }
 
-        auto* text_component = find_managed_text_component(actor, key);
-        const bool reused_existing = text_component != nullptr;
-        if (!text_component)
+        auto rows = split_rows(text_value);
+        if (rows.empty())
         {
-            text_component = create_managed_text_component(actor, key, relative_location);
+            rows.push_back("");
         }
-        if (!text_component)
+        if (rows.size() > 4)
         {
+            rows.resize(4);
+        }
+        const int row_count = std::max(1, static_cast<int>(rows.size()));
+        constexpr float k_row_height_factor = 0.26666667f;
+        const float row_gap_factor = std::clamp(m_row_gap_factor, 0.00f, 2.00f);
+        const float row_height_estimate = std::max(0.01f, desired_font_size * k_row_height_factor);
+        const float row_gap = row_height_estimate * row_gap_factor;
+        const float row_step = row_height_estimate + row_gap;
+        const float top_center_offset = static_cast<float>(row_count - 1) * row_step * 0.5f;
+        const float block_total_height =
+            (static_cast<float>(row_count) * row_height_estimate) +
+            (static_cast<float>(std::max(0, row_count - 1)) * row_gap);
+
+        std::vector<float> row_offsets{};
+        row_offsets.reserve(static_cast<size_t>(row_count));
+        bool moved = false;
+        bool sized = true;
+        bool vcentered = true;
+        bool fonted = true;
+        bool colored = true;
+        bool text_applied = true;
+        bool any_reused_existing = false;
+
+        const auto schedule_create_retry = [&]() {
             m_phase4_last_failure_reason[key] = "CreateTextComponent";
             if (m_create_null_short_retry_enabled)
             {
@@ -10620,71 +10812,98 @@ namespace WindroseTextSigns
             {
                 m_phase4_next_retry[key] = std::chrono::steady_clock::now() + std::chrono::seconds(30);
             }
-            log_line("[phase4] apply_failed reason=CreateTextComponent actor=" + narrow_ascii(actor->GetFullName()) +
-                     " key=" + key + " reusedExisting=" + std::string{reused_existing ? "true" : "false"});
-            return false;
-        }
-        log_line("[phase4] component_created key=" + key +
-                 " reusedExisting=" + std::string{reused_existing ? "true" : "false"} +
-                 " component=" + narrow_ascii(text_component->GetFullName()));
+        };
 
-        (void)invoke_set_hidden_in_game(text_component, false);
-        (void)invoke_set_visibility(text_component, true);
-        bool moved = invoke_set_relative_location(text_component, relative_location);
-        bool sized = invoke_set_float_value(
-            text_component,
-            STR("SetWorldSize"),
-            STR("/Script/Engine.TextRenderComponent:SetWorldSize"),
-            desired_font_size);
-        bool vcentered = invoke_set_byte_value(
-            text_component,
-            STR("SetVerticalAlignment"),
-            STR("/Script/Engine.TextRenderComponent:SetVerticalAlignment"),
-            1);
-        bool fonted = apply_world_text_font(text_component);
-        bool colored = invoke_set_text_render_color(text_component, desired_r, desired_g, desired_b, desired_a);
-
-        bool text_applied = invoke_set_text(text_component, text_value);
-
-        // Runtime fallback: if final properties/text fail, rebuild component once.
-        if ((!sized || !vcentered || !colored || !text_applied) && text_component)
-        {
-            log_line("[phase4] update_partial_failure key=" + key +
-                     " moved=" + std::string{moved ? "true" : "false"} +
-                     " sized=" + std::string{sized ? "true" : "false"} +
-                     " vcentered=" + std::string{vcentered ? "true" : "false"} +
-                     " fonted=" + std::string{fonted ? "true" : "false"} +
-                     " colored=" + std::string{colored ? "true" : "false"} +
-                     " text=" + std::string{text_applied ? "true" : "false"} +
-                     " action=rebuild_component");
-
-            (void)destroy_managed_text_component(actor, key);
-            text_component = create_managed_text_component(actor, key, relative_location);
-            if (text_component)
+        const auto clear_row_component = [&](const std::string& row_storage_key) {
+            auto* stale_row_component = find_managed_text_component(actor, row_storage_key);
+            if (!stale_row_component)
             {
-                moved = invoke_set_relative_location(text_component, relative_location);
-                sized = invoke_set_float_value(
-                    text_component,
-                    STR("SetWorldSize"),
-                    STR("/Script/Engine.TextRenderComponent:SetWorldSize"),
-                    desired_font_size);
-                vcentered = invoke_set_byte_value(
-                    text_component,
-                    STR("SetVerticalAlignment"),
-                    STR("/Script/Engine.TextRenderComponent:SetVerticalAlignment"),
-                    1);
-                fonted = apply_world_text_font(text_component);
-                colored = invoke_set_text_render_color(text_component, desired_r, desired_g, desired_b, desired_a);
-                text_applied = invoke_set_text(text_component, text_value);
+                return;
             }
+            (void)invoke_set_hidden_in_game(stale_row_component, true);
+            (void)invoke_set_visibility(stale_row_component, false);
+            (void)invoke_set_text(stale_row_component, "");
+        };
+
+        for (int row_index = row_count; row_index < 4; ++row_index)
+        {
+            clear_row_component(make_managed_row_storage_key(key, row_index));
         }
+
+        for (int row_index = 0; row_index < row_count; ++row_index)
+        {
+            const auto row_storage_key = make_managed_row_storage_key(key, row_index);
+            const float row_offset = top_center_offset - (static_cast<float>(row_index) * row_step);
+            row_offsets.push_back(row_offset);
+
+            FVector row_relative_location(
+                relative_location.GetX(),
+                relative_location.GetY(),
+                relative_location.GetZ() + row_offset);
+
+            auto* text_component = find_managed_text_component(actor, row_storage_key);
+            bool reused_existing = text_component != nullptr;
+            if (!text_component && row_index == 0)
+            {
+                auto* base_component = find_managed_text_component(actor, key);
+                if (base_component)
+                {
+                    text_component = base_component;
+                    reused_existing = true;
+                    m_component_name_cache[row_storage_key] = narrow_ascii(base_component->GetFullName());
+                    m_component_name_cache.erase(key);
+                }
+            }
+            if (!text_component)
+            {
+                text_component = create_managed_text_component(actor, row_storage_key, row_relative_location);
+            }
+            if (!text_component)
+            {
+                schedule_create_retry();
+                log_line("[phase4] apply_failed reason=CreateTextComponent actor=" + narrow_ascii(actor->GetFullName()) +
+                         " key=" + key +
+                         " row=" + std::to_string(row_index));
+                return false;
+            }
+
+            any_reused_existing = any_reused_existing || reused_existing;
+            (void)invoke_set_hidden_in_game(text_component, false);
+            (void)invoke_set_visibility(text_component, true);
+            moved = invoke_set_relative_location(text_component, row_relative_location) || moved;
+            const bool row_sized = invoke_set_float_value(
+                text_component,
+                STR("SetWorldSize"),
+                STR("/Script/Engine.TextRenderComponent:SetWorldSize"),
+                desired_font_size);
+            const bool row_hcentered = invoke_set_byte_value(
+                text_component,
+                STR("SetHorizontalAlignment"),
+                STR("/Script/Engine.TextRenderComponent:SetHorizontalAlignment"),
+                1);
+            const bool row_vcentered = invoke_set_byte_value(
+                text_component,
+                STR("SetVerticalAlignment"),
+                STR("/Script/Engine.TextRenderComponent:SetVerticalAlignment"),
+                1);
+            const bool row_fonted = apply_world_text_font(text_component);
+            const bool row_colored = invoke_set_text_render_color(text_component, desired_r, desired_g, desired_b, desired_a);
+            const bool row_text_applied = invoke_set_text(text_component, rows[static_cast<size_t>(row_index)]);
+
+            sized = sized && row_sized;
+            vcentered = vcentered && row_hcentered && row_vcentered;
+            fonted = fonted && row_fonted;
+            colored = colored && row_colored;
+            text_applied = text_applied && row_text_applied;
+        }
+
         if (!text_applied)
         {
             m_phase4_last_failure_reason[key] = "SetTextFailed";
             m_phase4_next_retry[key] = std::chrono::steady_clock::now() + std::chrono::seconds(30);
             m_create_null_retry_states.erase(key);
             log_line("[phase4] apply_failed reason=SetTextFailed key=" + key +
-                     " component=" + narrow_ascii(text_component->GetFullName()));
+                     " rows=" + std::to_string(row_count));
             return false;
         }
 
@@ -10697,8 +10916,20 @@ namespace WindroseTextSigns
             << relative_location.GetX() << ","
             << relative_location.GetY() << ","
             << relative_location.GetZ();
+        std::ostringstream offsets{};
+        offsets << std::fixed << std::setprecision(2);
+        for (size_t i = 0; i < row_offsets.size(); ++i)
+        {
+            if (i > 0)
+            {
+                offsets << ",";
+            }
+            offsets << row_offsets[i];
+        }
+
         log_line("[phase4] apply_success key=" + key +
-                 " component=" + narrow_ascii(text_component->GetFullName()) +
+                 " rows=" + std::to_string(row_count) +
+                 " reusedAny=" + std::string{any_reused_existing ? "true" : "false"} +
                  " moved=" + std::string{moved ? "true" : "false"} +
                  " sized=" + std::string{sized ? "true" : "false"} +
                  " vcentered=" + std::string{vcentered ? "true" : "false"} +
@@ -10706,9 +10937,13 @@ namespace WindroseTextSigns
                  " colored=" + std::string{colored ? "true" : "false"} +
                  " relLoc=" + loc.str() +
                  " textChars=" + std::to_string(text_value.size()));
-        log_line("[phase4] row_center key=" + key +
-                 " rows=" + std::to_string(count_wrapped_rows(text_value)) +
+        log_line("[phase4] row_layout key=" + key +
+                 " rows=" + std::to_string(row_count) +
                  " fontSize=" + std::to_string(desired_font_size) +
+                 " rowGapFactor=" + std::to_string(row_gap_factor) +
+                 " rowGap=" + std::to_string(row_gap) +
+                 " blockHeight=" + std::to_string(block_total_height) +
+                 " rowOffsets=" + offsets.str() +
                  " alignYCenter=" + std::to_string((m_labels.find(key) != m_labels.end()) ? m_labels.at(key).align_y : 1.5f));
         return true;
     }
@@ -10739,9 +10974,14 @@ namespace WindroseTextSigns
         rec.stable_id = m_selected->stable_id;
         rec.world_id = world_id;
         const auto normalized_text_value = strip_terminal_line_breaks(text_value);
-        const auto fit = fit_text_for_plaque(normalized_text_value, m_autosize_char_width_factor);
+        const auto [font_min, font_max] = resolve_world_text_font_size_limits();
+        const auto fit = fit_text_for_plaque(
+            normalized_text_value,
+            m_autosize_char_width_factor,
+            font_min,
+            font_max);
         rec.text = fit.wrapped_text;
-        rec.font_size = std::clamp(fit.font_size, 12.0f, 24.0f);
+        rec.font_size = std::clamp(fit.font_size, font_min, font_max);
         rec.asset = m_selected->asset.empty() ? detect_label_asset(actor) : m_selected->asset;
         if (has_existing_record && is_confirmed_label_text_kind(rec.kind))
         {
@@ -12406,7 +12646,7 @@ namespace WindroseTextSigns
         }
 
         auto* controller = try_get_primary_player_controller();
-        if (!controller || !controller->IsA(AActor::StaticClass()))
+        if (!controller || !is_uobject_reflection_safe(controller) || !controller->IsA(AActor::StaticClass()))
         {
             log_blocked("no_valid_player_controller");
             return;
@@ -12924,7 +13164,7 @@ namespace WindroseTextSigns
         }
 
         auto* controller = try_get_primary_player_controller();
-        if (!controller || !controller->IsA(AActor::StaticClass()))
+        if (!controller || !is_uobject_reflection_safe(controller) || !controller->IsA(AActor::StaticClass()))
         {
             set_reason("no_valid_player_controller");
             return false;
@@ -13008,7 +13248,7 @@ namespace WindroseTextSigns
         }
 
         auto* controller = try_get_primary_player_controller();
-        if (!controller)
+        if (!controller || !is_uobject_reflection_safe(controller))
         {
             return;
         }
@@ -14607,6 +14847,7 @@ namespace WindroseTextSigns
         {
             static bool live_surface_tune = true;
             float autosize_char_width_factor_value = std::clamp(m_autosize_char_width_factor, 0.20f, 2.00f);
+            float row_gap_factor_value = std::clamp(m_row_gap_factor, 0.00f, 2.00f);
             float axis_value = std::clamp(found->second.surface_axis, 0.0f, 1.0f);
             int sign_value = (found->second.surface_sign < 0) ? -1 : 1;
             float depth_value = found->second.depth_offset;
@@ -14626,6 +14867,18 @@ namespace WindroseTextSigns
             {
                 m_autosize_char_width_factor = std::clamp(autosize_char_width_factor_value, 0.20f, 2.00f);
                 log_line("[autosize] char_width_factor_updated value=" + std::to_string(m_autosize_char_width_factor));
+            }
+            if (ImGui::DragFloat("Row Gap Factor", &row_gap_factor_value, 0.01f, 0.00f, 2.00f, "%.2f"))
+            {
+                m_row_gap_factor = std::clamp(row_gap_factor_value, 0.00f, 2.00f);
+                log_line("[autosize] row_gap_factor_updated value=" + std::to_string(m_row_gap_factor));
+                if (live_surface_tune)
+                {
+                    const bool rendered = apply_text_to_actor_component(m_selected->actor, found->second.text);
+                    log_line("[phase4] row_gap_tune_live key=" + key +
+                             " rowGapFactor=" + std::to_string(m_row_gap_factor) +
+                             " rendered=" + std::string{rendered ? "true" : "false"});
+                }
             }
             bool axis_changed = ImGui::DragFloat("surfaceAxis Blend (0.00=X, 1.00=Y)", &axis_value, 0.01f, 0.0f, 1.0f, "%.2f");
             ImGui::SameLine();
