@@ -250,6 +250,22 @@ namespace
         return value;
     }
 
+    auto fnv1a32_append(uint32_t seed, const char* data, size_t size) -> uint32_t
+    {
+        uint32_t hash = seed;
+        for (size_t i = 0; i < size; ++i)
+        {
+            hash ^= static_cast<uint8_t>(data[i]);
+            hash *= 16777619u;
+        }
+        return hash;
+    }
+
+    auto hash_string32(std::string_view value) -> uint32_t
+    {
+        return fnv1a32_append(2166136261u, value.data(), value.size());
+    }
+
     auto is_hex_world_id(const std::string& value) -> bool
     {
         if (value.size() != 32)
@@ -4238,6 +4254,821 @@ namespace WindroseTextSigns
         return fallback;
     }
 
+    auto SignTextMod::expand_env_tokens(std::string value) const -> std::string
+    {
+        if (value.empty())
+        {
+            return value;
+        }
+        const auto replace_all = [](std::string& input, std::string_view needle, const std::string& replacement) {
+            if (needle.empty())
+            {
+                return;
+            }
+            size_t pos = 0;
+            while ((pos = input.find(needle, pos)) != std::string::npos)
+            {
+                input.replace(pos, needle.size(), replacement);
+                pos += replacement.size();
+            }
+        };
+        const auto local_app_data = get_env_var("LOCALAPPDATA");
+        const auto user_profile = get_env_var("USERPROFILE");
+        replace_all(value, "%LOCALAPPDATA%", local_app_data);
+        replace_all(value, "%LocalAppData%", local_app_data);
+        replace_all(value, "$LOCALAPPDATA", local_app_data);
+        replace_all(value, "%USERPROFILE%", user_profile);
+        replace_all(value, "$USERPROFILE", user_profile);
+        return value;
+    }
+
+    auto SignTextMod::resolve_configured_log_path(std::string_view key, std::filesystem::path fallback) const -> std::filesystem::path
+    {
+        auto configured = trim_copy_ascii(config_string_value(key, ""));
+        if (!configured.empty())
+        {
+            configured = expand_env_tokens(configured);
+            std::error_code ec{};
+            auto candidate = std::filesystem::path{configured};
+            if (candidate.is_relative())
+            {
+                candidate = std::filesystem::absolute(candidate, ec);
+                if (ec)
+                {
+                    candidate = std::filesystem::path{configured};
+                }
+            }
+            return candidate;
+        }
+        return fallback;
+    }
+
+    auto SignTextMod::bootstrap_role_name(const BootstrapRole role) const -> std::string
+    {
+        switch (role)
+        {
+        case BootstrapRole::Solo: return "Solo";
+        case BootstrapRole::RemoteClient: return "RemoteClient";
+        case BootstrapRole::DedicatedServer: return "DedicatedServer";
+        case BootstrapRole::HostedClient: return "HostedClient";
+        case BootstrapRole::HostedServer: return "HostedServer";
+        default: return "Unknown";
+        }
+    }
+
+    auto SignTextMod::bootstrap_role_authoritative(const BootstrapRole role) const -> bool
+    {
+        switch (role)
+        {
+        case BootstrapRole::Solo:
+        case BootstrapRole::DedicatedServer:
+        case BootstrapRole::HostedClient:
+            return true;
+        case BootstrapRole::RemoteClient:
+        case BootstrapRole::HostedServer:
+        default:
+            return false;
+        }
+    }
+
+    auto SignTextMod::compute_log_source_identity(
+        const std::filesystem::path& path,
+        uintmax_t* out_size,
+        int64_t* out_write_ticks,
+        uint32_t* out_head_hash,
+        uint32_t* out_tail_hash) const -> bool
+    {
+        if (!out_size || !out_write_ticks || !out_head_hash || !out_tail_hash)
+        {
+            return false;
+        }
+        std::error_code ec{};
+        if (!std::filesystem::exists(path, ec) || ec)
+        {
+            return false;
+        }
+        const auto size = std::filesystem::file_size(path, ec);
+        if (ec)
+        {
+            return false;
+        }
+        const auto last_write = std::filesystem::last_write_time(path, ec);
+        if (ec)
+        {
+            return false;
+        }
+        std::ifstream in{path, std::ios::binary};
+        if (!in)
+        {
+            return false;
+        }
+        constexpr size_t k_probe_bytes = 1024;
+        std::string head{};
+        std::string tail{};
+        const size_t head_size = static_cast<size_t>(std::min<uintmax_t>(size, k_probe_bytes));
+        head.resize(head_size);
+        in.read(head.data(), static_cast<std::streamsize>(head.size()));
+        head.resize(static_cast<size_t>(std::max<std::streamsize>(0, in.gcount())));
+        if (size > k_probe_bytes)
+        {
+            in.clear();
+            in.seekg(static_cast<std::streamoff>(size - k_probe_bytes), std::ios::beg);
+            tail.resize(k_probe_bytes);
+            in.read(tail.data(), static_cast<std::streamsize>(tail.size()));
+            tail.resize(static_cast<size_t>(std::max<std::streamsize>(0, in.gcount())));
+        }
+        else
+        {
+            tail = head;
+        }
+        *out_size = size;
+        *out_write_ticks = static_cast<int64_t>(last_write.time_since_epoch().count());
+        *out_head_hash = hash_string32(head);
+        *out_tail_hash = hash_string32(tail);
+        return true;
+    }
+
+    auto SignTextMod::save_bootstrap_cursor_state() -> void
+    {
+        if (m_bootstrap_cursor_state_path.empty())
+        {
+            return;
+        }
+        const auto now = std::chrono::steady_clock::now();
+        if (m_bootstrap_cursor_state_last_write.time_since_epoch().count() != 0 &&
+            (now - m_bootstrap_cursor_state_last_write) < std::chrono::seconds(1))
+        {
+            return;
+        }
+        std::error_code ec{};
+        std::filesystem::create_directories(m_bootstrap_cursor_state_path.parent_path(), ec);
+        std::ostringstream out{};
+        out << "version=1\n";
+        const auto write_source = [&](const BootstrapLogSourceState& s) {
+            const auto prefix = s.source_name.empty() ? "unknown" : s.source_name;
+            out << prefix << ".path=" << s.log_path.string() << "\n";
+            out << prefix << ".offset=" << s.last_processed_offset << "\n";
+            out << prefix << ".size=" << s.last_size << "\n";
+            out << prefix << ".mtime=" << s.last_write_time_ticks << "\n";
+            out << prefix << ".head=" << s.head_hash << "\n";
+            out << prefix << ".tail=" << s.tail_hash << "\n";
+            out << prefix << ".sessionStartOffset=" << s.session_start_offset << "\n";
+            out << prefix << ".sessionEndOffset=" << s.session_end_offset << "\n";
+        };
+        write_source(m_bootstrap_client_source);
+        write_source(m_bootstrap_dedicated_source);
+        write_source(m_bootstrap_hosted_server_source);
+        std::ofstream file{m_bootstrap_cursor_state_path, std::ios::out | std::ios::trunc | std::ios::binary};
+        if (!file)
+        {
+            return;
+        }
+        file << out.str();
+        file.flush();
+        m_bootstrap_cursor_state_last_write = now;
+    }
+
+    auto SignTextMod::load_bootstrap_cursor_state() -> void
+    {
+        if (m_bootstrap_cursor_state_path.empty())
+        {
+            return;
+        }
+        std::string content{};
+        if (!read_text_file(m_bootstrap_cursor_state_path, content))
+        {
+            return;
+        }
+        std::unordered_map<std::string, std::string> map{};
+        std::istringstream rows{content};
+        std::string row{};
+        while (std::getline(rows, row))
+        {
+            auto line = trim_copy_ascii(row);
+            if (line.empty() || line.front() == '#' || line.front() == ';')
+            {
+                continue;
+            }
+            const auto eq = line.find('=');
+            if (eq == std::string::npos || eq == 0)
+            {
+                continue;
+            }
+            map.emplace(trim_copy_ascii(line.substr(0, eq)), trim_copy_ascii(line.substr(eq + 1)));
+        }
+        const auto apply_source = [&](BootstrapLogSourceState& s) {
+            if (s.source_name.empty())
+            {
+                return;
+            }
+            const auto prefix = s.source_name + ".";
+            const auto lookup = [&](const std::string& key) -> std::string {
+                const auto it = map.find(prefix + key);
+                return it == map.end() ? std::string{} : it->second;
+            };
+            const auto path_value = lookup("path");
+            if (!path_value.empty())
+            {
+                s.log_path = std::filesystem::path{path_value};
+                s.path_resolved = true;
+            }
+            s.last_processed_offset = static_cast<uintmax_t>(std::max(0, safe_stoi(lookup("offset"), static_cast<int>(s.last_processed_offset))));
+            s.last_size = static_cast<uintmax_t>(std::max(0, safe_stoi(lookup("size"), static_cast<int>(s.last_size))));
+            s.last_write_time_ticks = static_cast<int64_t>(safe_stoi(lookup("mtime"), static_cast<int>(s.last_write_time_ticks)));
+            s.head_hash = static_cast<uint32_t>(std::max(0, safe_stoi(lookup("head"), static_cast<int>(s.head_hash))));
+            s.tail_hash = static_cast<uint32_t>(std::max(0, safe_stoi(lookup("tail"), static_cast<int>(s.tail_hash))));
+            s.session_start_offset = static_cast<uintmax_t>(std::max(0, safe_stoi(lookup("sessionStartOffset"), static_cast<int>(s.session_start_offset))));
+            s.session_end_offset = static_cast<uintmax_t>(std::max(0, safe_stoi(lookup("sessionEndOffset"), static_cast<int>(s.session_end_offset))));
+            s.initialized = s.last_processed_offset > 0;
+        };
+        apply_source(m_bootstrap_client_source);
+        apply_source(m_bootstrap_dedicated_source);
+        apply_source(m_bootstrap_hosted_server_source);
+    }
+
+    auto SignTextMod::init_bootstrap_log_sources() -> void
+    {
+        if (m_bootstrap_sources_initialized)
+        {
+            return;
+        }
+        const auto local_app_data = get_env_var("LOCALAPPDATA");
+        const auto default_client =
+            local_app_data.empty()
+                ? std::filesystem::path{"C:\\Users\\User\\AppData\\Local\\R5\\Saved\\Logs\\R5.log"}
+                : (std::filesystem::path{local_app_data} / "R5" / "Saved" / "Logs" / "R5.log");
+        const auto default_dedicated =
+            std::filesystem::path{"C:\\Games\\WindowsServer\\R5\\Saved\\Logs\\R5.log"};
+        const auto default_hosted_server =
+            std::filesystem::path{"C:\\SteamLibrary\\steamapps\\common\\Windrose\\R5\\Builds\\WindowsServer\\R5\\Saved\\Logs\\R5.log"};
+
+        m_bootstrap_client_source = {};
+        m_bootstrap_client_source.kind = BootstrapLogSourceKind::Client;
+        m_bootstrap_client_source.source_name = "client";
+        m_bootstrap_client_source.log_path =
+            resolve_configured_log_path("WTS_R5_LOG_CLIENT_PATH", resolve_configured_log_path("WTS_R5_LOG_CLIENT", default_client));
+        m_bootstrap_client_source.path_resolved = true;
+
+        m_bootstrap_dedicated_source = {};
+        m_bootstrap_dedicated_source.kind = BootstrapLogSourceKind::DedicatedServer;
+        m_bootstrap_dedicated_source.source_name = "dedicated_server";
+        m_bootstrap_dedicated_source.log_path =
+            resolve_configured_log_path("WTS_R5_LOG_DEDICATED_PATH", resolve_configured_log_path("WTS_R5_LOG_DEDICATED", default_dedicated));
+        m_bootstrap_dedicated_source.path_resolved = true;
+
+        m_bootstrap_hosted_server_source = {};
+        m_bootstrap_hosted_server_source.kind = BootstrapLogSourceKind::HostedServer;
+        m_bootstrap_hosted_server_source.source_name = "hosted_server";
+        m_bootstrap_hosted_server_source.log_path =
+            resolve_configured_log_path("WTS_R5_LOG_HOSTED_SERVER_PATH", resolve_configured_log_path("WTS_R5_LOG_HOSTED_SERVER", default_hosted_server));
+        m_bootstrap_hosted_server_source.path_resolved = true;
+
+        m_bootstrap_cursor_state_path = m_mod_root / "Cache" / "Bootstrap" / "BootstrapCursorState.ini";
+        load_bootstrap_cursor_state();
+        m_bootstrap_sources_initialized = true;
+        log_line("[bootstrap] log_sources_initialized client=\"" + m_bootstrap_client_source.log_path.string() +
+                 "\" dedicated=\"" + m_bootstrap_dedicated_source.log_path.string() +
+                 "\" hostedServer=\"" + m_bootstrap_hosted_server_source.log_path.string() + "\"");
+    }
+
+    auto SignTextMod::reset_bootstrap_source_for_new_epoch(BootstrapLogSourceState& source, const std::string& reason) -> void
+    {
+        source.source_epoch += 1;
+        source.role_locked = false;
+        source.locked_role = BootstrapRole::Unknown;
+        source.role_signal.clear();
+        source.role_signal_offset = 0;
+        source.session_ready_locked = false;
+        source.session_ready_signal.clear();
+        source.session_ready_offset = 0;
+        source.session_start_offset = 0;
+        source.session_end_offset = 0;
+        source.saw_server_exe = false;
+        source.saw_hosted_ini = false;
+        source.saw_host_ready = false;
+        source.saw_server_exe_offset = 0;
+        source.saw_hosted_ini_offset = 0;
+        source.saw_host_ready_offset = 0;
+        log_line("[bootstrap] source_epoch_reset source=" + source.source_name +
+                 " epoch=" + std::to_string(source.source_epoch) +
+                 " reason=" + reason);
+    }
+
+    auto SignTextMod::try_apply_role_from_bootstrap_source(BootstrapLogSourceState& source, const std::string& reason) -> void
+    {
+        if (!source.role_locked)
+        {
+            return;
+        }
+        const bool server_process = is_dedicated_server_process(std::filesystem::current_path(), m_mod_root);
+        if (server_process)
+        {
+            if (source.kind == BootstrapLogSourceKind::Client)
+            {
+                return;
+            }
+        }
+        else
+        {
+            if (source.kind != BootstrapLogSourceKind::Client)
+            {
+                return;
+            }
+        }
+        if (m_role_lock_acquired)
+        {
+            return;
+        }
+
+        std::filesystem::path profile_root{};
+        if (!m_save_profile_root.empty() && std::filesystem::exists(m_save_profile_root))
+        {
+            profile_root = std::filesystem::path{m_save_profile_root};
+        }
+        else
+        {
+            const auto profile_roots = collect_local_client_save_profile_roots();
+            if (!profile_roots.empty())
+            {
+                profile_root = profile_roots.front();
+            }
+        }
+
+        std::string world_id = m_world_folder_id.empty() ? std::string{"unknown-world"} : sanitize_path_segment(m_world_folder_id);
+        if (world_id.empty())
+        {
+            world_id = "unknown-world";
+        }
+
+        std::filesystem::path data_root = m_mod_root / "Cache" / "Bootstrap" / world_id;
+        std::string runtime_role = "Unknown";
+        std::string data_mode = "Unknown";
+        std::string authority_mode = "Unknown";
+        std::string sidecar_kind = "unknown";
+        bool authoritative = bootstrap_role_authoritative(source.locked_role);
+
+        switch (source.locked_role)
+        {
+        case BootstrapRole::Solo:
+        case BootstrapRole::HostedClient:
+            runtime_role = "LocalClient";
+            data_mode = profile_root.empty() ? "LocalProfileAuthoritativeFallbackModRoot" : "LocalProfileAuthoritative";
+            authority_mode = "LocalClientSoloOrHostedAuthoritative";
+            sidecar_kind = profile_root.empty() ? "authoritative-fallback" : "authoritative";
+            if (!profile_root.empty())
+            {
+                data_root = profile_root / "WindroseTextSigns" / world_id;
+            }
+            else
+            {
+                data_root = m_mod_root / "Cache" / "LocalAuthoritative" / world_id;
+            }
+            break;
+        case BootstrapRole::RemoteClient:
+            runtime_role = "RemoteClient";
+            data_mode = "RemoteClientCache";
+            authority_mode = "ServerAuthoritativePendingBridge";
+            sidecar_kind = "cache";
+            data_root = profile_root.empty()
+                ? (m_mod_root / "Cache" / "RemoteCache" / world_id)
+                : (profile_root / "WindroseTextSigns" / "RemoteCache" / world_id);
+            break;
+        case BootstrapRole::DedicatedServer:
+            runtime_role = "DedicatedServer";
+            data_mode = "DedicatedServerProfileAuthoritative";
+            authority_mode = "DedicatedServerAuthoritative";
+            sidecar_kind = "authoritative";
+            data_root = m_data_root.empty() ? (m_mod_root / "Cache" / "DedicatedServer" / world_id) : m_data_root;
+            break;
+        case BootstrapRole::HostedServer:
+            runtime_role = "HostedServer";
+            data_mode = "HostedServerNoAuthority";
+            authority_mode = "HostedServerNonAuthoritative";
+            sidecar_kind = "cache";
+            authoritative = false;
+            data_root = m_mod_root / "Cache" / "HostedServer" / world_id;
+            break;
+        default:
+            return;
+        }
+
+        set_sidecar_route(
+            data_root,
+            runtime_role,
+            data_mode,
+            authority_mode,
+            sidecar_kind,
+            authoritative,
+            profile_root,
+            world_id,
+            "bootstrap_role_lock_" + source.source_name + "_" + reason);
+
+        log_line("[bootstrap] role_applied epoch=" + std::to_string(m_session_epoch) +
+                 " role=" + bootstrap_role_name(source.locked_role) +
+                 " roleLocked=" + std::string{source.role_locked ? "true" : "false"} +
+                 " authority=" + std::string{authoritative ? "true" : "false"} +
+                 " signal=" + source.role_signal +
+                 " logPath=\"" + source.log_path.string() + "\"" +
+                 " offset=" + std::to_string(static_cast<unsigned long long>(source.role_signal_offset)) +
+                 " source=live reason=" + reason);
+    }
+
+    auto SignTextMod::ensure_session_ready_latched_from_bootstrap(
+        BootstrapLogSourceState& source,
+        const std::string& signal,
+        const uintmax_t signal_offset) -> void
+    {
+        if (source.session_ready_locked)
+        {
+            return;
+        }
+        source.session_ready_locked = true;
+        source.session_ready_signal = signal;
+        source.session_ready_offset = signal_offset;
+        if (!m_session_ready_latched)
+        {
+            m_session_ready_latched = true;
+            m_ready_baseline_live_keys.clear();
+            m_ready_baseline_capture_remaining_scans = 2;
+            if (m_session_ready_world_id.empty())
+            {
+                m_session_ready_world_id = m_world_folder_id.empty() ? std::string{"unknown-world"} : m_world_folder_id;
+            }
+            log_line("[session] ready_latched epoch=" + std::to_string(m_session_epoch) +
+                     " world=" + (m_session_ready_world_id.empty() ? "unknown" : m_session_ready_world_id) +
+                     " reason=bootstrap_signal:" + signal);
+        }
+        log_line("[bootstrap] session_ready_locked epoch=" + std::to_string(m_session_epoch) +
+                 " role=" + bootstrap_role_name(source.locked_role) +
+                 " roleLocked=" + std::string{source.role_locked ? "true" : "false"} +
+                 " sessionReadyLocked=true authority=" +
+                 std::string{bootstrap_role_authoritative(source.locked_role) ? "true" : "false"} +
+                 " signal=" + signal +
+                 " logPath=\"" + source.log_path.string() + "\"" +
+                 " offset=" + std::to_string(static_cast<unsigned long long>(signal_offset)) +
+                 " source=live reason=role_signal_match");
+    }
+
+    auto SignTextMod::handle_bootstrap_line(
+        BootstrapLogSourceState& source,
+        const std::string& line,
+        const std::string& line_lower,
+        const uintmax_t line_start_offset) -> void
+    {
+        const auto lock_role = [&](const BootstrapRole role, const std::string& signal) {
+            if (!source.role_locked)
+            {
+                source.role_locked = true;
+                source.locked_role = role;
+                source.role_signal = signal;
+                source.role_signal_offset = line_start_offset;
+                source.session_start_offset = line_start_offset;
+                log_line("[bootstrap] role_locked epoch=" + std::to_string(m_session_epoch) +
+                         " role=" + bootstrap_role_name(role) +
+                         " roleLocked=true sessionReadyLocked=" + std::string{source.session_ready_locked ? "true" : "false"} +
+                         " authority=" + std::string{bootstrap_role_authoritative(role) ? "true" : "false"} +
+                         " signal=" + signal +
+                         " logPath=\"" + source.log_path.string() + "\"" +
+                         " offset=" + std::to_string(static_cast<unsigned long long>(line_start_offset)) +
+                         " source=live reason=signal_detected");
+                try_apply_role_from_bootstrap_source(source, "lock_role");
+                return;
+            }
+            if (source.locked_role != role &&
+                line_start_offset > source.session_start_offset)
+            {
+                log_line("[bootstrap] session_rollover_detected source=" + source.source_name +
+                         " oldRole=" + bootstrap_role_name(source.locked_role) +
+                         " newRole=" + bootstrap_role_name(role) +
+                         " oldStartOffset=" + std::to_string(static_cast<unsigned long long>(source.session_start_offset)) +
+                         " newStartOffset=" + std::to_string(static_cast<unsigned long long>(line_start_offset)));
+                reset_session_state("bootstrap_new_session_start");
+                reset_bootstrap_source_for_new_epoch(source, "new_session_start_signal");
+                source.role_locked = true;
+                source.locked_role = role;
+                source.role_signal = signal;
+                source.role_signal_offset = line_start_offset;
+                source.session_start_offset = line_start_offset;
+                try_apply_role_from_bootstrap_source(source, "new_session_start_signal");
+            }
+        };
+
+        if (source.kind == BootstrapLogSourceKind::Client)
+        {
+            if (line_lower.find("start transition to lobby") != std::string::npos)
+            {
+                source.session_end_offset = line_start_offset;
+                log_line("[bootstrap] session_exit_detected epoch=" + std::to_string(m_session_epoch) +
+                         " role=" + bootstrap_role_name(source.locked_role) +
+                         " signal=start_transition_to_lobby" +
+                         " logPath=\"" + source.log_path.string() + "\"" +
+                         " offset=" + std::to_string(static_cast<unsigned long long>(line_start_offset)) +
+                         " source=live reason=client_exit_signal");
+                arm_phase7_definitive_teardown("bootstrap_start_transition_to_lobby");
+                reset_session_state("bootstrap_session_exit");
+                reset_bootstrap_source_for_new_epoch(source, "session_exit_signal");
+                return;
+            }
+
+            if (line_lower.find("startcoopofflinegameonselectedworld") != std::string::npos)
+            {
+                lock_role(BootstrapRole::Solo, "StartCoopOfflineGameOnSelectedWorld");
+            }
+            else if (line_lower.find("client. change state readytoplay => verifyingcoopconnection") != std::string::npos)
+            {
+                lock_role(BootstrapRole::RemoteClient, "Client.ReadyToPlay=>VerifyingCoopConnection");
+            }
+            else if (line_lower.find("client. change state readytoplay => startcoophostserver") != std::string::npos)
+            {
+                lock_role(BootstrapRole::HostedClient, "Client.ReadyToPlay=>StartCoopHostServer");
+            }
+
+            if (!source.role_locked)
+            {
+                return;
+            }
+            if (source.locked_role == BootstrapRole::Solo &&
+                line_lower.find("hide loading screen. currentreason loadingscreen.reason.datakeeper.readytoplay") != std::string::npos)
+            {
+                ensure_session_ready_latched_from_bootstrap(
+                    source,
+                    "HideLoadingScreen.DataKeeper.ReadyToPlay",
+                    line_start_offset);
+            }
+            else if ((source.locked_role == BootstrapRole::RemoteClient || source.locked_role == BootstrapRole::HostedClient) &&
+                     line_lower.find("hide loading screen. currentreason loadingscreen.reason.coopproxy.waitingforueconnection") != std::string::npos)
+            {
+                ensure_session_ready_latched_from_bootstrap(
+                    source,
+                    "HideLoadingScreen.CoopProxy.WaitingForUeConnection",
+                    line_start_offset);
+            }
+            return;
+        }
+
+        if (line_lower.find("executablename: windroseserver-win64-shipping.exe") != std::string::npos)
+        {
+            source.saw_server_exe = true;
+            source.saw_server_exe_offset = line_start_offset;
+        }
+        if (line_lower.find("-ini:game:[/script/r5datakeepers.r5datakeeper_settings]") != std::string::npos)
+        {
+            source.saw_hosted_ini = true;
+            source.saw_hosted_ini_offset = line_start_offset;
+        }
+        if (line_lower.find("host server is ready for owner to connect") != std::string::npos)
+        {
+            source.saw_host_ready = true;
+            source.saw_host_ready_offset = line_start_offset;
+            if (source.saw_server_exe && source.saw_server_exe_offset <= line_start_offset)
+            {
+                const bool hosted_chain =
+                    source.saw_hosted_ini &&
+                    source.saw_hosted_ini_offset > source.saw_server_exe_offset &&
+                    source.saw_hosted_ini_offset < line_start_offset;
+                lock_role(
+                    hosted_chain ? BootstrapRole::HostedServer : BootstrapRole::DedicatedServer,
+                    hosted_chain
+                        ? "ExecutableName=>HostedIni=>HostReady"
+                        : "ExecutableName=>HostReady(no_hosted_ini)");
+            }
+        }
+        if (source.role_locked &&
+            line_lower.find("serveraccount. change state waitingforclientisready => readytoplay") != std::string::npos)
+        {
+            ensure_session_ready_latched_from_bootstrap(
+                source,
+                "ServerAccount.WaitingForClientIsReady=>ReadyToPlay",
+                line_start_offset);
+        }
+
+        const bool server_process = is_dedicated_server_process(std::filesystem::current_path(), m_mod_root);
+        const bool allow_destroy_signal_parse =
+            (!server_process && source.kind == BootstrapLogSourceKind::Client) ||
+            (server_process && source.kind != BootstrapLogSourceKind::Client);
+        if (!allow_destroy_signal_parse)
+        {
+            return;
+        }
+
+        static const std::regex slot_token_rx{R"((BuildingBlock)\|([A-Fa-f0-9]{16,32})\|([0-9]+))", std::regex::icase};
+        static const std::regex guid_key_value_rx{R"((?:BuildingGuid|Guid|ActorGuid)\s*[:=]\s*([A-Fa-f0-9]{16,32}))", std::regex::icase};
+        static const std::regex guid_any_rx{R"(\b([A-Fa-f0-9]{32})\b)"};
+        static const std::regex index_key_value_rx{R"((?:Block(?:Index)?|Index|Slot)\s*[:=]\s*([0-9]+))", std::regex::icase};
+        static const std::regex construct_block_rx{
+            R"(Construct\s+BuildingBlock\s+([0-9]+)\s+from\s+building\s+([A-Fa-f0-9]{16,32}))",
+            std::regex::icase};
+
+        const auto now = std::chrono::steady_clock::now();
+        const auto ttl = std::chrono::seconds(std::clamp(m_destroy_confirm_ttl_sec, 2u, 30u));
+        const bool destroy_rule = line_lower.find("destroyrule::do_impl") != std::string::npos;
+        const bool construct_rule = line_lower.find("constructrule::do_impl") != std::string::npos;
+        if (!destroy_rule && !construct_rule)
+        {
+            return;
+        }
+
+        std::string guid{};
+        std::string index{};
+        std::smatch match{};
+        if (construct_rule && std::regex_search(line, match, construct_block_rx) && match.size() >= 3)
+        {
+            index = match[1].str();
+            guid = match[2].str();
+        }
+        else if (std::regex_search(line, match, slot_token_rx) && match.size() >= 4)
+        {
+            guid = match[2].str();
+            index = match[3].str();
+        }
+        else
+        {
+            if (std::regex_search(line, match, guid_key_value_rx) && match.size() >= 2)
+            {
+                guid = match[1].str();
+            }
+            else if (std::regex_search(line, match, guid_any_rx) && match.size() >= 2)
+            {
+                guid = match[1].str();
+            }
+            if (std::regex_search(line, match, index_key_value_rx) && match.size() >= 2)
+            {
+                index = match[1].str();
+            }
+        }
+
+        if (guid.empty())
+        {
+            return;
+        }
+        std::transform(guid.begin(), guid.end(), guid.begin(), [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
+        if (destroy_rule)
+        {
+            m_recent_destroy_guid_signals[guid] = now;
+            log_line("[save] destroy_signal_seen guid=" + guid + " source=" + source.source_name);
+            for (const auto& [slot_key, signal] : m_recent_construct_slot_signals)
+            {
+                if ((now - signal.seen_at) > ttl)
+                {
+                    continue;
+                }
+                const auto guid_delim = slot_key.find('|');
+                if (guid_delim == std::string::npos || guid_delim == 0)
+                {
+                    continue;
+                }
+                const auto slot_guid = slot_key.substr(0, guid_delim);
+                if (lower_ascii(slot_guid) != lower_ascii(guid))
+                {
+                    continue;
+                }
+                const auto index_value = slot_key.substr(guid_delim + 1);
+                m_recent_destroy_slot_confirmations[slot_key] = now;
+                log_line("[save] destroy_construct_correlated guid=" + guid + " index=" + index_value + " source=" + source.source_name);
+            }
+        }
+        if (construct_rule && !index.empty())
+        {
+            const auto slot_key = make_building_slot_key(guid, index);
+            m_recent_construct_slot_signals[slot_key] = RecentConstructSignal{
+                now,
+                active_storage_world_id(m_role_lock_world_id.empty() ? m_session_ready_world_id : m_role_lock_world_id),
+                m_session_epoch};
+            log_line("[save] construct_signal_seen guid=" + guid + " index=" + index + " source=" + source.source_name);
+            const auto guid_it = m_recent_destroy_guid_signals.find(guid);
+            if (guid_it != m_recent_destroy_guid_signals.end() && (now - guid_it->second) <= ttl)
+            {
+                m_recent_destroy_slot_confirmations[slot_key] = now;
+                log_line("[save] destroy_construct_correlated guid=" + guid + " index=" + index + " source=" + source.source_name);
+            }
+        }
+    }
+
+    auto SignTextMod::process_bootstrap_source(BootstrapLogSourceState& source) -> void
+    {
+        if (!source.path_resolved || source.log_path.empty())
+        {
+            return;
+        }
+        uintmax_t size = 0;
+        int64_t write_ticks = 0;
+        uint32_t head_hash = 0;
+        uint32_t tail_hash = 0;
+        if (!compute_log_source_identity(source.log_path, &size, &write_ticks, &head_hash, &tail_hash))
+        {
+            return;
+        }
+
+        const bool identity_changed =
+            source.initialized &&
+            (size < source.last_processed_offset ||
+             write_ticks != source.last_write_time_ticks ||
+             head_hash != source.head_hash ||
+             tail_hash != source.tail_hash);
+
+        constexpr uintmax_t k_backfill_bytes = 2ull * 1024ull * 1024ull;
+        if (!source.initialized || identity_changed)
+        {
+            if (identity_changed)
+            {
+                log_line("[bootstrap] log_identity_changed source=" + source.source_name +
+                         " path=\"" + source.log_path.string() + "\"" +
+                         " oldSize=" + std::to_string(static_cast<unsigned long long>(source.last_size)) +
+                         " newSize=" + std::to_string(static_cast<unsigned long long>(size)) +
+                         " oldMtimeTicks=" + std::to_string(source.last_write_time_ticks) +
+                         " newMtimeTicks=" + std::to_string(write_ticks));
+                reset_bootstrap_source_for_new_epoch(source, "file_identity_changed");
+            }
+            source.last_processed_offset = (size > k_backfill_bytes) ? (size - k_backfill_bytes) : 0;
+            source.initialized = true;
+            log_line("[bootstrap] backfill_start source=" + source.source_name +
+                     " path=\"" + source.log_path.string() + "\"" +
+                     " startOffset=" + std::to_string(static_cast<unsigned long long>(source.last_processed_offset)) +
+                     " size=" + std::to_string(static_cast<unsigned long long>(size)));
+        }
+
+        source.last_size = size;
+        source.last_write_time_ticks = write_ticks;
+        source.head_hash = head_hash;
+        source.tail_hash = tail_hash;
+
+        if (size <= source.last_processed_offset)
+        {
+            save_bootstrap_cursor_state();
+            return;
+        }
+
+        constexpr uintmax_t k_max_chunk_bytes = 1024ull * 1024ull;
+        const uintmax_t read_start = source.last_processed_offset;
+        const uintmax_t bytes_to_read = std::min<uintmax_t>(size - read_start, k_max_chunk_bytes);
+
+        std::ifstream input{source.log_path, std::ios::binary};
+        if (!input)
+        {
+            return;
+        }
+        input.seekg(static_cast<std::streamoff>(read_start), std::ios::beg);
+        std::string chunk{};
+        chunk.resize(static_cast<size_t>(bytes_to_read));
+        input.read(chunk.data(), static_cast<std::streamsize>(chunk.size()));
+        chunk.resize(static_cast<size_t>(std::max<std::streamsize>(0, input.gcount())));
+        if (chunk.empty())
+        {
+            return;
+        }
+
+        uintmax_t next_offset = read_start;
+        size_t scan_pos = 0;
+        while (scan_pos < chunk.size())
+        {
+            const auto newline_pos = chunk.find('\n', scan_pos);
+            if (newline_pos == std::string::npos)
+            {
+                // Keep trailing partial line for next tick if we did not reach EOF.
+                if (read_start + bytes_to_read < size)
+                {
+                    next_offset = read_start + static_cast<uintmax_t>(scan_pos);
+                }
+                else
+                {
+                    const auto raw = chunk.substr(scan_pos);
+                    auto line = trim_copy_ascii(raw);
+                    if (!line.empty() && !line.ends_with("\r"))
+                    {
+                        auto lower = lower_ascii(line);
+                        handle_bootstrap_line(source, line, lower, read_start + static_cast<uintmax_t>(scan_pos));
+                    }
+                    next_offset = read_start + static_cast<uintmax_t>(chunk.size());
+                }
+                break;
+            }
+            auto raw_line = chunk.substr(scan_pos, newline_pos - scan_pos);
+            if (!raw_line.empty() && raw_line.back() == '\r')
+            {
+                raw_line.pop_back();
+            }
+            const auto line = trim_copy_ascii(raw_line);
+            if (!line.empty())
+            {
+                const auto lower = lower_ascii(line);
+                handle_bootstrap_line(source, line, lower, read_start + static_cast<uintmax_t>(scan_pos));
+            }
+            scan_pos = newline_pos + 1;
+            next_offset = read_start + static_cast<uintmax_t>(scan_pos);
+        }
+
+        source.last_processed_offset = next_offset;
+        save_bootstrap_cursor_state();
+    }
+
+    auto SignTextMod::tick_bootstrap_role_and_session_from_logs() -> void
+    {
+        init_bootstrap_log_sources();
+        process_bootstrap_source(m_bootstrap_client_source);
+        process_bootstrap_source(m_bootstrap_dedicated_source);
+        process_bootstrap_source(m_bootstrap_hosted_server_source);
+    }
+
     auto SignTextMod::is_hide_native_label_icon_enabled() const -> bool
     {
         return config_bool_value("WTS_HIDE_NATIVE_LABEL_ICON", true);
@@ -5959,17 +6790,16 @@ namespace WindroseTextSigns
                 score += 100;
             }
 
-            UObject* controlled_pawn = nullptr;
-            const bool got_pawn_from_fn = invoke_object_return_no_param(
-                object,
-                STR("GetPawn"),
-                STR("/Script/Engine.Controller:GetPawn"),
-                controlled_pawn);
+            UObject* controlled_pawn = get_object_property_if_present(object, "Pawn");
+            if (!controlled_pawn)
+            {
+                controlled_pawn = get_object_property_if_present(object, "AcknowledgedPawn");
+            }
             if (controlled_pawn)
             {
                 score += 120;
             }
-            else if (!got_pawn_from_fn)
+            else
             {
                 // Avoid property-chain reflection fallback during world transition churn.
                 // We will rescore on the next throttled probe.
@@ -6665,6 +7495,56 @@ namespace WindroseTextSigns
             if (!profile_roots.empty())
             {
                 profile_root = profile_roots.front();
+            }
+        }
+
+        if (m_role_lock_acquired)
+        {
+            const auto locked_runtime = lower_ascii(m_role_lock_runtime_role);
+            const auto safe_world_id = sanitize_path_segment(world_id.empty() ? std::string{"unknown-world"} : world_id);
+            if (locked_runtime == "localclient")
+            {
+                auto locked_world_id = m_worldid_latched_id;
+                if (!is_hex_world_id(locked_world_id))
+                {
+                    locked_world_id = m_world_folder_id;
+                }
+                if (!is_hex_world_id(locked_world_id))
+                {
+                    locked_world_id = safe_world_id;
+                }
+                const auto data_root = !profile_root.empty()
+                    ? profile_root / "WindroseTextSigns" / locked_world_id
+                    : m_mod_root / "Cache" / "LocalAuthoritative" / locked_world_id;
+                set_sidecar_route(
+                    data_root,
+                    "LocalClient",
+                    profile_root.empty() ? "LocalProfileAuthoritativeFallbackModRoot" : "LocalProfileAuthoritative",
+                    "LocalClientSoloOrHostedAuthoritative",
+                    profile_root.empty() ? "authoritative-fallback" : "authoritative",
+                    true,
+                    profile_root,
+                    locked_world_id,
+                    "role_lock_localclient");
+                return;
+            }
+            if (locked_runtime == "remoteclient")
+            {
+                const auto cache_base = !profile_root.empty()
+                    ? (profile_root / "WindroseTextSigns")
+                    : (m_mod_root / "Cache");
+                const auto remote_world_id = safe_world_id.empty() ? std::string{"unknown-world"} : safe_world_id;
+                set_sidecar_route(
+                    cache_base / "RemoteCache" / remote_world_id,
+                    "RemoteClient",
+                    "RemoteClientCache",
+                    "ServerAuthoritativePendingBridge",
+                    "cache",
+                    false,
+                    profile_root,
+                    remote_world_id,
+                    "role_lock_remoteclient");
+                return;
             }
         }
 
@@ -10827,8 +11707,37 @@ namespace WindroseTextSigns
             }
         };
 
+        const auto find_cached_row_component = [&](const std::string& row_storage_key) -> UObject* {
+            const auto cached = m_component_name_cache.find(row_storage_key);
+            if (cached == m_component_name_cache.end() || cached->second.empty())
+            {
+                return nullptr;
+            }
+            const auto cached_full_name = lower_ascii(cached->second);
+            auto components = actor->GetComponentsByClass(UActorComponent::StaticClass());
+            for (int32_t i = 0; i < components.Num(); ++i)
+            {
+                auto* component = components[i];
+                if (!component)
+                {
+                    continue;
+                }
+                const auto component_class = lower_ascii(narrow_ascii(component->GetClassPrivate()->GetFullName()));
+                if (component_class.find("textrendercomponent") == std::string::npos)
+                {
+                    continue;
+                }
+                const auto component_full_name = lower_ascii(narrow_ascii(component->GetFullName()));
+                if (component_full_name == cached_full_name)
+                {
+                    return component;
+                }
+            }
+            return nullptr;
+        };
+
         const auto clear_row_component = [&](const std::string& row_storage_key) {
-            auto* stale_row_component = find_managed_text_component(actor, row_storage_key);
+            auto* stale_row_component = find_cached_row_component(row_storage_key);
             if (!stale_row_component)
             {
                 return;
@@ -10839,20 +11748,28 @@ namespace WindroseTextSigns
         };
 
         // Recovery path after restart: row components may exist with engine-generated
-        // names. Seed row-key cache from existing text components so we reuse them
-        // instead of creating fresh components and later suppressing rows.
+        // names. Seed/reseed row-key cache from existing text components so we reuse
+        // them deterministically and preserve row spacing behavior.
         {
-            bool missing_row_cache = false;
+            bool rebuild_row_cache = false;
+            std::unordered_set<std::string> cached_names{};
             for (int row_index = 0; row_index < 4; ++row_index)
             {
                 const auto row_storage_key = make_managed_row_storage_key(key, row_index);
-                if (m_component_name_cache.find(row_storage_key) == m_component_name_cache.end())
+                const auto cache_it = m_component_name_cache.find(row_storage_key);
+                if (cache_it == m_component_name_cache.end() || cache_it->second.empty())
                 {
-                    missing_row_cache = true;
+                    rebuild_row_cache = true;
+                    break;
+                }
+                const auto lowered = lower_ascii(cache_it->second);
+                if (!cached_names.insert(lowered).second)
+                {
+                    rebuild_row_cache = true;
                     break;
                 }
             }
-            if (missing_row_cache)
+            if (rebuild_row_cache)
             {
                 std::vector<UObject*> text_components{};
                 auto components = actor->GetComponentsByClass(UActorComponent::StaticClass());
@@ -11711,395 +12628,7 @@ namespace WindroseTextSigns
             }
         }
 
-        if (m_destroy_signal_log_path.empty() || !std::filesystem::exists(m_destroy_signal_log_path))
-        {
-            for (const auto& candidate : collect_r5_log_candidates(m_destroy_signal_log_path))
-            {
-                if (std::filesystem::exists(candidate))
-                {
-                    m_destroy_signal_log_path = candidate;
-                    m_destroy_signal_log_initialized = false;
-                    break;
-                }
-            }
-        }
-
-        if (m_destroy_signal_log_path.empty() || !std::filesystem::exists(m_destroy_signal_log_path))
-        {
-            return;
-        }
-
-        std::error_code size_ec{};
-        const auto size = std::filesystem::file_size(m_destroy_signal_log_path, size_ec);
-        if (size_ec)
-        {
-            return;
-        }
-
-        if (!m_destroy_signal_log_initialized || m_destroy_signal_log_offset > size)
-        {
-            m_destroy_signal_log_initialized = true;
-            m_destroy_signal_log_offset = size;
-            log_line("[save] destroy_signal_r5log armed path=" + m_destroy_signal_log_path.string() +
-                     " offset=" + std::to_string(static_cast<unsigned long long>(size)));
-            return;
-        }
-
-        if (size == m_destroy_signal_log_offset)
-        {
-            return;
-        }
-
-        const auto runtime_role_lower = lower_ascii(m_runtime_role);
-        const bool localclient_runtime =
-            runtime_role_lower == "localclient" ||
-            runtime_role_lower == "localclientpending";
-        const bool dedicated_authoritative_runtime =
-            is_dedicated_runtime_process() &&
-            m_sidecar_authoritative;
-        // Parse destroy/construct signals in:
-        // 1) LocalClient runtime states (including Pending), so short-lived evidence
-        //    is not lost during authority-route bootstrap churn.
-        // 2) Dedicated authoritative runtime, so authoritative prune decisions can be
-        //    committed server-side and propagated to clients.
-        const bool parse_destroy_construct_signals =
-            dedicated_authoritative_runtime ||
-            (!is_dedicated_runtime_process() && localclient_runtime);
-
-        std::ifstream input{m_destroy_signal_log_path, std::ios::binary};
-        if (!input)
-        {
-            return;
-        }
-        input.seekg(static_cast<std::streamoff>(m_destroy_signal_log_offset), std::ios::beg);
-        const auto bytes_to_read = std::min<uintmax_t>(size - m_destroy_signal_log_offset, 262144);
-        std::string chunk{};
-        chunk.resize(static_cast<size_t>(bytes_to_read));
-        input.read(chunk.data(), static_cast<std::streamsize>(chunk.size()));
-        chunk.resize(static_cast<size_t>(std::max<std::streamsize>(0, input.gcount())));
-        m_destroy_signal_log_offset = size;
-        if (chunk.empty())
-        {
-            return;
-        }
-
-        static const std::regex slot_token_rx{R"((BuildingBlock)\|([A-Fa-f0-9]{16,32})\|([0-9]+))", std::regex::icase};
-        static const std::regex guid_key_value_rx{R"((?:BuildingGuid|Guid|ActorGuid)\s*[:=]\s*([A-Fa-f0-9]{16,32}))", std::regex::icase};
-        static const std::regex guid_any_rx{R"(\b([A-Fa-f0-9]{32})\b)"};
-        static const std::regex index_key_value_rx{R"((?:Block(?:Index)?|Index|Slot)\s*[:=]\s*([0-9]+))", std::regex::icase};
-        static const std::regex construct_block_rx{
-            R"(Construct\s+BuildingBlock\s+([0-9]+)\s+from\s+building\s+([A-Fa-f0-9]{16,32}))",
-            std::regex::icase};
-        std::istringstream lines{chunk};
-        std::string line{};
-        bool definitive_start_reset_fired = false;
-        const auto gameplay_world_hint_from_line = [](const std::string& lower_line) -> std::string {
-            auto extract_token = [&](size_t start_pos) -> std::string {
-                if (start_pos == std::string::npos || start_pos >= lower_line.size())
-                {
-                    return {};
-                }
-                size_t end_pos = start_pos;
-                while (end_pos < lower_line.size())
-                {
-                    const char ch = lower_line[end_pos];
-                    if (std::isspace(static_cast<unsigned char>(ch)) ||
-                        ch == ',' || ch == ';' || ch == ')' || ch == ']' || ch == '"' || ch == '\'')
-                    {
-                        break;
-                    }
-                    ++end_pos;
-                }
-                return lower_line.substr(start_pos, end_pos - start_pos);
-            };
-
-            size_t maps_pos = lower_line.find("/game/maps/");
-            if (maps_pos != std::string::npos)
-            {
-                return extract_token(maps_pos);
-            }
-            maps_pos = lower_line.find("game/maps/");
-            if (maps_pos != std::string::npos)
-            {
-                return extract_token(maps_pos);
-            }
-            return {};
-        };
-        const auto is_non_gameplay_hint = [](const std::string& hint_lower) -> bool {
-            return hint_lower.empty() ||
-                   hint_lower.find("lobby") != std::string::npos ||
-                   hint_lower.find("transition") != std::string::npos ||
-                   hint_lower.find("entrance") != std::string::npos;
-        };
-        const auto try_begin_definitive_reset = [&](const std::string& category,
-                                                    const std::string& signal,
-                                                    const std::string& world_hint) -> bool {
-            constexpr auto k_definitive_reset_debounce = std::chrono::seconds(30);
-            const auto signature = category + "|" + signal + "|" + world_hint;
-            const bool within_debounce =
-                m_definitive_session_reset_last_trigger.time_since_epoch().count() != 0 &&
-                (now - m_definitive_session_reset_last_trigger) < k_definitive_reset_debounce &&
-                m_definitive_session_reset_last_category == category &&
-                m_definitive_session_reset_last_signature == signature;
-            if (within_debounce)
-            {
-                log_line("[session] reset_suppressed reason=debounce_30s category=" + category +
-                         " signal=" + signal +
-                         " worldHint=" + (world_hint.empty() ? "none" : world_hint));
-                return false;
-            }
-
-            m_definitive_session_reset_last_trigger = now;
-            m_definitive_session_reset_last_category = category;
-            m_definitive_session_reset_last_signature = signature;
-            return true;
-        };
-        while (std::getline(lines, line))
-        {
-            const auto line_lower = lower_ascii(line);
-
-            const bool advisory_generation_marker =
-                line_lower.find("createisland") != std::string::npos ||
-                line_lower.find("createworlddescription") != std::string::npos;
-            if (advisory_generation_marker)
-            {
-                m_worldid_generation_in_progress = true;
-                m_worldid_generation_last_signal = now;
-                std::smatch world_id_match{};
-                if (std::regex_search(line, world_id_match, guid_any_rx) && world_id_match.size() >= 2)
-                {
-                    auto marker_id = world_id_match[1].str();
-                    std::transform(marker_id.begin(), marker_id.end(), marker_id.begin(), [](unsigned char c) {
-                        return static_cast<char>(std::toupper(c));
-                    });
-                    if (is_hex_world_id(marker_id) && marker_id != m_worldid_generation_last_marker_id)
-                    {
-                        m_worldid_generation_last_marker_id = marker_id;
-                        log_line("[worldid] provisional_seen id=" + marker_id + " source=r5_generation_marker");
-                    }
-                }
-            }
-
-            if (!definitive_start_reset_fired)
-            {
-                std::string world_hint{};
-                const bool level_open_or_loadmap =
-                    line_lower.find("ur5datakeeper::openlevel") != std::string::npos ||
-                    line_lower.find("logload: loadmap:") != std::string::npos ||
-                    line_lower.find("loadmap:") != std::string::npos;
-                if (level_open_or_loadmap)
-                {
-                    world_hint = gameplay_world_hint_from_line(line_lower);
-                    if (!is_non_gameplay_hint(world_hint))
-                    {
-                        m_definitive_session_start_candidate_active = true;
-                        m_definitive_session_start_candidate_signal = "level_open_started";
-                        m_definitive_session_start_candidate_world_hint = world_hint;
-                    }
-                }
-                const bool bringing_world_up_for_play =
-                    line_lower.find("bringing world") != std::string::npos &&
-                    line_lower.find("up for play") != std::string::npos;
-                if (bringing_world_up_for_play)
-                {
-                    world_hint = gameplay_world_hint_from_line(line_lower);
-                    if (!is_non_gameplay_hint(world_hint))
-                    {
-                        m_definitive_session_start_candidate_active = true;
-                        m_definitive_session_start_candidate_signal = "world_play_begin";
-                        m_definitive_session_start_candidate_world_hint = world_hint;
-                    }
-                }
-
-                if (m_definitive_session_start_candidate_active)
-                {
-                    std::string ready_reason{};
-                    const bool start_confirmed = is_session_ready_for_role_resolution(&ready_reason);
-                    if (start_confirmed)
-                    {
-                        const auto detected_signal = m_definitive_session_start_candidate_signal.empty()
-                            ? std::string{"world_play_begin_confirmed"}
-                            : m_definitive_session_start_candidate_signal + "_confirmed";
-                        const auto detected_world_hint = m_definitive_session_start_candidate_world_hint;
-                        if (try_begin_definitive_reset("start", detected_signal, detected_world_hint))
-                        {
-                            log_line("[session] definitive_start_detected signal=" + detected_signal +
-                                     " worldHint=" + (detected_world_hint.empty() ? "none" : detected_world_hint));
-                            reset_session_state("definitive_session_start");
-                            log_line("[session] reset_extended_clears applied=true");
-                            definitive_start_reset_fired = true;
-                        }
-                        m_definitive_session_start_candidate_active = false;
-                        m_definitive_session_start_candidate_signal.clear();
-                        m_definitive_session_start_candidate_world_hint.clear();
-                    }
-                }
-            }
-
-            if (line_lower.find("world client") != std::string::npos &&
-                !m_hosted_ready_world_client_seen)
-            {
-                m_hosted_ready_world_client_seen = true;
-                log_line("[save] hosted_ready_signal signal=world_client");
-            }
-            if (line_lower.find("openlevel") != std::string::npos ||
-                line_lower.find("loadmap:") != std::string::npos)
-            {
-                log_line("[save] hosted_ready_signal signal=level_open_started");
-            }
-            if (line_lower.find("bringing world") != std::string::npos &&
-                line_lower.find("up for play") != std::string::npos)
-            {
-                log_line("[save] hosted_ready_signal signal=world_play_begin");
-            }
-            if (line_lower.find("onplayerisready") != std::string::npos &&
-                line_lower.find("character bp_") != std::string::npos &&
-                line_lower.find("character nullptr") == std::string::npos &&
-                !m_hosted_ready_player_ready_seen)
-            {
-                m_hosted_ready_player_ready_seen = true;
-                log_line("[save] hosted_ready_signal signal=player_ready");
-            }
-            if (line_lower.find("datakeeper is ready to play") != std::string::npos &&
-                !m_hosted_ready_datakeeper_seen)
-            {
-                m_hosted_ready_datakeeper_seen = true;
-                log_line("[save] hosted_ready_signal signal=datakeeper_ready");
-            }
-            if (line_lower.find("hide loading screen") != std::string::npos &&
-                !m_hosted_ready_hide_loading_seen)
-            {
-                m_hosted_ready_hide_loading_seen = true;
-                log_line("[save] hosted_ready_signal signal=hide_loading");
-            }
-            if (!m_hosted_ready_sequence_complete &&
-                m_hosted_ready_world_client_seen &&
-                m_hosted_ready_player_ready_seen &&
-                m_hosted_ready_datakeeper_seen &&
-                m_hosted_ready_hide_loading_seen)
-            {
-                m_hosted_ready_sequence_complete = true;
-                log_line("[save] hosted_ready_sequence complete=true");
-                if (m_session_ready_latched && lower_ascii(m_runtime_role) == "localclientpending")
-                {
-                    tick_localclient_role_resolution();
-                }
-            }
-
-            const bool farewell_transition =
-                line_lower.find("change state readytoplay => sentfarewell") != std::string::npos ||
-                line_lower.find("change state readytoplay => saidfarewell") != std::string::npos;
-            if (farewell_transition)
-            {
-                if (try_begin_definitive_reset("end", "sent_farewell", "none"))
-                {
-                    log_line("[session] definitive_end_detected signal=sent_farewell");
-                    arm_phase7_definitive_teardown("sent_farewell");
-                }
-            }
-            const bool request_exit =
-                line_lower.find("requestexit(") != std::string::npos ||
-                line_lower.find("engine exit requested") != std::string::npos;
-            if (request_exit)
-            {
-                if (try_begin_definitive_reset("end", "engine_request_exit", "none"))
-                {
-                    log_line("[session] definitive_end_detected signal=engine_request_exit");
-                    arm_phase7_definitive_teardown("engine_request_exit");
-                }
-            }
-
-            if (!parse_destroy_construct_signals)
-            {
-                continue;
-            }
-
-            const bool destroy_rule = line_lower.find("destroyrule::do_impl") != std::string::npos;
-            const bool construct_rule = line_lower.find("constructrule::do_impl") != std::string::npos;
-            if (!destroy_rule && !construct_rule)
-            {
-                continue;
-            }
-
-            std::string guid{};
-            std::string index{};
-            std::smatch match{};
-            if (construct_rule && std::regex_search(line, match, construct_block_rx) && match.size() >= 3)
-            {
-                index = match[1].str();
-                guid = match[2].str();
-            }
-            else if (std::regex_search(line, match, slot_token_rx) && match.size() >= 4)
-            {
-                guid = match[2].str();
-                index = match[3].str();
-            }
-            else
-            {
-                if (std::regex_search(line, match, guid_key_value_rx) && match.size() >= 2)
-                {
-                    guid = match[1].str();
-                }
-                else if (std::regex_search(line, match, guid_any_rx) && match.size() >= 2)
-                {
-                    guid = match[1].str();
-                }
-                if (std::regex_search(line, match, index_key_value_rx) && match.size() >= 2)
-                {
-                    index = match[1].str();
-                }
-            }
-
-            if (guid.empty())
-            {
-                continue;
-            }
-            std::transform(guid.begin(), guid.end(), guid.begin(), [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
-
-            if (destroy_rule)
-            {
-                m_recent_destroy_guid_signals[guid] = now;
-                log_line("[save] destroy_signal_seen guid=" + guid);
-                for (const auto& [slot_key, signal] : m_recent_construct_slot_signals)
-                {
-                    if ((now - signal.seen_at) > ttl)
-                    {
-                        continue;
-                    }
-                    const auto guid_delim = slot_key.find('|');
-                    if (guid_delim == std::string::npos || guid_delim == 0)
-                    {
-                        continue;
-                    }
-                    const auto slot_guid = slot_key.substr(0, guid_delim);
-                    if (lower_ascii(slot_guid) != lower_ascii(guid))
-                    {
-                        continue;
-                    }
-                    const auto index_value = slot_key.substr(guid_delim + 1);
-                    m_recent_destroy_slot_confirmations[slot_key] = now;
-                    log_line("[save] destroy_construct_correlated guid=" + guid + " index=" + index_value);
-                }
-            }
-            if (construct_rule)
-            {
-                if (!index.empty())
-                {
-                    const auto slot_key = make_building_slot_key(guid, index);
-                    m_recent_construct_slot_signals[slot_key] = RecentConstructSignal{
-                        now,
-                        active_storage_world_id(m_role_lock_world_id.empty() ? m_session_ready_world_id : m_role_lock_world_id),
-                        m_session_epoch};
-                    log_line("[save] construct_signal_seen guid=" + guid + " index=" + index);
-                    const auto guid_it = m_recent_destroy_guid_signals.find(guid);
-                    if (guid_it != m_recent_destroy_guid_signals.end() && (now - guid_it->second) <= ttl)
-                    {
-                        m_recent_destroy_slot_confirmations[slot_key] = now;
-                        log_line("[save] destroy_construct_correlated guid=" + guid + " index=" + index);
-                    }
-                }
-            }
-        }
+        tick_bootstrap_role_and_session_from_logs();
     }
 
     auto SignTextMod::refresh_recent_destroy_signals_from_r5_log() -> void
@@ -12714,13 +13243,8 @@ namespace WindroseTextSigns
             return;
         }
 
-        UObject* controlled_pawn = nullptr;
-        const bool got_pawn_from_fn = invoke_object_return_no_param(
-            controller,
-            STR("GetPawn"),
-            STR("/Script/Engine.Controller:GetPawn"),
-            controlled_pawn);
-        if (!got_pawn_from_fn || !controlled_pawn)
+        UObject* controlled_pawn = get_object_property_if_present(controller, "Pawn");
+        if (!controlled_pawn)
         {
             controlled_pawn = get_object_property_if_present(controller, "AcknowledgedPawn");
         }
@@ -13009,6 +13533,13 @@ namespace WindroseTextSigns
         m_destroy_signal_log_path.clear();
         m_destroy_signal_log_offset = 0;
         m_destroy_signal_log_initialized = false;
+        if (m_bootstrap_sources_initialized)
+        {
+            reset_bootstrap_source_for_new_epoch(m_bootstrap_client_source, "session_reset_" + reason);
+            reset_bootstrap_source_for_new_epoch(m_bootstrap_dedicated_source, "session_reset_" + reason);
+            reset_bootstrap_source_for_new_epoch(m_bootstrap_hosted_server_source, "session_reset_" + reason);
+            save_bootstrap_cursor_state();
+        }
         reset_visual_verify_debug_state();
         reset_role_route_locks("session_reset_" + reason);
         reset_bridge_snapshot_state("session_reset_" + reason);
@@ -13295,16 +13826,7 @@ namespace WindroseTextSigns
             return;
         }
 
-        UObject* controlled_pawn = nullptr;
-        const bool got_pawn_from_fn = invoke_object_return_no_param(
-            controller,
-            STR("GetPawn"),
-            STR("/Script/Engine.Controller:GetPawn"),
-            controlled_pawn);
-        if (!got_pawn_from_fn || !controlled_pawn)
-        {
-            controlled_pawn = get_object_property_if_present(controller, "Pawn");
-        }
+        UObject* controlled_pawn = get_object_property_if_present(controller, "Pawn");
         if (!controlled_pawn)
         {
             controlled_pawn = get_object_property_if_present(controller, "AcknowledgedPawn");
@@ -13697,15 +14219,7 @@ namespace WindroseTextSigns
             UObject* controlled_pawn = nullptr;
             if (controller)
             {
-                const bool got_pawn_from_fn = invoke_object_return_no_param(
-                    controller,
-                    STR("GetPawn"),
-                    STR("/Script/Engine.Controller:GetPawn"),
-                    controlled_pawn);
-                if (!got_pawn_from_fn || !controlled_pawn)
-                {
-                    controlled_pawn = get_object_property_if_present(controller, "Pawn");
-                }
+                controlled_pawn = get_object_property_if_present(controller, "Pawn");
                 if (!controlled_pawn)
                 {
                     controlled_pawn = get_object_property_if_present(controller, "AcknowledgedPawn");
@@ -13747,15 +14261,7 @@ namespace WindroseTextSigns
             UObject* controlled_pawn = nullptr;
             if (controller)
             {
-                const bool got_pawn_from_fn = invoke_object_return_no_param(
-                    controller,
-                    STR("GetPawn"),
-                    STR("/Script/Engine.Controller:GetPawn"),
-                    controlled_pawn);
-                if (!got_pawn_from_fn || !controlled_pawn)
-                {
-                    controlled_pawn = get_object_property_if_present(controller, "Pawn");
-                }
+                controlled_pawn = get_object_property_if_present(controller, "Pawn");
                 if (!controlled_pawn)
                 {
                     controlled_pawn = get_object_property_if_present(controller, "AcknowledgedPawn");
@@ -13858,10 +14364,9 @@ namespace WindroseTextSigns
         }
         tick_pending_fallback_hotkeys();
         tick_file_triggers();
+        tick_r5_readiness_markers();
         if (!is_dedicated_runtime_process())
         {
-            // Always parse readiness markers in LocalClient states, including Pending.
-            tick_r5_readiness_markers();
             if (!m_session_ready_latched)
             {
                 std::string ready_reason{};
@@ -13921,15 +14426,20 @@ namespace WindroseTextSigns
             {
                 const auto runtime_role_lower = lower_ascii(m_runtime_role);
                 const bool pending_localclient = runtime_role_lower == "localclientpending";
-                const bool locked_localclient_session =
-                    !is_dedicated_runtime_process() &&
+                const bool locked_any_session =
                     m_session_ready_latched &&
                     m_role_lock_acquired;
-                if (locked_localclient_session)
+                const bool locked_localclient_session =
+                    !is_dedicated_runtime_process() &&
+                    locked_any_session;
+                const bool locked_dedicated_session =
+                    is_dedicated_runtime_process() &&
+                    locked_any_session;
+                if (locked_localclient_session || locked_dedicated_session)
                 {
                     if (!m_locked_world_inactive_ignored_logged)
                     {
-                        log_line("[session] reset_ignored reason=locked_session_transient_world_inactive");
+                        log_line("[session] reset_ignored reason=locked_session_transient_world_inactive role=" + m_runtime_role);
                         m_locked_world_inactive_ignored_logged = true;
                     }
                     m_world_inactive_since = {};

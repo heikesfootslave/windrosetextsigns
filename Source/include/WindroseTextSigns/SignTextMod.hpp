@@ -75,6 +75,51 @@ namespace WindroseTextSigns
         auto render_ui() -> void;
 
       private:
+        enum class BootstrapRole : uint8_t
+        {
+            Unknown = 0,
+            Solo = 1,
+            RemoteClient = 2,
+            DedicatedServer = 3,
+            HostedClient = 4,
+            HostedServer = 5
+        };
+        enum class BootstrapLogSourceKind : uint8_t
+        {
+            Client = 0,
+            DedicatedServer = 1,
+            HostedServer = 2
+        };
+        struct BootstrapLogSourceState
+        {
+            BootstrapLogSourceKind kind{BootstrapLogSourceKind::Client};
+            std::string source_name{};
+            std::filesystem::path log_path{};
+            bool path_resolved{false};
+            bool initialized{false};
+            uintmax_t last_processed_offset{0};
+            uintmax_t session_start_offset{0};
+            uintmax_t session_end_offset{0};
+            uint64_t source_epoch{0};
+            bool role_locked{false};
+            BootstrapRole locked_role{BootstrapRole::Unknown};
+            std::string role_signal{};
+            uintmax_t role_signal_offset{0};
+            bool session_ready_locked{false};
+            std::string session_ready_signal{};
+            uintmax_t session_ready_offset{0};
+            bool saw_server_exe{false};
+            bool saw_hosted_ini{false};
+            bool saw_host_ready{false};
+            uintmax_t saw_server_exe_offset{0};
+            uintmax_t saw_hosted_ini_offset{0};
+            uintmax_t saw_host_ready_offset{0};
+            uintmax_t last_size{0};
+            int64_t last_write_time_ticks{0};
+            uint32_t head_hash{0};
+            uint32_t tail_hash{0};
+        };
+
         enum class BridgeUpnpMode : uint32_t
         {
             Off = 0,
@@ -132,6 +177,32 @@ namespace WindroseTextSigns
         auto is_localclient_prune_ready(bool authority_source_resolved, std::string* out_reason = nullptr) -> bool;
         auto tick_localclient_role_resolution() -> void;
         auto tick_r5_readiness_markers() -> void;
+        auto init_bootstrap_log_sources() -> void;
+        auto tick_bootstrap_role_and_session_from_logs() -> void;
+        auto process_bootstrap_source(BootstrapLogSourceState& source) -> void;
+        auto handle_bootstrap_line(
+            BootstrapLogSourceState& source,
+            const std::string& line,
+            const std::string& line_lower,
+            uintmax_t line_start_offset) -> void;
+        auto reset_bootstrap_source_for_new_epoch(BootstrapLogSourceState& source, const std::string& reason) -> void;
+        auto bootstrap_role_name(BootstrapRole role) const -> std::string;
+        auto bootstrap_role_authoritative(BootstrapRole role) const -> bool;
+        auto try_apply_role_from_bootstrap_source(BootstrapLogSourceState& source, const std::string& reason) -> void;
+        auto ensure_session_ready_latched_from_bootstrap(
+            BootstrapLogSourceState& source,
+            const std::string& signal,
+            uintmax_t signal_offset) -> void;
+        auto compute_log_source_identity(
+            const std::filesystem::path& path,
+            uintmax_t* out_size,
+            int64_t* out_write_ticks,
+            uint32_t* out_head_hash,
+            uint32_t* out_tail_hash) const -> bool;
+        auto resolve_configured_log_path(std::string_view key, std::filesystem::path fallback) const -> std::filesystem::path;
+        auto expand_env_tokens(std::string value) const -> std::string;
+        auto save_bootstrap_cursor_state() -> void;
+        auto load_bootstrap_cursor_state() -> void;
         auto refresh_recent_destroy_signals_from_r5_log() -> void;
         auto has_recent_destroy_confirmation(const std::string& stable_id, const std::string& expected_world_id) -> bool;
         enum class SuspectRebuildDecision
@@ -528,6 +599,12 @@ namespace WindroseTextSigns
         uintmax_t m_destroy_signal_log_offset{0};
         bool m_destroy_signal_log_initialized{false};
         std::chrono::steady_clock::time_point m_destroy_signal_last_poll{};
+        std::filesystem::path m_bootstrap_cursor_state_path{};
+        bool m_bootstrap_sources_initialized{false};
+        BootstrapLogSourceState m_bootstrap_client_source{};
+        BootstrapLogSourceState m_bootstrap_dedicated_source{};
+        BootstrapLogSourceState m_bootstrap_hosted_server_source{};
+        std::chrono::steady_clock::time_point m_bootstrap_cursor_state_last_write{};
         uint32_t m_destroy_confirm_ttl_sec{10};
         std::chrono::steady_clock::time_point m_definitive_session_reset_last_trigger{};
         std::string m_definitive_session_reset_last_signature{};

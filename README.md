@@ -88,7 +88,29 @@ WTS_BRIDGE_SERVER_HOST=auto
 WTS_BRIDGE_UDP_PORT=45801
 WTS_BRIDGE_UPNP_MODE=auto
 WTS_BRIDGE_UPNP_ENABLED=true
+WTS_R5_LOG_CLIENT_PATH=%LOCALAPPDATA%\R5\Saved\Logs\R5.log
+WTS_R5_LOG_DEDICATED_PATH=C:\Games\WindowsServer\R5\Saved\Logs\R5.log
+WTS_R5_LOG_HOSTED_SERVER_PATH=C:\SteamLibrary\steamapps\common\Windrose\R5\Builds\WindowsServer\R5\Saved\Logs\R5.log
 WTS_F8_LATENCY_BREAKDOWN_ENABLED=true
+```
+
+### Session Bootstrap Log Sources
+
+Bootstrap now reads dedicated per-role log sources and keeps independent per-source cursors and session windows.
+This prevents stale lines from earlier sessions in a persistent `R5.log` from re-triggering role/session state.
+
+Config keys:
+
+```ini
+WTS_R5_LOG_CLIENT_PATH=%LOCALAPPDATA%\R5\Saved\Logs\R5.log
+WTS_R5_LOG_DEDICATED_PATH=C:\Games\WindowsServer\R5\Saved\Logs\R5.log
+WTS_R5_LOG_HOSTED_SERVER_PATH=C:\SteamLibrary\steamapps\common\Windrose\R5\Builds\WindowsServer\R5\Saved\Logs\R5.log
+```
+
+Cursor state is persisted in:
+
+```text
+Cache\Bootstrap\BootstrapCursorState.ini
 ```
 
 ### Hotkey
