@@ -226,6 +226,13 @@ namespace WindroseTextSigns
         auto find_managed_text_component(RC::Unreal::AActor* actor, const std::string& storage_key) -> RC::Unreal::UObject*;
         auto create_managed_text_component(RC::Unreal::AActor* actor, const std::string& storage_key, const RC::Unreal::FVector& relative_location) -> RC::Unreal::UObject*;
         auto destroy_managed_text_component(RC::Unreal::AActor* actor, const std::string& storage_key) -> bool;
+        // Curved-text feature helpers. When m_curve_arc_amount > 0 the standard single-line
+        // text component is hidden and one TextRenderComponent per glyph is spawned on a
+        // parabolic arc along the plaque tangent. Each glyph is stored under a derived key
+        // (storage_key + "__g" + index), so the existing find/create/destroy_managed_text_component
+        // helpers work unchanged for the per-glyph components.
+        auto apply_curved_glyphs(RC::Unreal::AActor* actor, const std::string& storage_key, const std::string& text_value, RC::Unreal::UObject* standard_component, float desired_font_size, float r, float g, float b, float a) -> void;
+        auto clear_curved_glyphs(RC::Unreal::AActor* actor, const std::string& storage_key) -> void;
 
         auto load_sidecar_json() -> void;
         auto save_sidecar_json(const std::string& reason, const std::string& key, const std::string& stable_id, const std::string& world_id) -> void;
@@ -525,6 +532,19 @@ namespace WindroseTextSigns
         bool m_destroy_signal_log_initialized{false};
         std::chrono::steady_clock::time_point m_destroy_signal_last_poll{};
         uint32_t m_destroy_confirm_ttl_sec{10};
+        // Curved text feature: when m_curve_arc_amount > 0 the apply path renders one
+        // TextRenderComponent per glyph, positioned along an upward parabolic arc on the
+        // plaque surface. 0 = flat (default, original behaviour). 1.0 = strong arc.
+        float m_curve_arc_amount{0.0f};
+        // Per-storage-key count of glyph components we currently have spawned, so we can
+        // destroy the leftovers when the text shrinks (e.g. "Taverne" -> "Inn").
+        std::unordered_map<std::string, uint32_t> m_curve_glyph_count;
+        // Per-storage-key cache of the last text we rendered as curved glyphs. apply_text_to_actor_component
+        // is called by several tick handlers (periodic visual-verify reapply, restore-known-text,
+        // direct user apply) and re-spawning all glyphs on every call produces a visible
+        // "letters flying in" animation plus wasteful component churn. We skip the curved render
+        // if the text hasn't changed since the last successful curve apply.
+        std::unordered_map<std::string, std::string> m_curve_last_text;
         std::chrono::steady_clock::time_point m_definitive_session_reset_last_trigger{};
         std::string m_definitive_session_reset_last_signature{};
         std::string m_definitive_session_reset_last_category{};

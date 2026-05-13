@@ -4632,6 +4632,14 @@ namespace WindroseTextSigns
             safe_stoi(config_string_value("WTS_DESTROY_CONFIRM_TTL_SEC", "10"), 10),
             2,
             30));
+        // Curved text feature: arc amount in [0.0, 1.0]. 0 = flat (original render),
+        // 1.0 = a strong upward parabolic arc with the middle character peaking ~25% of
+        // the plaque width above the baseline. Reading this at INI-parse time means
+        // changes take effect after a game restart.
+        m_curve_arc_amount = std::clamp(
+            safe_stof(config_string_value("WTS_CURVE_ARC_AMOUNT", "0.0"), 0.0f),
+            0.0f,
+            1.0f);
         const auto upnp_mode_raw = lower_copy_ascii(trim_copy_ascii(config_string_value("WTS_BRIDGE_UPNP_MODE", "")));
         if (upnp_mode_raw == "off" || upnp_mode_raw == "false" || upnp_mode_raw == "0" || upnp_mode_raw == "disabled")
         {
@@ -5865,9 +5873,19 @@ namespace WindroseTextSigns
                 {
                     m_text_buffer.fill('\0');
                 }
+                // Close the editor BEFORE running apply. apply_text_to_selected_label can take
+                // hundreds of milliseconds when the curved-text path spawns one TextRenderComponent
+                // per glyph (each create is a UE reflection round-trip). Without this swap the
+                // editor stayed visible while the glyphs trickled in and felt sluggish; closing
+                // first gives the user immediate input-acknowledged feedback and the glyphs
+                // appear on the sign while the world is already interactive again.
+                close_phase7_umg_editor(true);
                 apply_text_to_selected_label(text);
             }
-            close_phase7_umg_editor(true);
+            else
+            {
+                close_phase7_umg_editor(true);
+            }
             return;
         }
         if (cancel_pressed)
@@ -10088,6 +10106,20 @@ namespace WindroseTextSigns
             }
         }
 
+        // Curved-text glyph keys (suffix "__g<index>") are intentionally many-per-actor.
+        // The single-component fallback below would collapse them all onto the first
+        // unmanaged TextRenderComponent on the actor and every glyph would overwrite the
+        // same component - the user-visible symptom we saw was a stack of characters
+        // animating in the center of the sign plus a memory leak from each apply spawning
+        // fresh components that the next find() could not recover. For glyph keys we
+        // skip the fallback entirely and let create_managed_text_component spawn a fresh
+        // component; the per-key cache populated on creation is the only durable handle.
+        const bool is_glyph_key = (storage_key.find("__g") != std::string::npos);
+        if (is_glyph_key)
+        {
+            return nullptr;
+        }
+
         // Fallback: text components created through AddComponentByClass do not keep
         // our requested name, and after a restart the in-memory cache is gone. For
         // wooden labels there should not be a native TextRenderComponent, so recover
@@ -10569,6 +10601,286 @@ namespace WindroseTextSigns
         return hidden_candidates > 0;
     }
 
+    auto SignTextMod::clear_curved_glyphs(AActor* actor, const std::string& storage_key) -> void
+    {
+        if (!actor)
+        {
+            m_curve_glyph_count.erase(storage_key);
+            m_curve_last_text.erase(storage_key);
+            return;
+        }
+        const uint32_t count = m_curve_glyph_count.count(storage_key) ? m_curve_glyph_count[storage_key] : 0u;
+        for (uint32_t i = 0; i < count; ++i)
+        {
+            const std::string glyph_key = storage_key + "__g" + std::to_string(i);
+            (void)destroy_managed_text_component(actor, glyph_key);
+        }
+        m_curve_glyph_count.erase(storage_key);
+        m_curve_last_text.erase(storage_key);
+    }
+
+    namespace
+    {
+        // Split a UTF-8 string into one entry per codepoint. Required because German "ä",
+        // "ö", "ü", "ß" and similar are multi-byte sequences and we must not pass an
+        // isolated lead/continuation byte into SetText - that would crash the engine on
+        // invalid UTF-8. ASCII characters become one-byte entries, the typical Latin-1
+        // Unicode characters become two-byte entries, etc.
+        auto split_utf8_codepoints(const std::string& s) -> std::vector<std::string>
+        {
+            std::vector<std::string> out{};
+            out.reserve(s.size());
+            size_t i = 0;
+            while (i < s.size())
+            {
+                const unsigned char lead = static_cast<unsigned char>(s[i]);
+                size_t len = 1;
+                if ((lead & 0x80u) == 0u) len = 1;
+                else if ((lead & 0xE0u) == 0xC0u) len = 2;
+                else if ((lead & 0xF0u) == 0xE0u) len = 3;
+                else if ((lead & 0xF8u) == 0xF0u) len = 4;
+                else { ++i; continue; } // skip lone continuation byte / invalid
+                if (i + len > s.size()) break;
+                out.emplace_back(s.substr(i, len));
+                i += len;
+            }
+            return out;
+        }
+    }
+
+    auto SignTextMod::apply_curved_glyphs(AActor* actor,
+                                          const std::string& storage_key,
+                                          const std::string& text_value,
+                                          UObject* standard_component,
+                                          float desired_font_size,
+                                          float r, float g, float b, float a) -> void
+    {
+        if (!actor || text_value.empty() || m_curve_arc_amount <= 0.0f)
+        {
+            return;
+        }
+        // Change-detect: apply_text_to_actor_component is called from several tick handlers
+        // (periodic visual-verify reapply, restore-known-text, direct user apply). Without
+        // this guard we destroy + respawn every glyph on each tick, which produced the
+        // user-visible "letters flying in one by one" animation plus expensive component churn.
+        const auto last_text_it = m_curve_last_text.find(storage_key);
+        if (last_text_it != m_curve_last_text.end() && last_text_it->second == text_value)
+        {
+            return;
+        }
+        // Hard cap on glyph count: matches the 48-char editor limit in apply_text_to_selected_label.
+        // Anything longer would already be truncated before reaching us, so this is a safety net
+        // (e.g. data loaded from an externally-edited SignTexts.json with a longer string).
+        constexpr uint32_t MAX_GLYPH_INDEX = 48;
+        // First apply this session: full cleanup sweep for orphan components from previous
+        // sessions (game-restart loses our in-memory caches, but UE may still hold the
+        // TextRenderComponents we attached to the actor). After that, glyph components persist
+        // across applies and we only swap their text+position rather than recreating - that's
+        // the "10 second animation" perf fix.
+        const bool first_apply_this_session = (m_curve_glyph_count.find(storage_key) == m_curve_glyph_count.end());
+        if (first_apply_this_session)
+        {
+            for (uint32_t i = 0; i < MAX_GLYPH_INDEX; ++i)
+            {
+                (void)destroy_managed_text_component(actor, storage_key + "__g" + std::to_string(i));
+            }
+        }
+        // Surface frame comes from the LabelRecord, same math as in the flat path so the
+        // glyph chain lines up with the same plaque face the standard component targeted.
+        const auto rec_it = m_labels.find(storage_key);
+        if (rec_it == m_labels.end())
+        {
+            log_line("[curve] skip key=" + storage_key + " reason=no_label_record");
+            return;
+        }
+        const auto& rec = rec_it->second;
+        const float axis_blend = std::clamp(rec.surface_axis, 0.0f, 1.0f);
+        const float sign = (rec.surface_sign < 0) ? -1.0f : 1.0f;
+        float normal_x = (1.0f - axis_blend) * sign;
+        float normal_y = axis_blend * sign;
+        const float normal_len = std::max(0.0001f, std::sqrt((normal_x * normal_x) + (normal_y * normal_y)));
+        normal_x /= normal_len;
+        normal_y /= normal_len;
+        // Tangent flip vs the flat path: when we lay glyphs out along the tangent we read
+        // text left-to-right starting from -plaque_half_width. The flat path uses a single
+        // centered component so direction doesn't matter, but the per-glyph chain with the
+        // previous (-normal_y, normal_x) tangent rendered mirrored (right-to-left as seen
+        // by the player). Flipping the tangent reverses the layout direction.
+        const float tangent_x = normal_y;
+        const float tangent_y = -normal_x;
+        const float depth = rec.depth_offset;
+        const float on_surface_y_center = rec.align_y;
+
+        // Hide the standard single-line render so the per-glyph chain isn't overlapping it.
+        if (standard_component)
+        {
+            (void)invoke_set_hidden_in_game(standard_component, true);
+            (void)invoke_set_visibility(standard_component, false);
+        }
+
+        // Curve mode forces single-line: collapse all newlines (whether explicit user
+        // shift+enter input or the standard fit_text_for_plaque auto-wrap output) into
+        // spaces, then collapse runs of whitespace down to single spaces. v5/v6 tried
+        // real per-line arcs but the plaque is too short vertically for multi-line curves
+        // to coexist without overlapping into neighbour lines. Single-line + arc is the
+        // clean PoC; real multi-line stays in the flat path (which the user can toggle to
+        // per-sign once we wire F6).
+        std::string single_line;
+        single_line.reserve(text_value.size());
+        bool last_was_space = true;
+        for (char ch : text_value)
+        {
+            if (ch == '\n' || ch == '\r' || ch == '\t' || ch == ' ')
+            {
+                if (!last_was_space)
+                {
+                    single_line += ' ';
+                    last_was_space = true;
+                }
+            }
+            else
+            {
+                single_line += ch;
+                last_was_space = false;
+            }
+        }
+        while (!single_line.empty() && single_line.back() == ' ')
+        {
+            single_line.pop_back();
+        }
+        if (single_line.empty())
+        {
+            return;
+        }
+
+        // Split text by UTF-8 codepoint so multi-byte chars like 'ä', 'ö', 'ü', 'ß' stay
+        // intact - passing an isolated continuation byte to SetText would crash the engine.
+        const auto glyphs = split_utf8_codepoints(single_line);
+        const size_t n = std::min<size_t>(glyphs.size(), static_cast<size_t>(MAX_GLYPH_INDEX));
+        if (n == 0)
+        {
+            return;
+        }
+
+        const float plaque_half_width = 11.0f;
+        const float plaque_full_width = 2.0f * plaque_half_width;
+        // Empirical letter half-width: glyph extends about font * 0.275 from its center on
+        // each side at the default text material. Used to inset the layout so edge glyphs
+        // stay fully on the plaque instead of half-clipped off the side.
+        constexpr float LETTER_HALF_WIDTH_RATIO = 0.275f;
+        // Comfortable per-glyph stride relative to font: how far between glyph centers.
+        // 0.55 looks like classic mediaeval signage spacing - not too cramped, not too loose.
+        constexpr float STRIDE_RATIO = 0.55f;
+        constexpr float MIN_FONT_SIZE = 8.0f;
+
+        // Compute final font size + stride so all glyphs fit on the plaque without going
+        // off the edges, AND so the per-letter spacing scales with the font size.
+        //
+        // Layout invariant: leftmost glyph center sits at -(plaque_half_width - font*LETTER_RATIO)
+        // and rightmost at +(plaque_half_width - font*LETTER_RATIO). Stride = total chain / (n-1).
+        // We start at the requested font_size and shrink only if comfortable-stride exceeds
+        // the available chain length on the plaque.
+        if (n > 1)
+        {
+            // Required total chain width if we keep desired_font_size and comfortable stride:
+            // chain_width = font * STRIDE_RATIO * (n - 1)
+            // Available chain width with proper inset: plaque_full_width - 2 * font * LETTER_RATIO
+            // Solve for font: font * (STRIDE_RATIO * (n - 1) + 2 * LETTER_RATIO) <= plaque_full_width
+            const float fit_font = plaque_full_width /
+                (STRIDE_RATIO * static_cast<float>(n - 1) + 2.0f * LETTER_HALF_WIDTH_RATIO);
+            if (fit_font < desired_font_size)
+            {
+                desired_font_size = std::max(MIN_FONT_SIZE, fit_font);
+            }
+        }
+        // For very long text the MIN_FONT_SIZE clamp can leave glyphs slightly off the edges,
+        // which is acceptable - the alternative is unreadably small text.
+        const float inset = desired_font_size * LETTER_HALF_WIDTH_RATIO;
+        const float layout_half_width = std::max(1.0f, plaque_half_width - inset);
+        const float natural_stride = (n > 1)
+            ? (2.0f * layout_half_width / static_cast<float>(n - 1))
+            : 0.0f;
+        // Curve height scales WITH font size so the visual bow looks consistent regardless
+        // of how the text was sized to fit. Previously a fixed 1.8-unit lift was barely
+        // visible on tall 16-unit letters but huge on 8-unit letters - inconsistent.
+        const float curve_height = desired_font_size * m_curve_arc_amount * 0.4f;
+
+        uint32_t glyph_index = 0;
+        uint32_t spawned = 0;
+        for (size_t i = 0; i < n; ++i)
+        {
+            const float t = (n > 1) ? static_cast<float>(i) / static_cast<float>(n - 1) : 0.5f;
+            // Start at -layout_half_width (inset from plaque edge by letter half-width)
+            // so leftmost glyph is fully on the plaque, not half-clipped off the edge.
+            const float on_surface_x = (n > 1)
+                ? (-layout_half_width + static_cast<float>(i) * natural_stride)
+                : 0.0f;
+            const float z_lift = curve_height * (1.0f - 4.0f * (t - 0.5f) * (t - 0.5f));
+
+            const float pos_x = (normal_x * depth) + (tangent_x * on_surface_x);
+            const float pos_y = (normal_y * depth) + (tangent_y * on_surface_x);
+            const float pos_z = on_surface_y_center + z_lift;
+            const FVector glyph_loc(static_cast<double>(pos_x), static_cast<double>(pos_y), static_cast<double>(pos_z));
+
+            const std::string glyph_key = storage_key + "__g" + std::to_string(glyph_index);
+            bool fresh_create = false;
+            auto* glyph_comp = find_managed_text_component(actor, glyph_key);
+            if (!glyph_comp)
+            {
+                glyph_comp = create_managed_text_component(actor, glyph_key, glyph_loc);
+                fresh_create = true;
+            }
+            if (!glyph_comp)
+            {
+                log_line("[curve] glyph_create_failed key=" + glyph_key);
+                ++glyph_index;
+                continue;
+            }
+
+            const std::string& glyph_text = glyphs[i];
+            (void)invoke_set_relative_location(glyph_comp, glyph_loc);
+            (void)invoke_set_float_value(
+                glyph_comp,
+                STR("SetWorldSize"),
+                STR("/Script/Engine.TextRenderComponent:SetWorldSize"),
+                desired_font_size);
+            (void)invoke_set_text_render_color(glyph_comp, r, g, b, a);
+            (void)invoke_set_text(glyph_comp, glyph_text);
+            if (fresh_create)
+            {
+                (void)invoke_set_hidden_in_game(glyph_comp, false);
+                (void)invoke_set_visibility(glyph_comp, true);
+            }
+            ++glyph_index;
+            ++spawned;
+        }
+
+        // Trim leftover glyph components beyond what we used this round (text got shorter).
+        const uint32_t prev_count = m_curve_glyph_count.count(storage_key)
+            ? m_curve_glyph_count[storage_key]
+            : 0u;
+        for (uint32_t i = glyph_index; i < prev_count; ++i)
+        {
+            (void)destroy_managed_text_component(actor, storage_key + "__g" + std::to_string(i));
+        }
+
+        // Record the newly-spawned count so the next apply's pre-cleanup sweep knows the
+        // upper bound. The pre-cleanup ran at the top of this function, so no trailing
+        // destroy is needed here. Also remember the rendered text so future apply calls
+        // can short-circuit when the text hasn't changed (the change-detect at the top).
+        m_curve_glyph_count[storage_key] = glyph_index;
+        m_curve_last_text[storage_key] = text_value;
+
+        log_line("[curve] applied key=" + storage_key +
+                 " spawned=" + std::to_string(spawned) +
+                 " totalGlyphs=" + std::to_string(glyph_index) +
+                 " fontSize=" + std::to_string(desired_font_size) +
+                 " curveAmount=" + std::to_string(m_curve_arc_amount) +
+                 " curveHeight=" + std::to_string(curve_height) +
+                 " textLen=" + std::to_string(single_line.size()) +
+                 " firstApplyThisSession=" + std::string{first_apply_this_session ? "true" : "false"});
+    }
+
     auto SignTextMod::apply_text_to_actor_component(AActor* actor, const std::string& text_value) -> bool
     {
         if (!should_render_world_text_components())
@@ -10589,6 +10901,8 @@ namespace WindroseTextSigns
         if (text_value.empty())
         {
             const bool removed = destroy_managed_text_component(actor, key);
+            // Also tear down any curved glyph children the previous text might have spawned.
+            clear_curved_glyphs(actor, key);
             m_rendered_text_cache.erase(key);
             m_phase4_last_failure_reason.erase(key);
             m_phase4_next_retry.erase(key);
@@ -10766,6 +11080,24 @@ namespace WindroseTextSigns
                  " rows=" + std::to_string(count_wrapped_rows(text_value)) +
                  " fontSize=" + std::to_string(desired_font_size) +
                  " alignYCenter=" + std::to_string((m_labels.find(key) != m_labels.end()) ? m_labels.at(key).align_y : 1.5f));
+
+        // Curved-text feature: when WTS_CURVE_ARC_AMOUNT is set, replace the standard
+        // single-component render with one TextRenderComponent per glyph on a parabolic
+        // arc. The standard component is left in place but hidden, so toggling the
+        // feature off (INI=0 + game restart) restores it on the next apply without us
+        // needing to recreate it. If the feature was previously on for this key, destroy
+        // the leftover glyph components after the flat render so the sign doesn't show
+        // the curved chain on top of the flat text.
+        if (m_curve_arc_amount > 0.0f)
+        {
+            apply_curved_glyphs(actor, key, text_value, text_component,
+                                desired_font_size, desired_r, desired_g, desired_b, desired_a);
+        }
+        else if (m_curve_glyph_count.find(key) != m_curve_glyph_count.end())
+        {
+            clear_curved_glyphs(actor, key);
+        }
+
         return true;
     }
 
