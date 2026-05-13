@@ -5726,6 +5726,14 @@ namespace WindroseTextSigns
         {
             return;
         }
+        if (!m_phase7_umg_text_box ||
+            !is_uobject_reflection_safe(m_phase7_umg_widget) ||
+            !is_uobject_reflection_safe(m_phase7_umg_text_box))
+        {
+            log_line("[phase7-umg] action_ignored reason=invalid_widget_refs");
+            close_phase7_umg_editor(true);
+            return;
+        }
         const uint64_t open_epoch = m_phase7_active_epoch;
         const auto now = std::chrono::steady_clock::now();
         const auto log_stale_epoch = [&](const std::string& detail) {
@@ -6006,11 +6014,15 @@ namespace WindroseTextSigns
 
     auto invoke_get_text_value(UObject* context, std::string& out_text) -> bool
     {
+        if (!context || !is_uobject_reflection_safe(context))
+        {
+            return false;
+        }
         auto* fn = find_function_by_chain_or_path(
             context,
             STR("GetText"),
             STR("/Script/UMG.EditableText:GetText"));
-        if (!context || !fn)
+        if (!fn || !is_uobject_reflection_safe(context))
         {
             return false;
         }
@@ -6041,11 +6053,15 @@ namespace WindroseTextSigns
 
     auto invoke_get_text_render_value(UObject* context, std::string& out_text) -> bool
     {
+        if (!context || !is_uobject_reflection_safe(context))
+        {
+            return false;
+        }
         auto* fn = find_function_by_chain_or_path(
             context,
             STR("GetText"),
             STR("/Script/Engine.TextRenderComponent:GetText"));
-        if (!context || !fn)
+        if (!fn || !is_uobject_reflection_safe(context))
         {
             return false;
         }
@@ -6081,8 +6097,12 @@ namespace WindroseTextSigns
         float value,
         bool& out_value) -> bool
     {
+        if (!context || !is_uobject_reflection_safe(context))
+        {
+            return false;
+        }
         auto* fn = find_function_by_chain_or_path(context, in_chain_name, path_name);
-        if (!context || !fn)
+        if (!fn || !is_uobject_reflection_safe(context))
         {
             return false;
         }
@@ -6132,11 +6152,15 @@ namespace WindroseTextSigns
         float& out_y,
         bool& out_projected) -> bool
     {
+        if (!player_controller || !is_uobject_reflection_safe(player_controller))
+        {
+            return false;
+        }
         auto* fn = find_function_by_chain_or_path(
             player_controller,
             STR("ProjectWorldLocationToScreen"),
             STR("/Script/Engine.PlayerController:ProjectWorldLocationToScreen"));
-        if (!player_controller || !fn)
+        if (!fn || !is_uobject_reflection_safe(player_controller))
         {
             return false;
         }
