@@ -4848,18 +4848,30 @@ namespace WindroseTextSigns
         }
 
         bool input_mode_applied = false;
+        std::string applied_mode_name = "none";
         if (enable_ui_mode)
         {
+            // Prefer UIOnly so the game's Escape -> Main Menu binding is suppressed while the
+            // editor is open. GameAndUI leaks game input through and lets Esc open the pause
+            // menu underneath the editor, which is the user-visible bug.
             input_mode_applied = invoke_no_param(
                 controller,
-                STR("SetInputModeGameAndUI"),
-                STR("/Script/Engine.PlayerController:SetInputModeGameAndUI"));
-            if (!input_mode_applied)
+                STR("SetInputModeUIOnly"),
+                STR("/Script/Engine.PlayerController:SetInputModeUIOnly"));
+            if (input_mode_applied)
+            {
+                applied_mode_name = "UIOnly";
+            }
+            else
             {
                 input_mode_applied = invoke_no_param(
                     controller,
-                    STR("SetInputModeUIOnly"),
-                    STR("/Script/Engine.PlayerController:SetInputModeUIOnly"));
+                    STR("SetInputModeGameAndUI"),
+                    STR("/Script/Engine.PlayerController:SetInputModeGameAndUI"));
+                if (input_mode_applied)
+                {
+                    applied_mode_name = "GameAndUI";
+                }
             }
         }
         else
@@ -4868,6 +4880,10 @@ namespace WindroseTextSigns
                 controller,
                 STR("SetInputModeGameOnly"),
                 STR("/Script/Engine.PlayerController:SetInputModeGameOnly"));
+            if (input_mode_applied)
+            {
+                applied_mode_name = "GameOnly";
+            }
         }
 
         const bool cursor_set = set_bool_property_if_present(controller, "bshowmousecursor", enable_ui_mode);
@@ -4876,6 +4892,7 @@ namespace WindroseTextSigns
         m_phase7_keyboard_capture_active.store(false);
         log_line("[phase7-umg] input_capture enable=" + std::string{enable_ui_mode ? "true" : "false"} +
                  " inputMode=" + std::string{input_mode_applied ? "true" : "false"} +
+                 " appliedMode=" + applied_mode_name +
                  " cursor=" + std::string{cursor_set ? "true" : "false"} +
                  " ignoreLook=" + std::string{look_ignored ? "true" : "false"} +
                  " ignoreMove=" + std::string{move_ignored ? "true" : "false"} +
