@@ -174,6 +174,11 @@ namespace WindroseTextSigns
         auto is_session_window_active_for_gameplay(std::string* out_reason = nullptr) const -> bool;
         auto open_session_window(const std::string& signal, const std::filesystem::path& log_path, uintmax_t offset) -> void;
         auto close_session_window(const std::string& signal, const std::filesystem::path& log_path, uintmax_t offset) -> void;
+        auto is_worldid_bound_for_current_epoch() const -> bool;
+        auto try_resolve_worldid_for_ready_bind(std::string* out_world_id, std::string* out_source) -> bool;
+        auto bind_worldid_for_epoch_if_ready(const std::string& reason) -> bool;
+        auto is_world_bound_operation_allowed(const std::string& op, std::string* out_reason = nullptr) -> bool;
+        auto note_world_bound_operation_resumed(const std::string& op) -> void;
         auto is_world_id_latched_for_authoritative_localclient_bind(std::string* out_reason = nullptr) -> bool;
         auto reset_session_state(const std::string& reason) -> void;
         auto reset_visual_verify_debug_state() -> void;
@@ -346,6 +351,16 @@ namespace WindroseTextSigns
         bool m_worldid_generation_in_progress{false};
         std::string m_worldid_last_defer_reason{};
         std::chrono::steady_clock::time_point m_worldid_last_defer_log{};
+        bool m_worldid_bound_for_epoch{false};
+        uint64_t m_worldid_bound_epoch{0};
+        std::string m_worldid_bound_source{};
+        struct WorldBoundDeferLogState
+        {
+            std::string reason{};
+            std::chrono::steady_clock::time_point last_log{};
+        };
+        std::unordered_map<std::string, WorldBoundDeferLogState> m_world_bound_defer_logs_by_op{};
+        std::unordered_set<std::string> m_world_bound_resumed_ops{};
         bool m_f8_latency_breakdown_enabled{true};
         bool m_behavior_trace_enabled{false};
         bool m_create_null_short_retry_enabled{true};

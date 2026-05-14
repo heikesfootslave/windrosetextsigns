@@ -6825,7 +6825,7 @@ namespace WindroseTextSigns
             authoritative &&
             lower_ascii(runtime_role) == "localclient";
         if (localclient_authoritative_target &&
-            m_worldid_bind_phase == WorldIdBindPhase::StableIdLatched &&
+            is_worldid_bound_for_current_epoch() &&
             is_hex_world_id(m_worldid_latched_id) &&
             is_hex_world_id(world_folder_id) &&
             lower_ascii(world_folder_id) != lower_ascii(m_worldid_latched_id))
@@ -6839,9 +6839,26 @@ namespace WindroseTextSigns
             !m_world_folder_id.empty() &&
             !world_folder_id.empty() &&
             m_world_folder_id != world_folder_id;
+        const bool role_or_authority_change =
+            m_runtime_role != runtime_role ||
+            m_data_mode != data_mode ||
+            m_authority_mode != authority_mode ||
+            m_sidecar_kind != sidecar_kind ||
+            m_sidecar_authoritative != authoritative;
         if (world_changed)
         {
-            reset_role_route_locks("world_change");
+            if (m_role_lock_acquired && !role_or_authority_change)
+            {
+                log_line("[role] world_change_preserve_lock reason=" + reason +
+                         " runtimeRole=" + m_runtime_role +
+                         " authorityMode=" + m_authority_mode +
+                         " oldWorldId=" + m_world_folder_id +
+                         " newWorldId=" + world_folder_id);
+            }
+            else
+            {
+                reset_role_route_locks("world_change");
+            }
         }
 
         const auto next_sidecar_path = data_root / "SignTexts.json";
@@ -6859,12 +6876,6 @@ namespace WindroseTextSigns
 
         if (m_role_lock_acquired && !world_changed)
         {
-            const bool role_or_authority_change =
-                m_runtime_role != runtime_role ||
-                m_data_mode != data_mode ||
-                m_authority_mode != authority_mode ||
-                m_sidecar_kind != sidecar_kind ||
-                m_sidecar_authoritative != authoritative;
             if (role_or_authority_change)
             {
                 log_line("[role] lock_held skip_sidecar_route reason=" + reason +
@@ -6972,6 +6983,12 @@ namespace WindroseTextSigns
         {
             return;
         }
+        std::string world_bound_reason{};
+        if (!is_world_bound_operation_allowed("configure_sidecar_for_actor", &world_bound_reason))
+        {
+            return;
+        }
+        note_world_bound_operation_resumed("configure_sidecar_for_actor");
 
         auto* world = actor->GetWorld();
         if (!world)
@@ -6998,10 +7015,6 @@ namespace WindroseTextSigns
         if (local_authority)
         {
             auto world_folder_id = m_worldid_latched_id;
-            if (!is_hex_world_id(world_folder_id))
-            {
-                world_folder_id = m_world_folder_id;
-            }
             if (!is_hex_world_id(world_folder_id))
             {
                 if (!profile_root.empty())
@@ -7064,7 +7077,13 @@ namespace WindroseTextSigns
 
     auto SignTextMod::active_storage_world_id(const std::string& actor_world_id) const -> std::string
     {
-        if (!m_world_folder_id.empty() && m_world_folder_id != "unknown-world")
+        if (is_worldid_bound_for_current_epoch())
+        {
+            return m_worldid_latched_id;
+        }
+        if (!m_world_folder_id.empty() &&
+            m_world_folder_id != "unknown-world" &&
+            m_world_folder_id != "pending-world")
         {
             return m_world_folder_id;
         }
@@ -8341,6 +8360,19 @@ namespace WindroseTextSigns
 
     auto SignTextMod::save_sidecar_json(const std::string& reason, const std::string& key, const std::string& stable_id, const std::string& world_id) -> void
     {
+        const bool world_guard_bypass =
+            reason == "auto_restore_from_backup" ||
+            reason == "write_recovery_candidate";
+        if (!world_guard_bypass)
+        {
+            std::string world_bound_reason{};
+            if (!is_world_bound_operation_allowed("save_sidecar_json:" + reason, &world_bound_reason))
+            {
+                return;
+            }
+            note_world_bound_operation_resumed("save_sidecar_json");
+        }
+
         if (m_sidecar_authoritative && !is_authoritative_write_allowed())
         {
             log_line("[guardrail] write_refused reason=" + reason +
@@ -8684,6 +8716,13 @@ namespace WindroseTextSigns
         const std::string& world_id,
         const std::string& reason) -> bool
     {
+        std::string world_bound_reason{};
+        if (!is_world_bound_operation_allowed("send_hosted_authority_payload_to_server:" + type, &world_bound_reason))
+        {
+            return false;
+        }
+        note_world_bound_operation_resumed("send_hosted_authority_payload_to_server");
+
         if (!ensure_hosted_client_authority_route(reason))
         {
             return false;
@@ -8750,6 +8789,13 @@ namespace WindroseTextSigns
         const std::string& world_id,
         const std::string& reason) -> bool
     {
+        std::string world_bound_reason{};
+        if (!is_world_bound_operation_allowed("relay_payload_to_hosted_authority:" + type, &world_bound_reason))
+        {
+            return false;
+        }
+        note_world_bound_operation_resumed("relay_payload_to_hosted_authority");
+
         if (!ensure_hosted_server_authority_route(reason))
         {
             return false;
@@ -8827,6 +8873,12 @@ namespace WindroseTextSigns
         {
             return;
         }
+        std::string world_bound_reason{};
+        if (!is_world_bound_operation_allowed("broadcast_bridge_record", &world_bound_reason))
+        {
+            return;
+        }
+        note_world_bound_operation_resumed("broadcast_bridge_record");
         std::ostringstream axis_value{};
         axis_value << std::fixed << std::setprecision(2) << std::clamp(rec.surface_axis, 0.0f, 1.0f);
         const auto record_kind = rec.kind.empty() ? infer_new_record_kind_from_asset(rec.asset) : rec.kind;
@@ -8894,6 +8946,12 @@ namespace WindroseTextSigns
         {
             return;
         }
+        std::string world_bound_reason{};
+        if (!is_world_bound_operation_allowed("broadcast_bridge_clear", &world_bound_reason))
+        {
+            return;
+        }
+        note_world_bound_operation_resumed("broadcast_bridge_clear");
         std::ostringstream payload{};
         payload << "{\"mod\":\"WindroseTextSigns\",\"schema\":\"bridge.v1\",\"type\":\"clear\""
                 << ",\"session\":\"" << escape_json(m_session_id) << "\""
@@ -8930,6 +8988,12 @@ namespace WindroseTextSigns
         {
             return;
         }
+        std::string world_bound_reason{};
+        if (!is_world_bound_operation_allowed("broadcast_bridge_snapshot", &world_bound_reason))
+        {
+            return;
+        }
+        note_world_bound_operation_resumed("broadcast_bridge_snapshot");
         const auto snapshot_count = static_cast<uint32_t>(m_labels.size());
         const auto snapshot_id = make_bridge_snapshot_id(m_session_id, m_revision, snapshot_count);
         if (is_hosted_client_authority_context())
@@ -10449,9 +10513,24 @@ namespace WindroseTextSigns
 
         if (m_role_lock_acquired && desired != m_bridge_role)
         {
+            const auto desired_name = bridge_role_name(desired);
+            const bool can_reassert_locked_role =
+                desired != BridgeRole::Unknown &&
+                m_bridge_role == BridgeRole::Unknown &&
+                !m_role_lock_bridge_role.empty() &&
+                lower_ascii(m_role_lock_bridge_role) == lower_ascii(desired_name);
+            if (can_reassert_locked_role)
+            {
+                m_bridge_role = desired;
+                NativeBridge::instance().set_role(desired);
+                log_line("[role] bridge_role_reasserted reason=" + reason +
+                         " role=" + desired_name +
+                         " runtimeRole=" + m_runtime_role);
+                return;
+            }
             log_line("[role] lock_held skip_bridge_role_change reason=" + reason +
                      " lockedBridgeRole=" + bridge_role_name(m_bridge_role) +
-                     " requestedBridgeRole=" + bridge_role_name(desired));
+                     " requestedBridgeRole=" + desired_name);
             return;
         }
 
@@ -10917,15 +10996,6 @@ namespace WindroseTextSigns
 
     auto SignTextMod::tick_bridge() -> void
     {
-        if (!is_dedicated_runtime_process() && !m_session_ready_latched)
-        {
-            if (m_bridge_role != BridgeRole::Unknown)
-            {
-                m_bridge_role = BridgeRole::Unknown;
-                NativeBridge::instance().set_role(m_bridge_role);
-            }
-            return;
-        }
         configure_bridge_role("tick");
         tick_bridge_upnp();
         tick_bridge_route_discovery();
@@ -12630,7 +12700,7 @@ namespace WindroseTextSigns
             set_reason("session_ready_or_role_lock_pending");
             return false;
         }
-        if (m_worldid_bind_phase != WorldIdBindPhase::StableIdLatched || !is_hex_world_id(m_worldid_latched_id))
+        if (!is_worldid_bound_for_current_epoch())
         {
             set_reason("worldid_bind_not_stable");
             return false;
@@ -12667,33 +12737,41 @@ namespace WindroseTextSigns
         return true;
     }
 
-    auto SignTextMod::is_world_id_latched_for_authoritative_localclient_bind(std::string* out_reason) -> bool
+    auto SignTextMod::is_worldid_bound_for_current_epoch() const -> bool
     {
-        const auto set_reason = [&](const std::string& reason) {
-            if (out_reason)
+        return m_worldid_bound_for_epoch &&
+            m_worldid_bound_epoch == m_session_epoch &&
+            is_hex_world_id(m_worldid_latched_id);
+    }
+
+    auto SignTextMod::try_resolve_worldid_for_ready_bind(std::string* out_world_id, std::string* out_source) -> bool
+    {
+        const auto set_out = [&](const std::string& world_id, const std::string& source) {
+            if (out_world_id)
             {
-                *out_reason = reason;
+                *out_world_id = world_id;
+            }
+            if (out_source)
+            {
+                *out_source = source;
             }
         };
 
-        if (is_dedicated_runtime_process())
+        if (is_hex_world_id(m_worldid_latched_id))
         {
-            set_reason("dedicated_runtime");
+            set_out(m_worldid_latched_id, "existing_latched");
             return true;
         }
-
-        if (!m_session_ready_latched)
+        if (is_hex_world_id(m_session_ready_world_id))
         {
-            set_reason("session_ready_not_latched");
-            return false;
+            set_out(m_session_ready_world_id, "session_ready_world_id");
+            return true;
         }
-
-        auto* controller = try_get_primary_player_controller();
-        auto* controller_actor = controller && controller->IsA(AActor::StaticClass()) ? Cast<AActor>(controller) : nullptr;
-        if (!controller_actor || !controller_actor->GetWorld())
+        if (auto connected_island_id = try_latest_connected_island_id_from_local_log();
+            connected_island_id.has_value() && is_hex_world_id(*connected_island_id))
         {
-            set_reason("controller_world_unavailable");
-            return false;
+            set_out(*connected_island_id, "connected_island_id");
+            return true;
         }
 
         std::filesystem::path profile_root{};
@@ -12709,134 +12787,169 @@ namespace WindroseTextSigns
                 profile_root = profile_roots.front();
             }
         }
-
-        std::string connected_world_id{};
-        if (auto connected_island_id = try_latest_connected_island_id_from_local_log();
-            connected_island_id.has_value() && is_hex_world_id(*connected_island_id))
-        {
-            connected_world_id = *connected_island_id;
-        }
-        std::string profile_world_id{};
         if (!profile_root.empty())
         {
             if (auto chosen = choose_world_id_for_profile(profile_root); chosen.has_value() && is_hex_world_id(*chosen))
             {
-                profile_world_id = *chosen;
+                set_out(*chosen, "profile_worlds_root");
+                return true;
             }
         }
-        std::string session_world_id{};
-        if (is_hex_world_id(m_session_ready_world_id))
+        if (is_hex_world_id(m_world_folder_id))
         {
-            session_world_id = m_session_ready_world_id;
+            set_out(m_world_folder_id, "existing_world_folder");
+            return true;
         }
+        return false;
+    }
 
-        std::string candidate_world_id{};
-        std::string candidate_source{};
-        if (!connected_world_id.empty())
+    auto SignTextMod::bind_worldid_for_epoch_if_ready(const std::string& reason) -> bool
+    {
+        if (is_worldid_bound_for_current_epoch())
         {
-            candidate_world_id = connected_world_id;
-            candidate_source = "connected_island_id";
-        }
-        else if (!session_world_id.empty())
-        {
-            candidate_world_id = session_world_id;
-            candidate_source = "session_ready_world_id";
-        }
-        else if (!profile_world_id.empty())
-        {
-            candidate_world_id = profile_world_id;
-            candidate_source = "profile_worlds_root";
-        }
-
-        if (candidate_world_id.empty() || !is_hex_world_id(candidate_world_id))
-        {
-            set_reason("no_hex_candidate");
-            return false;
+            return true;
         }
 
         const auto now = std::chrono::steady_clock::now();
-        const bool generation_signal_recent =
-            m_worldid_generation_in_progress &&
-            m_worldid_generation_last_signal.time_since_epoch().count() != 0 &&
-            (now - m_worldid_generation_last_signal) <= std::chrono::seconds(6);
-        const uint32_t required_seen = generation_signal_recent ? 4u : 3u;
-
-        if (m_worldid_bind_phase == WorldIdBindPhase::StableIdLatched &&
-            is_hex_world_id(m_worldid_latched_id))
-        {
-            if (lower_ascii(m_worldid_latched_id) == lower_ascii(candidate_world_id))
-            {
-                set_reason("stable_latched");
-                return true;
-            }
-            const auto now_log = std::chrono::steady_clock::now();
-            const auto block_reason = std::string{"existing_world_protection|"} + m_worldid_latched_id + "|" + candidate_world_id;
-            const bool should_log =
-                m_worldid_last_defer_reason != block_reason ||
-                m_worldid_last_defer_log.time_since_epoch().count() == 0 ||
-                (now_log - m_worldid_last_defer_log) >= std::chrono::seconds(3);
-            if (should_log)
-            {
-                log_line("[worldid] switch_blocked reason=existing_world_protection current=" +
-                         m_worldid_latched_id + " incoming=" + candidate_world_id);
-                m_worldid_last_defer_reason = block_reason;
-                m_worldid_last_defer_log = now_log;
-            }
-            set_reason("existing_world_protection");
-            return false;
-        }
-
-        if (m_worldid_bind_phase == WorldIdBindPhase::Unbound ||
-            lower_ascii(m_worldid_provisional_id) != lower_ascii(candidate_world_id))
-        {
-            m_worldid_bind_phase = WorldIdBindPhase::ProvisionalIdSeen;
-            m_worldid_provisional_id = candidate_world_id;
-            m_worldid_stability_seen_count = 1;
-            m_worldid_stability_last_observed = now;
-            log_line("[worldid] provisional_seen id=" + candidate_world_id + " source=" + candidate_source);
-            log_line("[worldid] stability_progress id=" + candidate_world_id +
-                     " seen=1 required=" + std::to_string(required_seen));
-            set_reason("provisional_seeded");
-            return false;
-        }
-
-        if (m_worldid_stability_last_observed.time_since_epoch().count() == 0 ||
-            (now - m_worldid_stability_last_observed) >= std::chrono::milliseconds(350))
-        {
-            m_worldid_stability_last_observed = now;
-            ++m_worldid_stability_seen_count;
-            log_line("[worldid] stability_progress id=" + candidate_world_id +
-                     " seen=" + std::to_string(m_worldid_stability_seen_count) +
-                     " required=" + std::to_string(required_seen));
-        }
-
-        if (m_worldid_stability_seen_count < required_seen)
-        {
-            const std::string defer_reason = generation_signal_recent ? "generation_in_progress" : "stability_window";
+        const auto maybe_log_defer = [&](const std::string& defer_reason) {
             const bool should_log =
                 m_worldid_last_defer_reason != defer_reason ||
                 m_worldid_last_defer_log.time_since_epoch().count() == 0 ||
-                (now - m_worldid_last_defer_log) >= std::chrono::seconds(3);
+                (now - m_worldid_last_defer_log) >= std::chrono::seconds(2);
             if (should_log)
             {
-                log_line("[worldid] latch_deferred reason=" + defer_reason);
+                log_line("[worldid] bind_deferred reason=" + defer_reason +
+                         " epoch=" + std::to_string(m_session_epoch));
                 m_worldid_last_defer_reason = defer_reason;
                 m_worldid_last_defer_log = now;
             }
-            set_reason(defer_reason);
+        };
+
+        if (!m_role_lock_acquired)
+        {
+            maybe_log_defer("role_not_locked");
+            return false;
+        }
+        if (!m_session_ready_latched)
+        {
+            maybe_log_defer("session_ready_not_latched");
             return false;
         }
 
+        std::string bound_world_id{};
+        std::string bound_source{};
+        if (!try_resolve_worldid_for_ready_bind(&bound_world_id, &bound_source) || !is_hex_world_id(bound_world_id))
+        {
+            maybe_log_defer("no_definitive_worldid_candidate");
+            return false;
+        }
+
+        if (is_hex_world_id(m_worldid_latched_id) && lower_ascii(m_worldid_latched_id) != lower_ascii(bound_world_id))
+        {
+            log_line("[worldid] change_ignored reason=immutable_after_ready_lock current=" + m_worldid_latched_id +
+                     " incoming=" + bound_world_id +
+                     " epoch=" + std::to_string(m_session_epoch));
+            bound_world_id = m_worldid_latched_id;
+            bound_source = "existing_latched_immutable";
+        }
+
         m_worldid_bind_phase = WorldIdBindPhase::StableIdLatched;
-        m_worldid_latched_id = candidate_world_id;
+        m_worldid_latched_id = bound_world_id;
+        m_worldid_provisional_id = bound_world_id;
+        m_worldid_stability_seen_count = 1;
+        m_worldid_stability_last_observed = now;
         m_worldid_generation_in_progress = false;
         m_worldid_last_defer_reason.clear();
         m_worldid_last_defer_log = {};
-        log_line("[worldid] stable_latched id=" + candidate_world_id +
-                 " epoch=" + std::to_string(m_session_epoch) +
-                 " reason=session_ready_consensus");
-        set_reason("stable_latched");
+
+        m_worldid_bound_for_epoch = true;
+        m_worldid_bound_epoch = m_session_epoch;
+        m_worldid_bound_source = bound_source;
+        m_world_bound_resumed_ops.clear();
+
+        log_line("[worldid] worldid_bound_once epoch=" + std::to_string(m_session_epoch) +
+                 " worldId=" + bound_world_id +
+                 " source=" + bound_source +
+                 " reason=" + reason);
         return true;
+    }
+
+    auto SignTextMod::is_world_bound_operation_allowed(const std::string& op, std::string* out_reason) -> bool
+    {
+        const auto set_reason = [&](const std::string& reason) {
+            if (out_reason)
+            {
+                *out_reason = reason;
+            }
+        };
+        if (is_dedicated_runtime_process())
+        {
+            set_reason("dedicated_runtime");
+            return true;
+        }
+
+        std::string defer_reason{};
+        if (!m_role_lock_acquired)
+        {
+            defer_reason = "role_not_locked";
+        }
+        else if (!m_session_ready_latched)
+        {
+            defer_reason = "session_ready_not_latched";
+        }
+        else if (!is_worldid_bound_for_current_epoch())
+        {
+            defer_reason = "worldid_not_bound";
+        }
+        else if (!is_hex_world_id(m_worldid_latched_id))
+        {
+            defer_reason = "worldid_not_hex";
+        }
+
+        if (defer_reason.empty())
+        {
+            set_reason("allowed");
+            return true;
+        }
+
+        set_reason(defer_reason);
+        const auto now = std::chrono::steady_clock::now();
+        auto& state = m_world_bound_defer_logs_by_op[op];
+        const bool should_log =
+            state.reason != defer_reason ||
+            state.last_log.time_since_epoch().count() == 0 ||
+            (now - state.last_log) >= std::chrono::seconds(5);
+        if (should_log)
+        {
+            log_line("[session] world_bound_operation_deferred op=" + op +
+                     " reason=" + defer_reason +
+                     " epoch=" + std::to_string(m_session_epoch) +
+                     " runtimeRole=" + m_runtime_role);
+            state.reason = defer_reason;
+            state.last_log = now;
+        }
+        return false;
+    }
+
+    auto SignTextMod::note_world_bound_operation_resumed(const std::string& op) -> void
+    {
+        if (!m_world_bound_resumed_ops.insert(op).second)
+        {
+            return;
+        }
+        log_line("[session] world_bound_operation_resumed op=" + op +
+                 " epoch=" + std::to_string(m_session_epoch) +
+                 " worldId=" + m_worldid_latched_id);
+    }
+
+    auto SignTextMod::is_world_id_latched_for_authoritative_localclient_bind(std::string* out_reason) -> bool
+    {
+        const bool ok = bind_worldid_for_epoch_if_ready("compat_bind_check");
+        if (out_reason)
+        {
+            *out_reason = ok ? "stable_latched" : "not_latched";
+        }
+        return ok;
     }
 
     auto SignTextMod::tick_r5_readiness_markers() -> void
@@ -13041,49 +13154,41 @@ namespace WindroseTextSigns
                     }
                 }
 
-                std::string world_id = is_hex_world_id(m_worldid_latched_id) ? m_worldid_latched_id : m_world_folder_id;
-                if (!is_hex_world_id(world_id) && !profile_root.empty())
+                const std::string pending_world_id = "pending-world";
+                std::filesystem::path startup_root{};
+                if (!profile_root.empty())
                 {
-                    if (auto chosen = choose_world_id_for_profile(profile_root); chosen.has_value())
-                    {
-                        world_id = *chosen;
-                    }
+                    startup_root = profile_root / "WindroseTextSigns" / "StartupCache";
                 }
-                if (!is_hex_world_id(world_id))
+                else
                 {
-                    world_id = "unknown-world";
+                    startup_root = m_mod_root / "Cache" / "StartupCache";
                 }
 
                 if (start_signal == "client_readytoplay_to_verifyingcoopconnection")
                 {
-                    const auto cache_base = !profile_root.empty()
-                        ? profile_root / "WindroseTextSigns"
-                        : m_mod_root / "Cache";
                     set_sidecar_route(
-                        cache_base / "RemoteCache" / world_id,
+                        startup_root / "RemoteClient",
                         "RemoteClient",
-                        "RemoteClientCache",
+                        "RemoteClientStartupCache",
                         "ServerAuthoritativePendingBridge",
-                        "cache",
+                        "startup-cache",
                         false,
                         profile_root,
-                        world_id,
+                        pending_world_id,
                         "definitive_start_signal");
                 }
                 else
                 {
-                    const auto data_root = !profile_root.empty()
-                        ? profile_root / "WindroseTextSigns" / world_id
-                        : m_mod_root / "Cache" / "LocalAuthoritative" / world_id;
                     set_sidecar_route(
-                        data_root,
+                        startup_root / "LocalClient",
                         "LocalClient",
-                        profile_root.empty() ? "LocalProfileAuthoritativeFallbackModRoot" : "LocalProfileAuthoritative",
+                        "LocalClientAuthoritativeStartupCache",
                         "LocalClientSoloOrHostedAuthoritative",
-                        profile_root.empty() ? "authoritative-fallback" : "authoritative",
+                        "authoritative-startup-cache",
                         true,
                         profile_root,
-                        world_id,
+                        pending_world_id,
                         "definitive_start_signal");
                 }
                 configure_bridge_role("definitive_start_signal");
@@ -13092,7 +13197,7 @@ namespace WindroseTextSigns
                          " runtimeRole=" + m_runtime_role +
                          " bridgeRole=" + bridge_role_name(m_bridge_role) +
                          " authoritative=" + std::string{m_sidecar_authoritative ? "true" : "false"} +
-                         " worldId=" + world_id);
+                         " worldId=" + pending_world_id);
             };
 
             std::string definitive_start_signal{};
@@ -14028,6 +14133,11 @@ namespace WindroseTextSigns
         m_worldid_generation_in_progress = false;
         m_worldid_last_defer_reason.clear();
         m_worldid_last_defer_log = {};
+        m_worldid_bound_for_epoch = false;
+        m_worldid_bound_epoch = 0;
+        m_worldid_bound_source.clear();
+        m_world_bound_defer_logs_by_op.clear();
+        m_world_bound_resumed_ops.clear();
         m_definitive_session_start_candidate_active = false;
         m_definitive_session_start_candidate_signal.clear();
         m_definitive_session_start_candidate_world_hint.clear();
@@ -14970,11 +15080,27 @@ namespace WindroseTextSigns
                         trace_behavior_sm("session_ready_latched",
                                           "epoch=" + std::to_string(m_session_epoch) +
                                           " world=" + (m_session_ready_world_id.empty() ? "unknown" : m_session_ready_world_id));
+                        if (bind_worldid_for_epoch_if_ready("ready_latch"))
+                        {
+                            if (controller_actor)
+                            {
+                                configure_sidecar_for_actor(controller_actor, m_session_ready_world_id);
+                            }
+                        }
                     }
                 }
             }
             if (m_session_ready_latched)
             {
+                if (bind_worldid_for_epoch_if_ready("ready_latch_followup"))
+                {
+                    auto* controller = try_get_primary_player_controller();
+                    auto* controller_actor = controller && controller->IsA(AActor::StaticClass()) ? Cast<AActor>(controller) : nullptr;
+                    if (controller_actor)
+                    {
+                        configure_sidecar_for_actor(controller_actor, m_session_ready_world_id);
+                    }
+                }
                 maybe_prewarm_phase7_umg_editor();
             }
         }
