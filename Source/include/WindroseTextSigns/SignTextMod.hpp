@@ -275,8 +275,18 @@ namespace WindroseTextSigns
         auto handle_bridge_server_clear(const std::unordered_map<std::string, std::string>& fields) -> void;
         auto handle_bridge_client_upsert(const std::unordered_map<std::string, std::string>& fields) -> void;
         auto handle_bridge_client_clear(const std::unordered_map<std::string, std::string>& fields) -> void;
+        auto is_definitive_ready_signal_observed(
+            std::string* out_signal = nullptr,
+            std::string* out_reason = nullptr) const -> bool;
         auto is_hosted_client_authority_context() const -> bool;
         auto is_hosted_server_relay_context() const -> bool;
+        auto ensure_hosted_client_authority_route(const std::string& reason) -> bool;
+        auto send_hosted_authority_payload_to_server(
+            const std::string& payload,
+            const std::string& type,
+            const std::string& stable_id,
+            const std::string& world_id,
+            const std::string& reason) -> bool;
         auto ensure_hosted_server_authority_route(const std::string& reason) -> bool;
         auto send_hosted_server_control_message(const std::string& type, const std::string& reason) -> bool;
         auto relay_payload_to_hosted_authority(
@@ -393,7 +403,10 @@ namespace WindroseTextSigns
         std::string m_bridge_snapshot_id{};
         std::unordered_set<std::string> m_bridge_snapshot_seen_keys{};
         std::unordered_map<std::string, std::chrono::steady_clock::time_point> m_bridge_pending_request_keys{};
+        bool m_hosted_authority_route_active{false};
         bool m_hosted_server_authority_route_configured{false};
+        bool m_hosted_server_cache_initialized{false};
+        uint64_t m_hosted_server_cache_revision{0};
         std::chrono::steady_clock::time_point m_hosted_server_next_hello{};
         std::chrono::steady_clock::time_point m_hosted_server_next_resync_request{};
         bool m_server_role_classification_pending{false};
@@ -584,6 +597,11 @@ namespace WindroseTextSigns
         bool m_hosted_ready_datakeeper_seen{false};
         bool m_hosted_ready_hide_loading_seen{false};
         bool m_hosted_ready_sequence_complete{false};
+        bool m_def_ready_hide_loading_datakeeper_seen{false};
+        bool m_def_ready_hide_loading_coopproxy_wait_seen{false};
+        bool m_def_ready_hosted_secondary_verifying_seen{false};
+        bool m_def_ready_hosted_secondary_waiting_island_ready_seen{false};
+        bool m_def_ready_server_waiting_client_ready_seen{false};
         bool m_hosted_post_ready_reconcile_done{false};
         uint32_t m_consecutive_empty_label_scans{0};
         bool m_restore_scan_has_seen_live_labels{false};
