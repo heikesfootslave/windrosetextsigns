@@ -267,6 +267,16 @@ namespace WindroseTextSigns
         auto handle_bridge_server_clear(const std::unordered_map<std::string, std::string>& fields) -> void;
         auto handle_bridge_client_upsert(const std::unordered_map<std::string, std::string>& fields) -> void;
         auto handle_bridge_client_clear(const std::unordered_map<std::string, std::string>& fields) -> void;
+        auto is_hosted_client_authority_context() const -> bool;
+        auto is_hosted_server_relay_context() const -> bool;
+        auto ensure_hosted_server_authority_route(const std::string& reason) -> bool;
+        auto send_hosted_server_control_message(const std::string& type, const std::string& reason) -> bool;
+        auto relay_payload_to_hosted_authority(
+            const std::string& payload,
+            const std::string& type,
+            const std::string& stable_id,
+            const std::string& world_id,
+            const std::string& reason) -> bool;
         auto server_has_label_stable_id(const std::string& stable_id) -> bool;
         auto reconcile_bridge_snapshot(const std::string& reason) -> void;
         auto write_recovery_candidate(
@@ -375,6 +385,9 @@ namespace WindroseTextSigns
         std::string m_bridge_snapshot_id{};
         std::unordered_set<std::string> m_bridge_snapshot_seen_keys{};
         std::unordered_map<std::string, std::chrono::steady_clock::time_point> m_bridge_pending_request_keys{};
+        bool m_hosted_server_authority_route_configured{false};
+        std::chrono::steady_clock::time_point m_hosted_server_next_hello{};
+        std::chrono::steady_clock::time_point m_hosted_server_next_resync_request{};
 
         std::atomic<bool> m_hotkey_requested{false};
         std::atomic<bool> m_native_transport_inventory_requested{false};
