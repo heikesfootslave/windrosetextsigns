@@ -10303,7 +10303,6 @@ namespace WindroseTextSigns
             return;
         }
 
-        constexpr auto k_dedicated_window = std::chrono::seconds(6);
         const bool hosted_chain_complete =
             m_server_role_signal_executable_seen &&
             m_server_role_signal_hosted_ini_seen &&
@@ -10311,13 +10310,16 @@ namespace WindroseTextSigns
         const bool dedicated_ready =
             m_server_role_signal_executable_seen &&
             m_server_role_signal_host_ready_seen &&
-            !m_server_role_signal_hosted_ini_seen &&
-            m_server_role_classification_started.time_since_epoch().count() != 0 &&
-            (now - m_server_role_classification_started) >= k_dedicated_window;
+            !m_server_role_signal_hosted_ini_seen;
 
         if (hosted_chain_complete)
         {
             apply_server_role_classification(true, "server_role_classification_hosted");
+            if (!m_session_window_open || !m_definitive_session_start_seen)
+            {
+                reset_session_state("definitive_session_start");
+                open_session_window("hosted_server_role_chain_complete", m_server_role_log_path, m_server_role_window_end_offset);
+            }
             configure_bridge_role("server_role_classification_hosted");
             maybe_acquire_role_lock(now, "server_role_classification_hosted");
             log_line("[role] server_role_classification_hosted epoch=" + std::to_string(m_session_epoch) +
@@ -10348,6 +10350,11 @@ namespace WindroseTextSigns
         if (dedicated_ready)
         {
             apply_server_role_classification(false, "server_role_classification_dedicated");
+            if (!m_session_window_open || !m_definitive_session_start_seen)
+            {
+                reset_session_state("definitive_session_start");
+                open_session_window("dedicated_server_role_chain_complete", m_server_role_log_path, m_server_role_window_end_offset);
+            }
             configure_bridge_role("server_role_classification_dedicated");
             maybe_acquire_role_lock(now, "server_role_classification_dedicated");
             log_line("[role] server_role_classification_dedicated epoch=" + std::to_string(m_session_epoch) +
@@ -10385,7 +10392,7 @@ namespace WindroseTextSigns
             }
             else if (m_server_role_signal_executable_seen && m_server_role_signal_host_ready_seen && !m_server_role_signal_hosted_ini_seen)
             {
-                signal = "awaiting_dedicated_window";
+                signal = "awaiting_chain_resolution";
             }
             log_line("[role] server_role_lock_skipped_pending_evidence epoch=" + std::to_string(m_session_epoch) +
                      " runtimeRole=" + m_runtime_role +
@@ -10740,7 +10747,12 @@ namespace WindroseTextSigns
         const std::chrono::steady_clock::time_point now,
         const std::string& reason) -> void
     {
+        (void)now;
         if (m_role_lock_acquired)
+        {
+            return;
+        }
+        if (!m_session_window_open || !m_definitive_session_start_seen)
         {
             return;
         }
@@ -10757,15 +10769,6 @@ namespace WindroseTextSigns
         if (!runtime_stable || !bridge_stable)
         {
             return;
-        }
-        if (!is_dedicated_runtime_process() && !m_session_ready_latched)
-        {
-            std::string definitive_signal{};
-            std::string definitive_reason{};
-            if (!is_definitive_ready_signal_observed(&definitive_signal, &definitive_reason))
-            {
-                return;
-            }
         }
 
         m_role_lock_acquired = true;
@@ -13023,6 +13026,75 @@ namespace WindroseTextSigns
                 maybe_observe_server_role_signal(line_lower, line_start, line_end);
             }
 
+            const auto commit_client_role_from_start_signal = [&](const std::string& start_signal) {
+                std::filesystem::path profile_root{};
+                if (!m_save_profile_root.empty() && std::filesystem::exists(m_save_profile_root))
+                {
+                    profile_root = std::filesystem::path{m_save_profile_root};
+                }
+                else
+                {
+                    const auto profile_roots = collect_local_client_save_profile_roots();
+                    if (!profile_roots.empty())
+                    {
+                        profile_root = profile_roots.front();
+                    }
+                }
+
+                std::string world_id = is_hex_world_id(m_worldid_latched_id) ? m_worldid_latched_id : m_world_folder_id;
+                if (!is_hex_world_id(world_id) && !profile_root.empty())
+                {
+                    if (auto chosen = choose_world_id_for_profile(profile_root); chosen.has_value())
+                    {
+                        world_id = *chosen;
+                    }
+                }
+                if (!is_hex_world_id(world_id))
+                {
+                    world_id = "unknown-world";
+                }
+
+                if (start_signal == "client_readytoplay_to_verifyingcoopconnection")
+                {
+                    const auto cache_base = !profile_root.empty()
+                        ? profile_root / "WindroseTextSigns"
+                        : m_mod_root / "Cache";
+                    set_sidecar_route(
+                        cache_base / "RemoteCache" / world_id,
+                        "RemoteClient",
+                        "RemoteClientCache",
+                        "ServerAuthoritativePendingBridge",
+                        "cache",
+                        false,
+                        profile_root,
+                        world_id,
+                        "definitive_start_signal");
+                }
+                else
+                {
+                    const auto data_root = !profile_root.empty()
+                        ? profile_root / "WindroseTextSigns" / world_id
+                        : m_mod_root / "Cache" / "LocalAuthoritative" / world_id;
+                    set_sidecar_route(
+                        data_root,
+                        "LocalClient",
+                        profile_root.empty() ? "LocalProfileAuthoritativeFallbackModRoot" : "LocalProfileAuthoritative",
+                        "LocalClientSoloOrHostedAuthoritative",
+                        profile_root.empty() ? "authoritative-fallback" : "authoritative",
+                        true,
+                        profile_root,
+                        world_id,
+                        "definitive_start_signal");
+                }
+                configure_bridge_role("definitive_start_signal");
+                maybe_acquire_role_lock(now, "definitive_start_signal");
+                log_line("[role] definitive_start_role_lock signal=" + start_signal +
+                         " runtimeRole=" + m_runtime_role +
+                         " bridgeRole=" + bridge_role_name(m_bridge_role) +
+                         " authoritative=" + std::string{m_sidecar_authoritative ? "true" : "false"} +
+                         " worldId=" + world_id);
+            };
+
             std::string definitive_start_signal{};
             if (!server_runtime_process)
             {
@@ -13032,18 +13104,18 @@ namespace WindroseTextSigns
                 }
                 else if (line_lower.find("client. change state readytoplay => verifyingcoopconnection") != std::string::npos)
                 {
-                    definitive_start_signal = "client_readytoplay_to_verifyingcoopconnection";
+                    const bool hosted_client_already_locked =
+                        m_role_lock_acquired &&
+                        lower_ascii(m_runtime_role) == "localclient" &&
+                        lower_ascii(m_definitive_session_start_signal) == "client_readytoplay_to_startcoophostserver";
+                    if (!hosted_client_already_locked)
+                    {
+                        definitive_start_signal = "client_readytoplay_to_verifyingcoopconnection";
+                    }
                 }
                 else if (line_lower.find("client. change state readytoplay => startcoophostserver") != std::string::npos)
                 {
                     definitive_start_signal = "client_readytoplay_to_startcoophostserver";
-                }
-            }
-            else
-            {
-                if (line_lower.find("host server is ready for owner to connect") != std::string::npos)
-                {
-                    definitive_start_signal = "server_host_ready_for_owner";
                 }
             }
             if (!definitive_start_signal.empty() &&
@@ -13052,6 +13124,7 @@ namespace WindroseTextSigns
                 log_line("[session] definitive_start_detected signal=" + definitive_start_signal + " worldHint=none");
                 reset_session_state("definitive_session_start");
                 open_session_window(definitive_start_signal, m_destroy_signal_log_path, line_end);
+                commit_client_role_from_start_signal(definitive_start_signal);
                 log_line("[session] reset_extended_clears applied=true");
             }
 
@@ -13831,245 +13904,32 @@ namespace WindroseTextSigns
 
     auto SignTextMod::tick_localclient_role_resolution() -> void
     {
-        const auto log_blocked = [&](const std::string& reason) {
-            if (m_pending_resolution_last_block_reason != reason)
-            {
-                m_pending_resolution_last_block_reason = reason;
-                log_line("[role] pending_resolution_blocked reason=" + reason +
-                         " runtimeRole=" + m_runtime_role +
-                         " authorityMode=" + m_authority_mode);
-                trace_behavior_sm("role_pending_blocked",
-                                  "reason=" + reason +
-                                  " runtimeRole=" + m_runtime_role +
-                                  " authorityMode=" + m_authority_mode);
-            }
-        };
         if (is_dedicated_runtime_process())
         {
             return;
         }
-        const auto runtime_role_lower = lower_ascii(m_runtime_role);
-        if (runtime_role_lower != "localclientpending")
+        if (!m_role_lock_acquired)
         {
-            m_pending_role_watchdog_started = {};
-            m_pending_role_watchdog_logged = false;
-            m_pending_resolution_last_block_reason.clear();
-            m_pending_resolution_last_controller_signature.clear();
             return;
         }
-        if (!m_session_ready_latched)
+        const auto runtime_role_lower = lower_ascii(m_runtime_role);
+        if (runtime_role_lower != "localclient")
         {
-            std::string definitive_signal{};
-            std::string definitive_reason{};
-            if (!is_definitive_ready_signal_observed(&definitive_signal, &definitive_reason))
-            {
-                log_blocked("session_ready_not_latched");
-                return;
-            }
+            return;
         }
 
         auto* controller = try_get_primary_player_controller();
         if (!controller || !is_uobject_reflection_safe(controller) || !controller->IsA(AActor::StaticClass()))
         {
-            log_blocked("no_valid_player_controller");
             return;
         }
         auto* controller_actor = Cast<AActor>(controller);
-        auto* world = controller_actor ? controller_actor->GetWorld() : nullptr;
-        if (!world)
+        if (!controller_actor)
         {
-            log_blocked("controller_world_unavailable");
             return;
         }
-
-        UObject* controlled_pawn = get_controller_pawn_property_only(controller);
-        const bool pawn_valid = controlled_pawn != nullptr;
-
-        const auto world_name = lower_ascii(narrow_ascii(world->GetName()));
-        if (world_name.empty() ||
-            world_name == "none" ||
-            world_name.find("transition") != std::string::npos ||
-            world_name.find("lobby") != std::string::npos ||
-            world_name.find("entrance") != std::string::npos)
-        {
-            log_blocked("controller_world_transitional");
-            return;
-        }
-
-        int controller_score = 0;
-        bool is_local_controller = false;
-        if (invoke_bool_return_no_param(
-                controller,
-                STR("IsLocalController"),
-                STR("/Script/Engine.Controller:IsLocalController"),
-                is_local_controller) &&
-            is_local_controller)
-        {
-            controller_score += 200;
-        }
-        if (pawn_valid)
-        {
-            controller_score += 120;
-        }
-        if (world_name.find("lobby") != std::string::npos ||
-            world_name.find("transition") != std::string::npos ||
-            world_name.find("entrance") != std::string::npos)
-        {
-            controller_score -= 120;
-        }
-        else
-        {
-            controller_score += 60;
-        }
-
-        const auto authority_mode_lower = lower_ascii(m_authority_mode);
-        const bool authority_source_resolved = authority_mode_lower != "worldauthoritypending";
-        const bool hosted_ready_resolved = m_hosted_ready_world_client_seen &&
-            m_hosted_ready_player_ready_seen &&
-            m_hosted_ready_datakeeper_seen &&
-            m_hosted_ready_hide_loading_seen;
-        bool can_resolve_role = authority_source_resolved || hosted_ready_resolved;
-        const auto now = std::chrono::steady_clock::now();
-
-        const auto controller_signature =
-            world_name + "|score=" + std::to_string(controller_score) +
-            "|pawn=" + std::string{pawn_valid ? "1" : "0"};
-        if (m_pending_resolution_last_controller_signature != controller_signature)
-        {
-            m_pending_resolution_last_controller_signature = controller_signature;
-            log_line("[controller] candidate score=" + std::to_string(controller_score) +
-                     " world=" + world_name +
-                     " pawnValid=" + std::string{pawn_valid ? "true" : "false"} +
-                     " selected=true");
-        }
-
-        if (!can_resolve_role)
-        {
-            log_blocked("authority_or_hosted_ready_not_resolved");
-            if (m_hosted_ready_hide_loading_seen &&
-                m_pending_role_watchdog_started.time_since_epoch().count() == 0)
-            {
-                m_pending_role_watchdog_started = now;
-            }
-            if (!m_pending_role_watchdog_logged &&
-                m_pending_role_watchdog_started.time_since_epoch().count() != 0 &&
-                (now - m_pending_role_watchdog_started) >= std::chrono::seconds(20))
-            {
-                m_pending_role_watchdog_logged = true;
-                log_line("[role] pending_watchdog runtimeRole=" + m_runtime_role +
-                         " authorityMode=" + m_authority_mode +
-                         " world=" + world_name +
-                         " hideLoadingSeen=true");
-            }
-            if (m_pending_role_watchdog_logged)
-            {
-                can_resolve_role = true;
-                log_line("[role] pending_resolution_attempt runtimeRole=" + m_runtime_role +
-                         " authorityMode=" + m_authority_mode +
-                         " hostedReady=false world=" + world_name +
-                         " forcedByWatchdog=true");
-                trace_behavior_sm("role_pending_attempt",
-                                  "runtimeRole=" + m_runtime_role +
-                                  " authorityMode=" + m_authority_mode +
-                                  " hostedReady=false world=" + world_name +
-                                  " forcedByWatchdog=true");
-            }
-            else
-            {
-                return;
-            }
-        }
-
-        if (!(m_pending_role_watchdog_logged && !hosted_ready_resolved && !authority_source_resolved))
-        {
-            log_line("[role] pending_resolution_attempt runtimeRole=" + m_runtime_role +
-                     " authorityMode=" + m_authority_mode +
-                     " hostedReady=" + std::string{hosted_ready_resolved ? "true" : "false"} +
-                     " world=" + world_name);
-            trace_behavior_sm("role_pending_attempt",
-                              "runtimeRole=" + m_runtime_role +
-                              " authorityMode=" + m_authority_mode +
-                              " hostedReady=" + std::string{hosted_ready_resolved ? "true" : "false"} +
-                              " world=" + world_name);
-        }
-        m_pending_resolution_last_block_reason.clear();
-
-        const auto controller_world_id = build_world_id_for_actor(controller_actor);
-        std::string worldid_latch_reason{};
-        if (!is_world_id_latched_for_authoritative_localclient_bind(&worldid_latch_reason))
-        {
-            log_blocked("worldid_latch_pending_" + worldid_latch_reason);
-            return;
-        }
-
-        const auto latched_world_id = m_worldid_latched_id;
-        configure_sidecar_for_actor(controller_actor, latched_world_id);
-        if (lower_ascii(m_runtime_role) == "localclient")
-        {
-            m_pending_role_watchdog_started = {};
-            m_pending_role_watchdog_logged = false;
-            log_line("[role] resolved runtimeRole=" + m_runtime_role + " reason=session_ready");
-            log_line("[role] pending_resolution_success runtimeRole=" + m_runtime_role +
-                     " authorityMode=" + m_authority_mode +
-                     " bridgeRole=" + bridge_role_name(m_bridge_role) +
-                     " worldId=" + latched_world_id);
-            trace_behavior_sm("role_pending_success",
-                              "runtimeRole=" + m_runtime_role +
-                              " authorityMode=" + m_authority_mode +
-                              " bridgeRole=" + bridge_role_name(m_bridge_role) +
-                              " worldId=" + latched_world_id +
-                              " path=existing_localclient");
-            return;
-        }
-
-        // Fallback for hosted/local churn where authority probing lags behind readiness.
-        std::filesystem::path profile_root{};
-        if (!m_save_profile_root.empty() && std::filesystem::exists(m_save_profile_root))
-        {
-            profile_root = std::filesystem::path{m_save_profile_root};
-        }
-        else
-        {
-            const auto profile_roots = collect_local_client_save_profile_roots();
-            if (!profile_roots.empty())
-            {
-                profile_root = profile_roots.front();
-            }
-        }
-        auto world_folder_id = m_worldid_latched_id;
-        if (!is_hex_world_id(world_folder_id))
-        {
-            log_blocked("worldid_latch_invalid_for_fallback_route");
-            return;
-        }
-        const auto data_root = !profile_root.empty()
-            ? profile_root / "WindroseTextSigns" / world_folder_id
-            : m_mod_root / "Cache" / "LocalAuthoritative" / world_folder_id;
-        set_sidecar_route(
-            data_root,
-            "LocalClient",
-            profile_root.empty() ? "LocalProfileAuthoritativeFallbackModRoot" : "LocalProfileAuthoritative",
-            "LocalClientSoloOrHostedAuthoritative",
-            profile_root.empty() ? "authoritative-fallback" : "authoritative",
-            true,
-            profile_root,
-            world_folder_id,
-            "pending_role_resolution");
-        configure_bridge_role("pending_role_resolution");
-        maybe_acquire_role_lock(now, "pending_role_resolution");
-        log_line("[role] resolved runtimeRole=" + m_runtime_role + " reason=session_ready");
-        log_line("[role] pending_resolution_success runtimeRole=" + m_runtime_role +
-                 " authorityMode=" + m_authority_mode +
-                 " bridgeRole=" + bridge_role_name(m_bridge_role) +
-                 " worldId=" + world_folder_id);
-        trace_behavior_sm("role_pending_success",
-                          "runtimeRole=" + m_runtime_role +
-                          " authorityMode=" + m_authority_mode +
-                          " bridgeRole=" + bridge_role_name(m_bridge_role) +
-                          " worldId=" + world_folder_id +
-                          " path=fallback_route_set");
-        m_pending_role_watchdog_started = {};
-        m_pending_role_watchdog_logged = false;
+        const auto actor_world_id = build_world_id_for_actor(controller_actor);
+        configure_sidecar_for_actor(controller_actor, actor_world_id);
     }
 
     auto SignTextMod::is_session_window_active_for_gameplay(std::string* out_reason) const -> bool
@@ -14326,7 +14186,9 @@ namespace WindroseTextSigns
             return false;
         }
 
-        if (start_signal == "server_host_ready_for_owner")
+        if (start_signal == "server_host_ready_for_owner" ||
+            start_signal == "hosted_server_role_chain_complete" ||
+            start_signal == "dedicated_server_role_chain_complete")
         {
             if (m_def_ready_server_waiting_client_ready_seen)
             {
@@ -14355,43 +14217,6 @@ namespace WindroseTextSigns
         if (!is_session_window_active_for_gameplay(&window_reason))
         {
             set_reason(window_reason);
-            return false;
-        }
-
-        if (is_dedicated_runtime_process())
-        {
-            set_reason("dedicated_runtime");
-            return true;
-        }
-
-        auto* controller = try_get_primary_player_controller();
-        auto* controller_actor = controller && controller->IsA(AActor::StaticClass()) ? Cast<AActor>(controller) : nullptr;
-        if (!controller_actor)
-        {
-            set_reason("no_valid_player_controller");
-            return false;
-        }
-        auto* world = controller_actor->GetWorld();
-        if (!world)
-        {
-            set_reason("controller_world_unavailable");
-            return false;
-        }
-        const auto world_name = lower_ascii(narrow_ascii(world->GetName()));
-        if (world_name.empty() ||
-            world_name == "none" ||
-            world_name.find("transition") != std::string::npos ||
-            world_name.find("lobby") != std::string::npos ||
-            world_name.find("entrance") != std::string::npos)
-        {
-            set_reason("controller_world_transition");
-            return false;
-        }
-
-        UObject* controlled_pawn = get_controller_pawn_property_only(controller);
-        if (!controlled_pawn)
-        {
-            set_reason("controlled_pawn_missing");
             return false;
         }
 
@@ -14433,11 +14258,6 @@ namespace WindroseTextSigns
         {
             return;
         }
-        if (!m_hosted_ready_sequence_complete)
-        {
-            return;
-        }
-
         uint32_t matched_labels = 0;
         uint32_t restore_calls = 0;
         UObjectGlobals::ForEachUObject([&](UObject* object, int32, int32) {
@@ -15119,25 +14939,15 @@ namespace WindroseTextSigns
                 std::string definitive_signal{};
                 std::string definitive_reason{};
                 const bool definitive_ready = is_definitive_ready_signal_observed(&definitive_signal, &definitive_reason);
-                log_line("[session] ready_latch_candidate role=" + m_runtime_role +
-                         " signal=" + (definitive_signal.empty() ? "none" : definitive_signal) +
-                         " definitive=" + std::string{definitive_ready ? "true" : "false"} +
-                         " epoch=" + std::to_string(m_session_epoch));
                 if (!m_role_lock_acquired)
                 {
                     log_line("[session] ready_latch_blocked reason=role_not_locked role=" + m_runtime_role +
                              " epoch=" + std::to_string(m_session_epoch));
-                    tick_localclient_role_resolution();
                 }
-                if (!definitive_ready)
+                else if (!definitive_ready)
                 {
                     log_line("[session] ready_latch_blocked reason=no_definitive_signal role=" + m_runtime_role +
                              " detail=" + definitive_reason +
-                             " epoch=" + std::to_string(m_session_epoch));
-                }
-                else if (!m_role_lock_acquired)
-                {
-                    log_line("[session] ready_latch_blocked reason=role_not_locked role=" + m_runtime_role +
                              " epoch=" + std::to_string(m_session_epoch));
                 }
                 else
@@ -15162,10 +14972,6 @@ namespace WindroseTextSigns
                                           " world=" + (m_session_ready_world_id.empty() ? "unknown" : m_session_ready_world_id));
                     }
                 }
-            }
-            if (m_session_ready_latched && lower_ascii(m_runtime_role) == "localclientpending")
-            {
-                tick_localclient_role_resolution();
             }
             if (m_session_ready_latched)
             {
@@ -15240,15 +15046,7 @@ namespace WindroseTextSigns
                     }
                     if ((now - m_world_inactive_since) >= k_world_inactive_reset_debounce)
                     {
-                        const bool client_runtime = !is_dedicated_runtime_process();
-                        if (client_runtime && !m_phase7_definitive_teardown_armed)
-                        {
-                            log_line("[session] reset_ignored reason=non_definitive_world_inactive");
-                        }
-                        else
-                        {
-                            reset_session_state("world_inactive");
-                        }
+                        log_line("[session] reset_ignored reason=non_definitive_world_inactive");
                         m_world_inactive_since = {};
                         m_locked_world_inactive_ignored_logged = false;
                     }
