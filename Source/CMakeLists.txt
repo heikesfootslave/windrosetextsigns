@@ -11,6 +11,9 @@ add_library(${TARGET} SHARED
 )
 
 target_include_directories(${TARGET} PRIVATE include)
+target_precompile_headers(${TARGET} PRIVATE
+    "$<$<COMPILE_LANGUAGE:CXX>:${CMAKE_CURRENT_SOURCE_DIR}/include/WindroseTextSigns/pch.hpp>"
+)
 
 if(TARGET UE4SS)
     target_link_libraries(${TARGET} PUBLIC UE4SS)
