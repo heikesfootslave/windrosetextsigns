@@ -250,22 +250,6 @@ namespace
         return value;
     }
 
-    auto fnv1a32_append(uint32_t seed, const char* data, size_t size) -> uint32_t
-    {
-        uint32_t hash = seed;
-        for (size_t i = 0; i < size; ++i)
-        {
-            hash ^= static_cast<uint8_t>(data[i]);
-            hash *= 16777619u;
-        }
-        return hash;
-    }
-
-    auto hash_string32(std::string_view value) -> uint32_t
-    {
-        return fnv1a32_append(2166136261u, value.data(), value.size());
-    }
-
     auto is_hex_world_id(const std::string& value) -> bool
     {
         if (value.size() != 32)
@@ -1490,10 +1474,22 @@ namespace
         const auto input_lines = split_lines_preserve_breaks(input_text);
         const bool has_explicit_line_breaks = (input_lines.size() > 1);
         const int explicit_rows = static_cast<int>(input_lines.size());
+        int input_total_chars = 0;
+        for (const auto& line : input_lines)
+        {
+            input_total_chars += static_cast<int>(line.size());
+        }
+
         bool found_valid = false;
-        int best_rows = 999;
-        float best_font = k_font_min;
-        int best_added_rows = 999;
+        AutoSizeResult best_valid{};
+        int best_valid_coverage = -1;
+        float best_valid_font = k_font_min;
+        int best_valid_added_rows = 999;
+
+        AutoSizeResult best_fallback{};
+        bool found_fallback = false;
+        int best_fallback_coverage = -1;
+        float best_fallback_font = k_font_min;
 
         if (input_lines.empty())
         {
@@ -1559,6 +1555,7 @@ namespace
 
             candidate.rows = static_cast<int>(rows.size());
             candidate.wrapped_text.clear();
+            int candidate_coverage_chars = 0;
             for (size_t i = 0; i < rows.size(); ++i)
             {
                 if (i > 0)
@@ -1566,55 +1563,104 @@ namespace
                     candidate.wrapped_text.push_back('\n');
                 }
                 candidate.wrapped_text += rows[i];
+                candidate_coverage_chars += static_cast<int>(rows[i].size());
             }
 
             const float vertical_usage = static_cast<float>(candidate.rows) * (font * k_line_step_factor);
-            if (candidate.truncated || candidate.rows < k_rows_min || candidate.rows > k_rows_max || vertical_usage > k_vertical_budget)
+            const bool candidate_valid =
+                !candidate.truncated &&
+                candidate.rows >= k_rows_min &&
+                candidate.rows <= k_rows_max &&
+                vertical_usage <= k_vertical_budget;
+
+            if (candidate_valid)
             {
-                best = candidate;
-                continue;
+                const int added_rows = std::max(0, candidate.rows - explicit_rows);
+                bool better_valid = false;
+                if (!found_valid)
+                {
+                    better_valid = true;
+                }
+                else if (candidate_coverage_chars > best_valid_coverage)
+                {
+                    better_valid = true;
+                }
+                else if (candidate_coverage_chars == best_valid_coverage && font > best_valid_font)
+                {
+                    better_valid = true;
+                }
+                else if (candidate_coverage_chars == best_valid_coverage && font == best_valid_font)
+                {
+                    if (has_explicit_line_breaks)
+                    {
+                        if (added_rows < best_valid_added_rows)
+                        {
+                            better_valid = true;
+                        }
+                        else if (added_rows == best_valid_added_rows && candidate.rows < best_valid.rows)
+                        {
+                            better_valid = true;
+                        }
+                    }
+                    else if (candidate.rows < best_valid.rows)
+                    {
+                        better_valid = true;
+                    }
+                }
+
+                if (better_valid)
+                {
+                    found_valid = true;
+                    best_valid = candidate;
+                    best_valid_coverage = candidate_coverage_chars;
+                    best_valid_font = font;
+                    best_valid_added_rows = added_rows;
+                }
             }
 
-            const int added_rows = std::max(0, candidate.rows - explicit_rows);
-            bool better = false;
-            if (!found_valid)
+            // Fallback candidate path (used only if no valid fit exists):
+            // keep as much text as possible, then prefer larger font.
+            bool better_fallback = false;
+            if (!found_fallback)
             {
-                better = true;
+                better_fallback = true;
             }
-            else if (!has_explicit_line_breaks)
+            else if (candidate_coverage_chars > best_fallback_coverage)
             {
-                if (candidate.rows < best_rows)
-                {
-                    better = true;
-                }
-                else if (candidate.rows == best_rows && font > best_font)
-                {
-                    better = true;
-                }
+                better_fallback = true;
             }
-            else
+            else if (candidate_coverage_chars == best_fallback_coverage && font > best_fallback_font)
             {
-                if (added_rows < best_added_rows)
+                better_fallback = true;
+            }
+            else if (candidate_coverage_chars == best_fallback_coverage && font == best_fallback_font)
+            {
+                const bool candidate_full_coverage = (candidate_coverage_chars >= input_total_chars);
+                const bool best_fallback_full_coverage = (best_fallback_coverage >= input_total_chars);
+                if (candidate_full_coverage && !best_fallback_full_coverage)
                 {
-                    better = true;
-                }
-                else if (added_rows == best_added_rows && font > best_font)
-                {
-                    better = true;
+                    better_fallback = true;
                 }
             }
 
-            if (better)
+            if (better_fallback)
             {
-                found_valid = true;
-                best = candidate;
-                best_rows = candidate.rows;
-                best_font = font;
-                best_added_rows = added_rows;
+                found_fallback = true;
+                best_fallback = candidate;
+                best_fallback_coverage = candidate_coverage_chars;
+                best_fallback_font = font;
             }
         }
 
-        if (!found_valid)
+        if (found_valid)
+        {
+            best = best_valid;
+        }
+        else if (found_fallback)
+        {
+            best = best_fallback;
+        }
+        else
         {
             best.font_size = k_font_min;
         }
@@ -3171,6 +3217,19 @@ namespace
         return found;
     }
 
+    auto get_controller_pawn_property_only(UObject* controller) -> UObject*
+    {
+        if (!controller || !is_uobject_reflection_safe(controller))
+        {
+            return nullptr;
+        }
+        if (auto* pawn = get_object_property_if_present(controller, "Pawn"); pawn)
+        {
+            return pawn;
+        }
+        return get_object_property_if_present(controller, "AcknowledgedPawn");
+    }
+
     auto invoke_set_object_value(UObject* context, const TCHAR* in_chain_name, const TCHAR* path_name, UObject* value) -> bool
     {
         auto* fn = find_function_by_chain_or_path(context, in_chain_name, path_name);
@@ -4254,821 +4313,6 @@ namespace WindroseTextSigns
         return fallback;
     }
 
-    auto SignTextMod::expand_env_tokens(std::string value) const -> std::string
-    {
-        if (value.empty())
-        {
-            return value;
-        }
-        const auto replace_all = [](std::string& input, std::string_view needle, const std::string& replacement) {
-            if (needle.empty())
-            {
-                return;
-            }
-            size_t pos = 0;
-            while ((pos = input.find(needle, pos)) != std::string::npos)
-            {
-                input.replace(pos, needle.size(), replacement);
-                pos += replacement.size();
-            }
-        };
-        const auto local_app_data = get_env_var("LOCALAPPDATA");
-        const auto user_profile = get_env_var("USERPROFILE");
-        replace_all(value, "%LOCALAPPDATA%", local_app_data);
-        replace_all(value, "%LocalAppData%", local_app_data);
-        replace_all(value, "$LOCALAPPDATA", local_app_data);
-        replace_all(value, "%USERPROFILE%", user_profile);
-        replace_all(value, "$USERPROFILE", user_profile);
-        return value;
-    }
-
-    auto SignTextMod::resolve_configured_log_path(std::string_view key, std::filesystem::path fallback) const -> std::filesystem::path
-    {
-        auto configured = trim_copy_ascii(config_string_value(key, ""));
-        if (!configured.empty())
-        {
-            configured = expand_env_tokens(configured);
-            std::error_code ec{};
-            auto candidate = std::filesystem::path{configured};
-            if (candidate.is_relative())
-            {
-                candidate = std::filesystem::absolute(candidate, ec);
-                if (ec)
-                {
-                    candidate = std::filesystem::path{configured};
-                }
-            }
-            return candidate;
-        }
-        return fallback;
-    }
-
-    auto SignTextMod::bootstrap_role_name(const BootstrapRole role) const -> std::string
-    {
-        switch (role)
-        {
-        case BootstrapRole::Solo: return "Solo";
-        case BootstrapRole::RemoteClient: return "RemoteClient";
-        case BootstrapRole::DedicatedServer: return "DedicatedServer";
-        case BootstrapRole::HostedClient: return "HostedClient";
-        case BootstrapRole::HostedServer: return "HostedServer";
-        default: return "Unknown";
-        }
-    }
-
-    auto SignTextMod::bootstrap_role_authoritative(const BootstrapRole role) const -> bool
-    {
-        switch (role)
-        {
-        case BootstrapRole::Solo:
-        case BootstrapRole::DedicatedServer:
-        case BootstrapRole::HostedClient:
-            return true;
-        case BootstrapRole::RemoteClient:
-        case BootstrapRole::HostedServer:
-        default:
-            return false;
-        }
-    }
-
-    auto SignTextMod::compute_log_source_identity(
-        const std::filesystem::path& path,
-        uintmax_t* out_size,
-        int64_t* out_write_ticks,
-        uint32_t* out_head_hash,
-        uint32_t* out_tail_hash) const -> bool
-    {
-        if (!out_size || !out_write_ticks || !out_head_hash || !out_tail_hash)
-        {
-            return false;
-        }
-        std::error_code ec{};
-        if (!std::filesystem::exists(path, ec) || ec)
-        {
-            return false;
-        }
-        const auto size = std::filesystem::file_size(path, ec);
-        if (ec)
-        {
-            return false;
-        }
-        const auto last_write = std::filesystem::last_write_time(path, ec);
-        if (ec)
-        {
-            return false;
-        }
-        std::ifstream in{path, std::ios::binary};
-        if (!in)
-        {
-            return false;
-        }
-        constexpr size_t k_probe_bytes = 1024;
-        std::string head{};
-        std::string tail{};
-        const size_t head_size = static_cast<size_t>(std::min<uintmax_t>(size, k_probe_bytes));
-        head.resize(head_size);
-        in.read(head.data(), static_cast<std::streamsize>(head.size()));
-        head.resize(static_cast<size_t>(std::max<std::streamsize>(0, in.gcount())));
-        if (size > k_probe_bytes)
-        {
-            in.clear();
-            in.seekg(static_cast<std::streamoff>(size - k_probe_bytes), std::ios::beg);
-            tail.resize(k_probe_bytes);
-            in.read(tail.data(), static_cast<std::streamsize>(tail.size()));
-            tail.resize(static_cast<size_t>(std::max<std::streamsize>(0, in.gcount())));
-        }
-        else
-        {
-            tail = head;
-        }
-        *out_size = size;
-        *out_write_ticks = static_cast<int64_t>(last_write.time_since_epoch().count());
-        *out_head_hash = hash_string32(head);
-        *out_tail_hash = hash_string32(tail);
-        return true;
-    }
-
-    auto SignTextMod::save_bootstrap_cursor_state() -> void
-    {
-        if (m_bootstrap_cursor_state_path.empty())
-        {
-            return;
-        }
-        const auto now = std::chrono::steady_clock::now();
-        if (m_bootstrap_cursor_state_last_write.time_since_epoch().count() != 0 &&
-            (now - m_bootstrap_cursor_state_last_write) < std::chrono::seconds(1))
-        {
-            return;
-        }
-        std::error_code ec{};
-        std::filesystem::create_directories(m_bootstrap_cursor_state_path.parent_path(), ec);
-        std::ostringstream out{};
-        out << "version=1\n";
-        const auto write_source = [&](const BootstrapLogSourceState& s) {
-            const auto prefix = s.source_name.empty() ? "unknown" : s.source_name;
-            out << prefix << ".path=" << s.log_path.string() << "\n";
-            out << prefix << ".offset=" << s.last_processed_offset << "\n";
-            out << prefix << ".size=" << s.last_size << "\n";
-            out << prefix << ".mtime=" << s.last_write_time_ticks << "\n";
-            out << prefix << ".head=" << s.head_hash << "\n";
-            out << prefix << ".tail=" << s.tail_hash << "\n";
-            out << prefix << ".sessionStartOffset=" << s.session_start_offset << "\n";
-            out << prefix << ".sessionEndOffset=" << s.session_end_offset << "\n";
-        };
-        write_source(m_bootstrap_client_source);
-        write_source(m_bootstrap_dedicated_source);
-        write_source(m_bootstrap_hosted_server_source);
-        std::ofstream file{m_bootstrap_cursor_state_path, std::ios::out | std::ios::trunc | std::ios::binary};
-        if (!file)
-        {
-            return;
-        }
-        file << out.str();
-        file.flush();
-        m_bootstrap_cursor_state_last_write = now;
-    }
-
-    auto SignTextMod::load_bootstrap_cursor_state() -> void
-    {
-        if (m_bootstrap_cursor_state_path.empty())
-        {
-            return;
-        }
-        std::string content{};
-        if (!read_text_file(m_bootstrap_cursor_state_path, content))
-        {
-            return;
-        }
-        std::unordered_map<std::string, std::string> map{};
-        std::istringstream rows{content};
-        std::string row{};
-        while (std::getline(rows, row))
-        {
-            auto line = trim_copy_ascii(row);
-            if (line.empty() || line.front() == '#' || line.front() == ';')
-            {
-                continue;
-            }
-            const auto eq = line.find('=');
-            if (eq == std::string::npos || eq == 0)
-            {
-                continue;
-            }
-            map.emplace(trim_copy_ascii(line.substr(0, eq)), trim_copy_ascii(line.substr(eq + 1)));
-        }
-        const auto apply_source = [&](BootstrapLogSourceState& s) {
-            if (s.source_name.empty())
-            {
-                return;
-            }
-            const auto prefix = s.source_name + ".";
-            const auto lookup = [&](const std::string& key) -> std::string {
-                const auto it = map.find(prefix + key);
-                return it == map.end() ? std::string{} : it->second;
-            };
-            const auto path_value = lookup("path");
-            if (!path_value.empty())
-            {
-                s.log_path = std::filesystem::path{path_value};
-                s.path_resolved = true;
-            }
-            s.last_processed_offset = static_cast<uintmax_t>(std::max(0, safe_stoi(lookup("offset"), static_cast<int>(s.last_processed_offset))));
-            s.last_size = static_cast<uintmax_t>(std::max(0, safe_stoi(lookup("size"), static_cast<int>(s.last_size))));
-            s.last_write_time_ticks = static_cast<int64_t>(safe_stoi(lookup("mtime"), static_cast<int>(s.last_write_time_ticks)));
-            s.head_hash = static_cast<uint32_t>(std::max(0, safe_stoi(lookup("head"), static_cast<int>(s.head_hash))));
-            s.tail_hash = static_cast<uint32_t>(std::max(0, safe_stoi(lookup("tail"), static_cast<int>(s.tail_hash))));
-            s.session_start_offset = static_cast<uintmax_t>(std::max(0, safe_stoi(lookup("sessionStartOffset"), static_cast<int>(s.session_start_offset))));
-            s.session_end_offset = static_cast<uintmax_t>(std::max(0, safe_stoi(lookup("sessionEndOffset"), static_cast<int>(s.session_end_offset))));
-            s.initialized = s.last_processed_offset > 0;
-        };
-        apply_source(m_bootstrap_client_source);
-        apply_source(m_bootstrap_dedicated_source);
-        apply_source(m_bootstrap_hosted_server_source);
-    }
-
-    auto SignTextMod::init_bootstrap_log_sources() -> void
-    {
-        if (m_bootstrap_sources_initialized)
-        {
-            return;
-        }
-        const auto local_app_data = get_env_var("LOCALAPPDATA");
-        const auto default_client =
-            local_app_data.empty()
-                ? std::filesystem::path{"C:\\Users\\User\\AppData\\Local\\R5\\Saved\\Logs\\R5.log"}
-                : (std::filesystem::path{local_app_data} / "R5" / "Saved" / "Logs" / "R5.log");
-        const auto default_dedicated =
-            std::filesystem::path{"C:\\Games\\WindowsServer\\R5\\Saved\\Logs\\R5.log"};
-        const auto default_hosted_server =
-            std::filesystem::path{"C:\\SteamLibrary\\steamapps\\common\\Windrose\\R5\\Builds\\WindowsServer\\R5\\Saved\\Logs\\R5.log"};
-
-        m_bootstrap_client_source = {};
-        m_bootstrap_client_source.kind = BootstrapLogSourceKind::Client;
-        m_bootstrap_client_source.source_name = "client";
-        m_bootstrap_client_source.log_path =
-            resolve_configured_log_path("WTS_R5_LOG_CLIENT_PATH", resolve_configured_log_path("WTS_R5_LOG_CLIENT", default_client));
-        m_bootstrap_client_source.path_resolved = true;
-
-        m_bootstrap_dedicated_source = {};
-        m_bootstrap_dedicated_source.kind = BootstrapLogSourceKind::DedicatedServer;
-        m_bootstrap_dedicated_source.source_name = "dedicated_server";
-        m_bootstrap_dedicated_source.log_path =
-            resolve_configured_log_path("WTS_R5_LOG_DEDICATED_PATH", resolve_configured_log_path("WTS_R5_LOG_DEDICATED", default_dedicated));
-        m_bootstrap_dedicated_source.path_resolved = true;
-
-        m_bootstrap_hosted_server_source = {};
-        m_bootstrap_hosted_server_source.kind = BootstrapLogSourceKind::HostedServer;
-        m_bootstrap_hosted_server_source.source_name = "hosted_server";
-        m_bootstrap_hosted_server_source.log_path =
-            resolve_configured_log_path("WTS_R5_LOG_HOSTED_SERVER_PATH", resolve_configured_log_path("WTS_R5_LOG_HOSTED_SERVER", default_hosted_server));
-        m_bootstrap_hosted_server_source.path_resolved = true;
-
-        m_bootstrap_cursor_state_path = m_mod_root / "Cache" / "Bootstrap" / "BootstrapCursorState.ini";
-        load_bootstrap_cursor_state();
-        m_bootstrap_sources_initialized = true;
-        log_line("[bootstrap] log_sources_initialized client=\"" + m_bootstrap_client_source.log_path.string() +
-                 "\" dedicated=\"" + m_bootstrap_dedicated_source.log_path.string() +
-                 "\" hostedServer=\"" + m_bootstrap_hosted_server_source.log_path.string() + "\"");
-    }
-
-    auto SignTextMod::reset_bootstrap_source_for_new_epoch(BootstrapLogSourceState& source, const std::string& reason) -> void
-    {
-        source.source_epoch += 1;
-        source.role_locked = false;
-        source.locked_role = BootstrapRole::Unknown;
-        source.role_signal.clear();
-        source.role_signal_offset = 0;
-        source.session_ready_locked = false;
-        source.session_ready_signal.clear();
-        source.session_ready_offset = 0;
-        source.session_start_offset = 0;
-        source.session_end_offset = 0;
-        source.saw_server_exe = false;
-        source.saw_hosted_ini = false;
-        source.saw_host_ready = false;
-        source.saw_server_exe_offset = 0;
-        source.saw_hosted_ini_offset = 0;
-        source.saw_host_ready_offset = 0;
-        log_line("[bootstrap] source_epoch_reset source=" + source.source_name +
-                 " epoch=" + std::to_string(source.source_epoch) +
-                 " reason=" + reason);
-    }
-
-    auto SignTextMod::try_apply_role_from_bootstrap_source(BootstrapLogSourceState& source, const std::string& reason) -> void
-    {
-        if (!source.role_locked)
-        {
-            return;
-        }
-        const bool server_process = is_dedicated_server_process(std::filesystem::current_path(), m_mod_root);
-        if (server_process)
-        {
-            if (source.kind == BootstrapLogSourceKind::Client)
-            {
-                return;
-            }
-        }
-        else
-        {
-            if (source.kind != BootstrapLogSourceKind::Client)
-            {
-                return;
-            }
-        }
-        if (m_role_lock_acquired)
-        {
-            return;
-        }
-
-        std::filesystem::path profile_root{};
-        if (!m_save_profile_root.empty() && std::filesystem::exists(m_save_profile_root))
-        {
-            profile_root = std::filesystem::path{m_save_profile_root};
-        }
-        else
-        {
-            const auto profile_roots = collect_local_client_save_profile_roots();
-            if (!profile_roots.empty())
-            {
-                profile_root = profile_roots.front();
-            }
-        }
-
-        std::string world_id = m_world_folder_id.empty() ? std::string{"unknown-world"} : sanitize_path_segment(m_world_folder_id);
-        if (world_id.empty())
-        {
-            world_id = "unknown-world";
-        }
-
-        std::filesystem::path data_root = m_mod_root / "Cache" / "Bootstrap" / world_id;
-        std::string runtime_role = "Unknown";
-        std::string data_mode = "Unknown";
-        std::string authority_mode = "Unknown";
-        std::string sidecar_kind = "unknown";
-        bool authoritative = bootstrap_role_authoritative(source.locked_role);
-
-        switch (source.locked_role)
-        {
-        case BootstrapRole::Solo:
-        case BootstrapRole::HostedClient:
-            runtime_role = "LocalClient";
-            data_mode = profile_root.empty() ? "LocalProfileAuthoritativeFallbackModRoot" : "LocalProfileAuthoritative";
-            authority_mode = "LocalClientSoloOrHostedAuthoritative";
-            sidecar_kind = profile_root.empty() ? "authoritative-fallback" : "authoritative";
-            if (!profile_root.empty())
-            {
-                data_root = profile_root / "WindroseTextSigns" / world_id;
-            }
-            else
-            {
-                data_root = m_mod_root / "Cache" / "LocalAuthoritative" / world_id;
-            }
-            break;
-        case BootstrapRole::RemoteClient:
-            runtime_role = "RemoteClient";
-            data_mode = "RemoteClientCache";
-            authority_mode = "ServerAuthoritativePendingBridge";
-            sidecar_kind = "cache";
-            data_root = profile_root.empty()
-                ? (m_mod_root / "Cache" / "RemoteCache" / world_id)
-                : (profile_root / "WindroseTextSigns" / "RemoteCache" / world_id);
-            break;
-        case BootstrapRole::DedicatedServer:
-            runtime_role = "DedicatedServer";
-            data_mode = "DedicatedServerProfileAuthoritative";
-            authority_mode = "DedicatedServerAuthoritative";
-            sidecar_kind = "authoritative";
-            data_root = m_data_root.empty() ? (m_mod_root / "Cache" / "DedicatedServer" / world_id) : m_data_root;
-            break;
-        case BootstrapRole::HostedServer:
-            runtime_role = "HostedServer";
-            data_mode = "HostedServerNoAuthority";
-            authority_mode = "HostedServerNonAuthoritative";
-            sidecar_kind = "cache";
-            authoritative = false;
-            data_root = m_mod_root / "Cache" / "HostedServer" / world_id;
-            break;
-        default:
-            return;
-        }
-
-        set_sidecar_route(
-            data_root,
-            runtime_role,
-            data_mode,
-            authority_mode,
-            sidecar_kind,
-            authoritative,
-            profile_root,
-            world_id,
-            "bootstrap_role_lock_" + source.source_name + "_" + reason);
-
-        log_line("[bootstrap] role_applied epoch=" + std::to_string(m_session_epoch) +
-                 " role=" + bootstrap_role_name(source.locked_role) +
-                 " roleLocked=" + std::string{source.role_locked ? "true" : "false"} +
-                 " authority=" + std::string{authoritative ? "true" : "false"} +
-                 " signal=" + source.role_signal +
-                 " logPath=\"" + source.log_path.string() + "\"" +
-                 " offset=" + std::to_string(static_cast<unsigned long long>(source.role_signal_offset)) +
-                 " source=live reason=" + reason);
-    }
-
-    auto SignTextMod::ensure_session_ready_latched_from_bootstrap(
-        BootstrapLogSourceState& source,
-        const std::string& signal,
-        const uintmax_t signal_offset) -> void
-    {
-        if (source.session_ready_locked)
-        {
-            return;
-        }
-        source.session_ready_locked = true;
-        source.session_ready_signal = signal;
-        source.session_ready_offset = signal_offset;
-        if (!m_session_ready_latched)
-        {
-            m_session_ready_latched = true;
-            m_ready_baseline_live_keys.clear();
-            m_ready_baseline_capture_remaining_scans = 2;
-            if (m_session_ready_world_id.empty())
-            {
-                m_session_ready_world_id = m_world_folder_id.empty() ? std::string{"unknown-world"} : m_world_folder_id;
-            }
-            log_line("[session] ready_latched epoch=" + std::to_string(m_session_epoch) +
-                     " world=" + (m_session_ready_world_id.empty() ? "unknown" : m_session_ready_world_id) +
-                     " reason=bootstrap_signal:" + signal);
-        }
-        log_line("[bootstrap] session_ready_locked epoch=" + std::to_string(m_session_epoch) +
-                 " role=" + bootstrap_role_name(source.locked_role) +
-                 " roleLocked=" + std::string{source.role_locked ? "true" : "false"} +
-                 " sessionReadyLocked=true authority=" +
-                 std::string{bootstrap_role_authoritative(source.locked_role) ? "true" : "false"} +
-                 " signal=" + signal +
-                 " logPath=\"" + source.log_path.string() + "\"" +
-                 " offset=" + std::to_string(static_cast<unsigned long long>(signal_offset)) +
-                 " source=live reason=role_signal_match");
-    }
-
-    auto SignTextMod::handle_bootstrap_line(
-        BootstrapLogSourceState& source,
-        const std::string& line,
-        const std::string& line_lower,
-        const uintmax_t line_start_offset) -> void
-    {
-        const auto lock_role = [&](const BootstrapRole role, const std::string& signal) {
-            if (!source.role_locked)
-            {
-                source.role_locked = true;
-                source.locked_role = role;
-                source.role_signal = signal;
-                source.role_signal_offset = line_start_offset;
-                source.session_start_offset = line_start_offset;
-                log_line("[bootstrap] role_locked epoch=" + std::to_string(m_session_epoch) +
-                         " role=" + bootstrap_role_name(role) +
-                         " roleLocked=true sessionReadyLocked=" + std::string{source.session_ready_locked ? "true" : "false"} +
-                         " authority=" + std::string{bootstrap_role_authoritative(role) ? "true" : "false"} +
-                         " signal=" + signal +
-                         " logPath=\"" + source.log_path.string() + "\"" +
-                         " offset=" + std::to_string(static_cast<unsigned long long>(line_start_offset)) +
-                         " source=live reason=signal_detected");
-                try_apply_role_from_bootstrap_source(source, "lock_role");
-                return;
-            }
-            if (source.locked_role != role &&
-                line_start_offset > source.session_start_offset)
-            {
-                log_line("[bootstrap] session_rollover_detected source=" + source.source_name +
-                         " oldRole=" + bootstrap_role_name(source.locked_role) +
-                         " newRole=" + bootstrap_role_name(role) +
-                         " oldStartOffset=" + std::to_string(static_cast<unsigned long long>(source.session_start_offset)) +
-                         " newStartOffset=" + std::to_string(static_cast<unsigned long long>(line_start_offset)));
-                reset_session_state("bootstrap_new_session_start");
-                reset_bootstrap_source_for_new_epoch(source, "new_session_start_signal");
-                source.role_locked = true;
-                source.locked_role = role;
-                source.role_signal = signal;
-                source.role_signal_offset = line_start_offset;
-                source.session_start_offset = line_start_offset;
-                try_apply_role_from_bootstrap_source(source, "new_session_start_signal");
-            }
-        };
-
-        if (source.kind == BootstrapLogSourceKind::Client)
-        {
-            if (line_lower.find("start transition to lobby") != std::string::npos)
-            {
-                source.session_end_offset = line_start_offset;
-                log_line("[bootstrap] session_exit_detected epoch=" + std::to_string(m_session_epoch) +
-                         " role=" + bootstrap_role_name(source.locked_role) +
-                         " signal=start_transition_to_lobby" +
-                         " logPath=\"" + source.log_path.string() + "\"" +
-                         " offset=" + std::to_string(static_cast<unsigned long long>(line_start_offset)) +
-                         " source=live reason=client_exit_signal");
-                arm_phase7_definitive_teardown("bootstrap_start_transition_to_lobby");
-                reset_session_state("bootstrap_session_exit");
-                reset_bootstrap_source_for_new_epoch(source, "session_exit_signal");
-                return;
-            }
-
-            if (line_lower.find("startcoopofflinegameonselectedworld") != std::string::npos)
-            {
-                lock_role(BootstrapRole::Solo, "StartCoopOfflineGameOnSelectedWorld");
-            }
-            else if (line_lower.find("client. change state readytoplay => verifyingcoopconnection") != std::string::npos)
-            {
-                lock_role(BootstrapRole::RemoteClient, "Client.ReadyToPlay=>VerifyingCoopConnection");
-            }
-            else if (line_lower.find("client. change state readytoplay => startcoophostserver") != std::string::npos)
-            {
-                lock_role(BootstrapRole::HostedClient, "Client.ReadyToPlay=>StartCoopHostServer");
-            }
-
-            if (!source.role_locked)
-            {
-                return;
-            }
-            if (source.locked_role == BootstrapRole::Solo &&
-                line_lower.find("hide loading screen. currentreason loadingscreen.reason.datakeeper.readytoplay") != std::string::npos)
-            {
-                ensure_session_ready_latched_from_bootstrap(
-                    source,
-                    "HideLoadingScreen.DataKeeper.ReadyToPlay",
-                    line_start_offset);
-            }
-            else if ((source.locked_role == BootstrapRole::RemoteClient || source.locked_role == BootstrapRole::HostedClient) &&
-                     line_lower.find("hide loading screen. currentreason loadingscreen.reason.coopproxy.waitingforueconnection") != std::string::npos)
-            {
-                ensure_session_ready_latched_from_bootstrap(
-                    source,
-                    "HideLoadingScreen.CoopProxy.WaitingForUeConnection",
-                    line_start_offset);
-            }
-            return;
-        }
-
-        if (line_lower.find("executablename: windroseserver-win64-shipping.exe") != std::string::npos)
-        {
-            source.saw_server_exe = true;
-            source.saw_server_exe_offset = line_start_offset;
-        }
-        if (line_lower.find("-ini:game:[/script/r5datakeepers.r5datakeeper_settings]") != std::string::npos)
-        {
-            source.saw_hosted_ini = true;
-            source.saw_hosted_ini_offset = line_start_offset;
-        }
-        if (line_lower.find("host server is ready for owner to connect") != std::string::npos)
-        {
-            source.saw_host_ready = true;
-            source.saw_host_ready_offset = line_start_offset;
-            if (source.saw_server_exe && source.saw_server_exe_offset <= line_start_offset)
-            {
-                const bool hosted_chain =
-                    source.saw_hosted_ini &&
-                    source.saw_hosted_ini_offset > source.saw_server_exe_offset &&
-                    source.saw_hosted_ini_offset < line_start_offset;
-                lock_role(
-                    hosted_chain ? BootstrapRole::HostedServer : BootstrapRole::DedicatedServer,
-                    hosted_chain
-                        ? "ExecutableName=>HostedIni=>HostReady"
-                        : "ExecutableName=>HostReady(no_hosted_ini)");
-            }
-        }
-        if (source.role_locked &&
-            line_lower.find("serveraccount. change state waitingforclientisready => readytoplay") != std::string::npos)
-        {
-            ensure_session_ready_latched_from_bootstrap(
-                source,
-                "ServerAccount.WaitingForClientIsReady=>ReadyToPlay",
-                line_start_offset);
-        }
-
-        const bool server_process = is_dedicated_server_process(std::filesystem::current_path(), m_mod_root);
-        const bool allow_destroy_signal_parse =
-            (!server_process && source.kind == BootstrapLogSourceKind::Client) ||
-            (server_process && source.kind != BootstrapLogSourceKind::Client);
-        if (!allow_destroy_signal_parse)
-        {
-            return;
-        }
-
-        static const std::regex slot_token_rx{R"((BuildingBlock)\|([A-Fa-f0-9]{16,32})\|([0-9]+))", std::regex::icase};
-        static const std::regex guid_key_value_rx{R"((?:BuildingGuid|Guid|ActorGuid)\s*[:=]\s*([A-Fa-f0-9]{16,32}))", std::regex::icase};
-        static const std::regex guid_any_rx{R"(\b([A-Fa-f0-9]{32})\b)"};
-        static const std::regex index_key_value_rx{R"((?:Block(?:Index)?|Index|Slot)\s*[:=]\s*([0-9]+))", std::regex::icase};
-        static const std::regex construct_block_rx{
-            R"(Construct\s+BuildingBlock\s+([0-9]+)\s+from\s+building\s+([A-Fa-f0-9]{16,32}))",
-            std::regex::icase};
-
-        const auto now = std::chrono::steady_clock::now();
-        const auto ttl = std::chrono::seconds(std::clamp(m_destroy_confirm_ttl_sec, 2u, 30u));
-        const bool destroy_rule = line_lower.find("destroyrule::do_impl") != std::string::npos;
-        const bool construct_rule = line_lower.find("constructrule::do_impl") != std::string::npos;
-        if (!destroy_rule && !construct_rule)
-        {
-            return;
-        }
-
-        std::string guid{};
-        std::string index{};
-        std::smatch match{};
-        if (construct_rule && std::regex_search(line, match, construct_block_rx) && match.size() >= 3)
-        {
-            index = match[1].str();
-            guid = match[2].str();
-        }
-        else if (std::regex_search(line, match, slot_token_rx) && match.size() >= 4)
-        {
-            guid = match[2].str();
-            index = match[3].str();
-        }
-        else
-        {
-            if (std::regex_search(line, match, guid_key_value_rx) && match.size() >= 2)
-            {
-                guid = match[1].str();
-            }
-            else if (std::regex_search(line, match, guid_any_rx) && match.size() >= 2)
-            {
-                guid = match[1].str();
-            }
-            if (std::regex_search(line, match, index_key_value_rx) && match.size() >= 2)
-            {
-                index = match[1].str();
-            }
-        }
-
-        if (guid.empty())
-        {
-            return;
-        }
-        std::transform(guid.begin(), guid.end(), guid.begin(), [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
-        if (destroy_rule)
-        {
-            m_recent_destroy_guid_signals[guid] = now;
-            log_line("[save] destroy_signal_seen guid=" + guid + " source=" + source.source_name);
-            for (const auto& [slot_key, signal] : m_recent_construct_slot_signals)
-            {
-                if ((now - signal.seen_at) > ttl)
-                {
-                    continue;
-                }
-                const auto guid_delim = slot_key.find('|');
-                if (guid_delim == std::string::npos || guid_delim == 0)
-                {
-                    continue;
-                }
-                const auto slot_guid = slot_key.substr(0, guid_delim);
-                if (lower_ascii(slot_guid) != lower_ascii(guid))
-                {
-                    continue;
-                }
-                const auto index_value = slot_key.substr(guid_delim + 1);
-                m_recent_destroy_slot_confirmations[slot_key] = now;
-                log_line("[save] destroy_construct_correlated guid=" + guid + " index=" + index_value + " source=" + source.source_name);
-            }
-        }
-        if (construct_rule && !index.empty())
-        {
-            const auto slot_key = make_building_slot_key(guid, index);
-            m_recent_construct_slot_signals[slot_key] = RecentConstructSignal{
-                now,
-                active_storage_world_id(m_role_lock_world_id.empty() ? m_session_ready_world_id : m_role_lock_world_id),
-                m_session_epoch};
-            log_line("[save] construct_signal_seen guid=" + guid + " index=" + index + " source=" + source.source_name);
-            const auto guid_it = m_recent_destroy_guid_signals.find(guid);
-            if (guid_it != m_recent_destroy_guid_signals.end() && (now - guid_it->second) <= ttl)
-            {
-                m_recent_destroy_slot_confirmations[slot_key] = now;
-                log_line("[save] destroy_construct_correlated guid=" + guid + " index=" + index + " source=" + source.source_name);
-            }
-        }
-    }
-
-    auto SignTextMod::process_bootstrap_source(BootstrapLogSourceState& source) -> void
-    {
-        if (!source.path_resolved || source.log_path.empty())
-        {
-            return;
-        }
-        uintmax_t size = 0;
-        int64_t write_ticks = 0;
-        uint32_t head_hash = 0;
-        uint32_t tail_hash = 0;
-        if (!compute_log_source_identity(source.log_path, &size, &write_ticks, &head_hash, &tail_hash))
-        {
-            return;
-        }
-
-        const bool identity_changed =
-            source.initialized &&
-            (size < source.last_processed_offset ||
-             write_ticks != source.last_write_time_ticks ||
-             head_hash != source.head_hash ||
-             tail_hash != source.tail_hash);
-
-        constexpr uintmax_t k_backfill_bytes = 2ull * 1024ull * 1024ull;
-        if (!source.initialized || identity_changed)
-        {
-            if (identity_changed)
-            {
-                log_line("[bootstrap] log_identity_changed source=" + source.source_name +
-                         " path=\"" + source.log_path.string() + "\"" +
-                         " oldSize=" + std::to_string(static_cast<unsigned long long>(source.last_size)) +
-                         " newSize=" + std::to_string(static_cast<unsigned long long>(size)) +
-                         " oldMtimeTicks=" + std::to_string(source.last_write_time_ticks) +
-                         " newMtimeTicks=" + std::to_string(write_ticks));
-                reset_bootstrap_source_for_new_epoch(source, "file_identity_changed");
-            }
-            source.last_processed_offset = (size > k_backfill_bytes) ? (size - k_backfill_bytes) : 0;
-            source.initialized = true;
-            log_line("[bootstrap] backfill_start source=" + source.source_name +
-                     " path=\"" + source.log_path.string() + "\"" +
-                     " startOffset=" + std::to_string(static_cast<unsigned long long>(source.last_processed_offset)) +
-                     " size=" + std::to_string(static_cast<unsigned long long>(size)));
-        }
-
-        source.last_size = size;
-        source.last_write_time_ticks = write_ticks;
-        source.head_hash = head_hash;
-        source.tail_hash = tail_hash;
-
-        if (size <= source.last_processed_offset)
-        {
-            save_bootstrap_cursor_state();
-            return;
-        }
-
-        constexpr uintmax_t k_max_chunk_bytes = 1024ull * 1024ull;
-        const uintmax_t read_start = source.last_processed_offset;
-        const uintmax_t bytes_to_read = std::min<uintmax_t>(size - read_start, k_max_chunk_bytes);
-
-        std::ifstream input{source.log_path, std::ios::binary};
-        if (!input)
-        {
-            return;
-        }
-        input.seekg(static_cast<std::streamoff>(read_start), std::ios::beg);
-        std::string chunk{};
-        chunk.resize(static_cast<size_t>(bytes_to_read));
-        input.read(chunk.data(), static_cast<std::streamsize>(chunk.size()));
-        chunk.resize(static_cast<size_t>(std::max<std::streamsize>(0, input.gcount())));
-        if (chunk.empty())
-        {
-            return;
-        }
-
-        uintmax_t next_offset = read_start;
-        size_t scan_pos = 0;
-        while (scan_pos < chunk.size())
-        {
-            const auto newline_pos = chunk.find('\n', scan_pos);
-            if (newline_pos == std::string::npos)
-            {
-                // Keep trailing partial line for next tick if we did not reach EOF.
-                if (read_start + bytes_to_read < size)
-                {
-                    next_offset = read_start + static_cast<uintmax_t>(scan_pos);
-                }
-                else
-                {
-                    const auto raw = chunk.substr(scan_pos);
-                    auto line = trim_copy_ascii(raw);
-                    if (!line.empty() && !line.ends_with("\r"))
-                    {
-                        auto lower = lower_ascii(line);
-                        handle_bootstrap_line(source, line, lower, read_start + static_cast<uintmax_t>(scan_pos));
-                    }
-                    next_offset = read_start + static_cast<uintmax_t>(chunk.size());
-                }
-                break;
-            }
-            auto raw_line = chunk.substr(scan_pos, newline_pos - scan_pos);
-            if (!raw_line.empty() && raw_line.back() == '\r')
-            {
-                raw_line.pop_back();
-            }
-            const auto line = trim_copy_ascii(raw_line);
-            if (!line.empty())
-            {
-                const auto lower = lower_ascii(line);
-                handle_bootstrap_line(source, line, lower, read_start + static_cast<uintmax_t>(scan_pos));
-            }
-            scan_pos = newline_pos + 1;
-            next_offset = read_start + static_cast<uintmax_t>(scan_pos);
-        }
-
-        source.last_processed_offset = next_offset;
-        save_bootstrap_cursor_state();
-    }
-
-    auto SignTextMod::tick_bootstrap_role_and_session_from_logs() -> void
-    {
-        init_bootstrap_log_sources();
-        process_bootstrap_source(m_bootstrap_client_source);
-        process_bootstrap_source(m_bootstrap_dedicated_source);
-        process_bootstrap_source(m_bootstrap_hosted_server_source);
-    }
-
     auto SignTextMod::is_hide_native_label_icon_enabled() const -> bool
     {
         return config_bool_value("WTS_HIDE_NATIVE_LABEL_ICON", true);
@@ -5460,9 +4704,58 @@ namespace WindroseTextSigns
             0.20f,
             2.00f);
         m_row_gap_factor = std::clamp(
-            safe_stof(config_string_value("WTS_ROW_GAP_FACTOR", "0.50"), 0.50f),
+            safe_stof(config_string_value("WTS_ROW_GAP_FACTOR", "1.50"), 1.50f),
             0.00f,
             2.00f);
+        m_row_gap_factor_2 = std::clamp(
+            safe_stof(config_string_value("WTS_ROW_GAP_FACTOR_2", "1.50"), 1.50f),
+            0.00f,
+            3.00f);
+        m_row_gap_factor_3 = std::clamp(
+            safe_stof(config_string_value("WTS_ROW_GAP_FACTOR_3", "1.25"), 1.25f),
+            0.00f,
+            3.00f);
+        m_row_gap_factor_4 = std::clamp(
+            safe_stof(config_string_value("WTS_ROW_GAP_FACTOR_4", "1.00"), 1.00f),
+            0.00f,
+            3.00f);
+        const auto parse_row_offsets = [this](const std::string& raw, const std::vector<float>& fallback) -> std::vector<float>
+        {
+            std::vector<float> out{};
+            out.reserve(fallback.size());
+            std::istringstream input{raw};
+            std::string token{};
+            while (std::getline(input, token, ','))
+            {
+                token.erase(std::remove_if(token.begin(), token.end(), [](unsigned char c) {
+                    return std::isspace(c) != 0;
+                }), token.end());
+                if (token.empty())
+                {
+                    continue;
+                }
+                out.push_back(safe_stof(token, fallback[out.size()]));
+                if (out.size() >= fallback.size())
+                {
+                    break;
+                }
+            }
+            while (out.size() < fallback.size())
+            {
+                out.push_back(fallback[out.size()]);
+            }
+            return out;
+        };
+        {
+            const auto v1 = parse_row_offsets(config_string_value("WTS_ROW_OFFSETS_1", "0"), {0.0f});
+            const auto v2 = parse_row_offsets(config_string_value("WTS_ROW_OFFSETS_2", "8,-5"), {8.0f, -5.0f});
+            const auto v3 = parse_row_offsets(config_string_value("WTS_ROW_OFFSETS_3", "12,2,-8"), {12.0f, 2.0f, -8.0f});
+            const auto v4 = parse_row_offsets(config_string_value("WTS_ROW_OFFSETS_4", "17,7,-3,-13"), {17.0f, 7.0f, -3.0f, -13.0f});
+            m_row_offsets_1 = {v1[0]};
+            m_row_offsets_2 = {v2[0], v2[1]};
+            m_row_offsets_3 = {v3[0], v3[1], v3[2]};
+            m_row_offsets_4 = {v4[0], v4[1], v4[2], v4[3]};
+        }
         const auto hotkey_config_value = config_string_value("WTS_HOTKEY", "F8");
         m_hotkey_vk = hotkey_vk_from_config(hotkey_config_value, k_default_hotkey_vk);
         m_hotkey_name = display_name_for_vk(m_hotkey_vk);
@@ -5543,6 +4836,13 @@ namespace WindroseTextSigns
         log_line("[save] localclient_motion_reapply_enabled=" + std::string{m_localclient_motion_reapply_enabled ? "true" : "false"});
         log_line("[autosize] char_width_factor=" + std::to_string(m_autosize_char_width_factor));
         log_line("[autosize] row_gap_factor=" + std::to_string(m_row_gap_factor));
+        log_line("[autosize] row_gap_factors row2=" + std::to_string(m_row_gap_factor_2) +
+                 " row3=" + std::to_string(m_row_gap_factor_3) +
+                 " row4=" + std::to_string(m_row_gap_factor_4));
+        log_line("[autosize] row_offsets_1=" + std::to_string(m_row_offsets_1[0]));
+        log_line("[autosize] row_offsets_2=" + std::to_string(m_row_offsets_2[0]) + "," + std::to_string(m_row_offsets_2[1]));
+        log_line("[autosize] row_offsets_3=" + std::to_string(m_row_offsets_3[0]) + "," + std::to_string(m_row_offsets_3[1]) + "," + std::to_string(m_row_offsets_3[2]));
+        log_line("[autosize] row_offsets_4=" + std::to_string(m_row_offsets_4[0]) + "," + std::to_string(m_row_offsets_4[1]) + "," + std::to_string(m_row_offsets_4[2]) + "," + std::to_string(m_row_offsets_4[3]));
         if (m_behavior_trace_enabled)
         {
             log_line("[trace-sm] config enabled=true");
@@ -6790,19 +6090,14 @@ namespace WindroseTextSigns
                 score += 100;
             }
 
-            UObject* controlled_pawn = get_object_property_if_present(object, "Pawn");
-            if (!controlled_pawn)
-            {
-                controlled_pawn = get_object_property_if_present(object, "AcknowledgedPawn");
-            }
+            UObject* controlled_pawn = get_controller_pawn_property_only(object);
             if (controlled_pawn)
             {
                 score += 120;
             }
             else
             {
-                // Avoid property-chain reflection fallback during world transition churn.
-                // We will rescore on the next throttled probe.
+                // Property-only lookup avoids reflective GetPawn invocation during churn.
                 score -= 30;
             }
 
@@ -7495,56 +6790,6 @@ namespace WindroseTextSigns
             if (!profile_roots.empty())
             {
                 profile_root = profile_roots.front();
-            }
-        }
-
-        if (m_role_lock_acquired)
-        {
-            const auto locked_runtime = lower_ascii(m_role_lock_runtime_role);
-            const auto safe_world_id = sanitize_path_segment(world_id.empty() ? std::string{"unknown-world"} : world_id);
-            if (locked_runtime == "localclient")
-            {
-                auto locked_world_id = m_worldid_latched_id;
-                if (!is_hex_world_id(locked_world_id))
-                {
-                    locked_world_id = m_world_folder_id;
-                }
-                if (!is_hex_world_id(locked_world_id))
-                {
-                    locked_world_id = safe_world_id;
-                }
-                const auto data_root = !profile_root.empty()
-                    ? profile_root / "WindroseTextSigns" / locked_world_id
-                    : m_mod_root / "Cache" / "LocalAuthoritative" / locked_world_id;
-                set_sidecar_route(
-                    data_root,
-                    "LocalClient",
-                    profile_root.empty() ? "LocalProfileAuthoritativeFallbackModRoot" : "LocalProfileAuthoritative",
-                    "LocalClientSoloOrHostedAuthoritative",
-                    profile_root.empty() ? "authoritative-fallback" : "authoritative",
-                    true,
-                    profile_root,
-                    locked_world_id,
-                    "role_lock_localclient");
-                return;
-            }
-            if (locked_runtime == "remoteclient")
-            {
-                const auto cache_base = !profile_root.empty()
-                    ? (profile_root / "WindroseTextSigns")
-                    : (m_mod_root / "Cache");
-                const auto remote_world_id = safe_world_id.empty() ? std::string{"unknown-world"} : safe_world_id;
-                set_sidecar_route(
-                    cache_base / "RemoteCache" / remote_world_id,
-                    "RemoteClient",
-                    "RemoteClientCache",
-                    "ServerAuthoritativePendingBridge",
-                    "cache",
-                    false,
-                    profile_root,
-                    remote_world_id,
-                    "role_lock_remoteclient");
-                return;
             }
         }
 
@@ -11034,8 +10279,9 @@ namespace WindroseTextSigns
 
         // Fallback: text components created through AddComponentByClass do not keep
         // our requested name, and after a restart the in-memory cache is gone. For
-        // row-per-component rendering we must not blank "duplicates" here because
-        // they may be legitimate row components.
+        // wooden labels there should not be a native TextRenderComponent, so recover
+        // the first one and blank any older duplicates left by previous prototype
+        // builds instead of creating more overlapping text components.
         std::vector<UObject*> fallback_components_to_manage{};
         auto fallback_components = actor->GetComponentsByClass(UActorComponent::StaticClass());
         for (int32_t i = 0; i < fallback_components.Num(); ++i)
@@ -11054,6 +10300,12 @@ namespace WindroseTextSigns
         }
         if (!fallback_components_to_manage.empty())
         {
+            std::sort(
+                fallback_components_to_manage.begin(),
+                fallback_components_to_manage.end(),
+                [this](UObject* a, UObject* b) {
+                    return lower_ascii(narrow_ascii(a->GetFullName())) < lower_ascii(narrow_ascii(b->GetFullName()));
+                });
             auto* fallback = fallback_components_to_manage.front();
             m_component_name_cache[storage_key] = narrow_ascii(fallback->GetFullName());
             if (fallback_components_to_manage.size() > 1)
@@ -11061,7 +10313,7 @@ namespace WindroseTextSigns
                 log_line("[phase4] component_recovered key=" + storage_key +
                          " count=" + std::to_string(fallback_components_to_manage.size()) +
                          " keeping=" + narrow_ascii(fallback->GetFullName()) +
-                         " action=preserve_row_components");
+                         " action=preserve_components_no_blank");
             }
             return fallback;
         }
@@ -11651,15 +10903,57 @@ namespace WindroseTextSigns
             rows.resize(4);
         }
         const int row_count = std::max(1, static_cast<int>(rows.size()));
-        constexpr float k_row_height_factor = 0.26666667f;
-        const float row_gap_factor = std::clamp(m_row_gap_factor, 0.00f, 2.00f);
-        const float row_height_estimate = std::max(0.01f, desired_font_size * k_row_height_factor);
-        const float row_gap = row_height_estimate * row_gap_factor;
-        const float row_step = row_height_estimate + row_gap;
-        const float top_center_offset = static_cast<float>(row_count - 1) * row_step * 0.5f;
-        const float block_total_height =
-            (static_cast<float>(row_count) * row_height_estimate) +
-            (static_cast<float>(std::max(0, row_count - 1)) * row_gap);
+        std::array<float, 4> layout_offsets{0.0f, 0.0f, 0.0f, 0.0f};
+        switch (row_count)
+        {
+        case 1:
+            layout_offsets[0] = m_row_offsets_1[0];
+            break;
+        case 2:
+            layout_offsets[0] = m_row_offsets_2[0];
+            layout_offsets[1] = m_row_offsets_2[1];
+            break;
+        case 3:
+            layout_offsets[0] = m_row_offsets_3[0];
+            layout_offsets[1] = m_row_offsets_3[1];
+            layout_offsets[2] = m_row_offsets_3[2];
+            break;
+        default:
+            layout_offsets[0] = m_row_offsets_4[0];
+            layout_offsets[1] = m_row_offsets_4[1];
+            layout_offsets[2] = m_row_offsets_4[2];
+            layout_offsets[3] = m_row_offsets_4[3];
+            break;
+        }
+        const float row_gap_scale =
+            (row_count == 2) ? m_row_gap_factor_2 :
+            (row_count == 3) ? m_row_gap_factor_3 :
+            (row_count >= 4) ? m_row_gap_factor_4 :
+            1.0f;
+        if (row_count > 1)
+        {
+            for (int i = 0; i < row_count; ++i)
+            {
+                layout_offsets[static_cast<size_t>(i)] *= row_gap_scale;
+            }
+        }
+        float min_offset = layout_offsets[0];
+        float max_offset = layout_offsets[0];
+        for (int i = 1; i < row_count; ++i)
+        {
+            min_offset = std::min(min_offset, layout_offsets[static_cast<size_t>(i)]);
+            max_offset = std::max(max_offset, layout_offsets[static_cast<size_t>(i)]);
+        }
+        const float block_total_height = std::max(0.0f, max_offset - min_offset);
+        float avg_step = 0.0f;
+        if (row_count > 1)
+        {
+            for (int i = 1; i < row_count; ++i)
+            {
+                avg_step += std::fabs(layout_offsets[static_cast<size_t>(i - 1)] - layout_offsets[static_cast<size_t>(i)]);
+            }
+            avg_step /= static_cast<float>(row_count - 1);
+        }
 
         std::vector<float> row_offsets{};
         row_offsets.reserve(static_cast<size_t>(row_count));
@@ -11707,17 +11001,12 @@ namespace WindroseTextSigns
             }
         };
 
-        const auto find_cached_row_component = [&](const std::string& row_storage_key) -> UObject* {
-            const auto cached = m_component_name_cache.find(row_storage_key);
-            if (cached == m_component_name_cache.end() || cached->second.empty())
+        auto collect_text_components_sorted = [&]() {
+            std::vector<UObject*> components_out{};
+            auto actor_components = actor->GetComponentsByClass(UActorComponent::StaticClass());
+            for (int32_t i = 0; i < actor_components.Num(); ++i)
             {
-                return nullptr;
-            }
-            const auto cached_full_name = lower_ascii(cached->second);
-            auto components = actor->GetComponentsByClass(UActorComponent::StaticClass());
-            for (int32_t i = 0; i < components.Num(); ++i)
-            {
-                auto* component = components[i];
+                auto* component = actor_components[i];
                 if (!component)
                 {
                     continue;
@@ -11727,17 +11016,133 @@ namespace WindroseTextSigns
                 {
                     continue;
                 }
+                components_out.push_back(component);
+            }
+            std::sort(
+                components_out.begin(),
+                components_out.end(),
+                [this](UObject* a, UObject* b) {
+                    return lower_ascii(narrow_ascii(a->GetFullName())) < lower_ascii(narrow_ascii(b->GetFullName()));
+                });
+            return components_out;
+        };
+
+        auto current_text_components = collect_text_components_sorted();
+
+        const auto find_cached_component_only = [&](const std::string& storage_key) -> UObject* {
+            const auto cached_it = m_component_name_cache.find(storage_key);
+            if (cached_it == m_component_name_cache.end())
+            {
+                return nullptr;
+            }
+            const auto cached_full_name = lower_ascii(cached_it->second);
+            for (auto* component : current_text_components)
+            {
+                if (!component)
+                {
+                    continue;
+                }
                 const auto component_full_name = lower_ascii(narrow_ascii(component->GetFullName()));
                 if (component_full_name == cached_full_name)
                 {
                     return component;
                 }
             }
+            m_component_name_cache.erase(storage_key);
             return nullptr;
         };
 
+        const int previous_row_count =
+            (m_last_row_count_by_key.find(key) != m_last_row_count_by_key.end())
+                ? m_last_row_count_by_key[key]
+                : row_count;
+        const bool row_layout_changed = previous_row_count != row_count;
+        if (row_layout_changed)
+        {
+            const auto clear_cached_slot = [&](const std::string& storage_key) {
+                if (auto* stale = find_cached_component_only(storage_key); stale)
+                {
+                    (void)invoke_set_hidden_in_game(stale, true);
+                    (void)invoke_set_visibility(stale, false);
+                    (void)invoke_set_text(stale, "");
+                }
+                m_component_name_cache.erase(storage_key);
+            };
+            clear_cached_slot(key);
+            for (int stale_row = 0; stale_row < 4; ++stale_row)
+            {
+                clear_cached_slot(make_managed_row_storage_key(key, stale_row));
+            }
+            current_text_components = collect_text_components_sorted();
+            log_line("[phase4] row_layout_changed_reset key=" + key +
+                     " previousRows=" + std::to_string(previous_row_count) +
+                     " nextRows=" + std::to_string(row_count));
+        }
+
+        const auto reseed_row_component_cache = [&]() {
+            bool reseeded = false;
+            std::unordered_set<std::string> used_component_full_names{};
+            used_component_full_names.reserve(4);
+
+            for (int row_index = 0; row_index < 4; ++row_index)
+            {
+                const auto row_storage_key = make_managed_row_storage_key(key, row_index);
+                if (auto* cached = find_cached_component_only(row_storage_key); cached)
+                {
+                    const auto cached_full_name = lower_ascii(narrow_ascii(cached->GetFullName()));
+                    if (used_component_full_names.insert(cached_full_name).second)
+                    {
+                        continue;
+                    }
+                }
+
+                if (row_index == 0)
+                {
+                    if (auto* base_cached = find_cached_component_only(key); base_cached)
+                    {
+                        const auto base_full_name = narrow_ascii(base_cached->GetFullName());
+                        const auto base_full_name_lower = lower_ascii(base_full_name);
+                        if (!used_component_full_names.contains(base_full_name_lower))
+                        {
+                            m_component_name_cache[row_storage_key] = base_full_name;
+                            m_component_name_cache.erase(key);
+                            used_component_full_names.insert(base_full_name_lower);
+                            reseeded = true;
+                            continue;
+                        }
+                    }
+                }
+
+                for (auto* component : current_text_components)
+                {
+                    if (!component)
+                    {
+                        continue;
+                    }
+                    const auto component_full_name = narrow_ascii(component->GetFullName());
+                    const auto component_full_name_lower = lower_ascii(component_full_name);
+                    if (used_component_full_names.contains(component_full_name_lower))
+                    {
+                        continue;
+                    }
+                    m_component_name_cache[row_storage_key] = component_full_name;
+                    used_component_full_names.insert(component_full_name_lower);
+                    reseeded = true;
+                    break;
+                }
+            }
+
+            if (reseeded)
+            {
+                log_line("[phase4] row_cache_reseeded key=" + key +
+                         " componentCandidates=" + std::to_string(current_text_components.size()));
+            }
+        };
+
+        reseed_row_component_cache();
+
         const auto clear_row_component = [&](const std::string& row_storage_key) {
-            auto* stale_row_component = find_cached_row_component(row_storage_key);
+            auto* stale_row_component = find_cached_component_only(row_storage_key);
             if (!stale_row_component)
             {
                 return;
@@ -11747,74 +11152,18 @@ namespace WindroseTextSigns
             (void)invoke_set_text(stale_row_component, "");
         };
 
-        // Recovery path after restart: row components may exist with engine-generated
-        // names. Seed/reseed row-key cache from existing text components so we reuse
-        // them deterministically and preserve row spacing behavior.
-        {
-            bool rebuild_row_cache = false;
-            std::unordered_set<std::string> cached_names{};
-            for (int row_index = 0; row_index < 4; ++row_index)
-            {
-                const auto row_storage_key = make_managed_row_storage_key(key, row_index);
-                const auto cache_it = m_component_name_cache.find(row_storage_key);
-                if (cache_it == m_component_name_cache.end() || cache_it->second.empty())
-                {
-                    rebuild_row_cache = true;
-                    break;
-                }
-                const auto lowered = lower_ascii(cache_it->second);
-                if (!cached_names.insert(lowered).second)
-                {
-                    rebuild_row_cache = true;
-                    break;
-                }
-            }
-            if (rebuild_row_cache)
-            {
-                std::vector<UObject*> text_components{};
-                auto components = actor->GetComponentsByClass(UActorComponent::StaticClass());
-                for (int32_t i = 0; i < components.Num(); ++i)
-                {
-                    auto* component = components[i];
-                    if (!component)
-                    {
-                        continue;
-                    }
-                    const auto component_class = lower_ascii(narrow_ascii(component->GetClassPrivate()->GetFullName()));
-                    if (component_class.find("textrendercomponent") == std::string::npos)
-                    {
-                        continue;
-                    }
-                    text_components.push_back(component);
-                }
-                if (!text_components.empty())
-                {
-                    std::sort(text_components.begin(), text_components.end(), [&](UObject* lhs, UObject* rhs) {
-                        return lower_ascii(narrow_ascii(lhs->GetFullName())) < lower_ascii(narrow_ascii(rhs->GetFullName()));
-                    });
-                    const int map_count = std::min<int>(4, static_cast<int>(text_components.size()));
-                    for (int row_index = 0; row_index < map_count; ++row_index)
-                    {
-                        const auto row_storage_key = make_managed_row_storage_key(key, row_index);
-                        m_component_name_cache[row_storage_key] = narrow_ascii(text_components[static_cast<size_t>(row_index)]->GetFullName());
-                    }
-                    m_component_name_cache.erase(key);
-                    log_line("[phase4] row_component_recovered key=" + key +
-                             " mapped=" + std::to_string(map_count) +
-                             " totalTextComponents=" + std::to_string(text_components.size()));
-                }
-            }
-        }
-
         for (int row_index = row_count; row_index < 4; ++row_index)
         {
             clear_row_component(make_managed_row_storage_key(key, row_index));
         }
 
+        std::unordered_set<uintptr_t> assigned_row_component_ptrs{};
+        assigned_row_component_ptrs.reserve(static_cast<size_t>(row_count));
+
         for (int row_index = 0; row_index < row_count; ++row_index)
         {
             const auto row_storage_key = make_managed_row_storage_key(key, row_index);
-            const float row_offset = top_center_offset - (static_cast<float>(row_index) * row_step);
+            const float row_offset = layout_offsets[static_cast<size_t>(row_index)];
             row_offsets.push_back(row_offset);
 
             FVector row_relative_location(
@@ -11822,11 +11171,11 @@ namespace WindroseTextSigns
                 relative_location.GetY(),
                 relative_location.GetZ() + row_offset);
 
-            auto* text_component = find_managed_text_component(actor, row_storage_key);
+            auto* text_component = find_cached_component_only(row_storage_key);
             bool reused_existing = text_component != nullptr;
             if (!text_component && row_index == 0)
             {
-                auto* base_component = find_managed_text_component(actor, key);
+                auto* base_component = find_cached_component_only(key);
                 if (base_component)
                 {
                     text_component = base_component;
@@ -11835,9 +11184,41 @@ namespace WindroseTextSigns
                     m_component_name_cache.erase(key);
                 }
             }
+            if (text_component)
+            {
+                const auto component_ptr = reinterpret_cast<uintptr_t>(text_component);
+                if (assigned_row_component_ptrs.contains(component_ptr))
+                {
+                    text_component = nullptr;
+                    reused_existing = false;
+                }
+            }
             if (!text_component)
             {
                 text_component = create_managed_text_component(actor, row_storage_key, row_relative_location);
+                if (text_component)
+                {
+                    const auto component_ptr = reinterpret_cast<uintptr_t>(text_component);
+                    if (assigned_row_component_ptrs.contains(component_ptr))
+                    {
+                        // Defensive path: AddComponentByClass can occasionally hand back
+                        // an existing component during churn. Never allow the same pointer
+                        // to back multiple rows in a single apply pass.
+                        log_line("[phase4] row_component_collision key=" + key +
+                                 " row=" + std::to_string(row_index) +
+                                 " component=" + narrow_ascii(text_component->GetFullName()) +
+                                 " action=create_retry_once");
+                        auto* second_try_component = create_managed_text_component(actor, row_storage_key, row_relative_location);
+                        if (second_try_component && !assigned_row_component_ptrs.contains(reinterpret_cast<uintptr_t>(second_try_component)))
+                        {
+                            text_component = second_try_component;
+                        }
+                        else
+                        {
+                            text_component = nullptr;
+                        }
+                    }
+                }
             }
             if (!text_component)
             {
@@ -11849,9 +11230,34 @@ namespace WindroseTextSigns
             }
 
             any_reused_existing = any_reused_existing || reused_existing;
+            assigned_row_component_ptrs.insert(reinterpret_cast<uintptr_t>(text_component));
             (void)invoke_set_hidden_in_game(text_component, false);
             (void)invoke_set_visibility(text_component, true);
-            moved = invoke_set_relative_location(text_component, row_relative_location) || moved;
+            bool row_moved = invoke_set_relative_location(text_component, row_relative_location);
+            if (!row_moved && reused_existing)
+            {
+                auto* stale_component = text_component;
+                auto* recreated_component = create_managed_text_component(actor, row_storage_key, row_relative_location);
+                if (recreated_component)
+                {
+                    (void)invoke_set_hidden_in_game(stale_component, true);
+                    (void)invoke_set_visibility(stale_component, false);
+                    (void)invoke_set_text(stale_component, "");
+
+                    assigned_row_component_ptrs.erase(reinterpret_cast<uintptr_t>(stale_component));
+                    text_component = recreated_component;
+                    reused_existing = false;
+                    any_reused_existing = any_reused_existing || reused_existing;
+                    assigned_row_component_ptrs.insert(reinterpret_cast<uintptr_t>(text_component));
+                    (void)invoke_set_hidden_in_game(text_component, false);
+                    (void)invoke_set_visibility(text_component, true);
+                    row_moved = invoke_set_relative_location(text_component, row_relative_location);
+                    log_line("[phase4] row_component_recreated key=" + key +
+                             " row=" + std::to_string(row_index) +
+                             " reason=move_failed_reused_component");
+                }
+            }
+            moved = row_moved || moved;
             const bool row_sized = invoke_set_float_value(
                 text_component,
                 STR("SetWorldSize"),
@@ -11891,6 +11297,7 @@ namespace WindroseTextSigns
         m_phase4_last_failure_reason.erase(key);
         m_phase4_next_retry.erase(key);
         m_create_null_retry_states.erase(key);
+        m_last_row_count_by_key[key] = row_count;
         m_rendered_text_cache[key] = text_value;
         std::ostringstream loc{};
         loc << std::fixed << std::setprecision(2)
@@ -11921,8 +11328,8 @@ namespace WindroseTextSigns
         log_line("[phase4] row_layout key=" + key +
                  " rows=" + std::to_string(row_count) +
                  " fontSize=" + std::to_string(desired_font_size) +
-                 " rowGapFactor=" + std::to_string(row_gap_factor) +
-                 " rowGap=" + std::to_string(row_gap) +
+                 " rowGapScale=" + std::to_string(row_gap_scale) +
+                 " rowStepAvg=" + std::to_string(avg_step) +
                  " blockHeight=" + std::to_string(block_total_height) +
                  " rowOffsets=" + offsets.str() +
                  " alignYCenter=" + std::to_string((m_labels.find(key) != m_labels.end()) ? m_labels.at(key).align_y : 1.5f));
@@ -12393,11 +11800,7 @@ namespace WindroseTextSigns
             return false;
         }
 
-        UObject* controlled_pawn = get_object_property_if_present(controller, "Pawn");
-        if (!controlled_pawn)
-        {
-            controlled_pawn = get_object_property_if_present(controller, "AcknowledgedPawn");
-        }
+        UObject* controlled_pawn = get_controller_pawn_property_only(controller);
         if (!controlled_pawn)
         {
             set_reason("controlled_pawn_missing");
@@ -12628,7 +12031,395 @@ namespace WindroseTextSigns
             }
         }
 
-        tick_bootstrap_role_and_session_from_logs();
+        if (m_destroy_signal_log_path.empty() || !std::filesystem::exists(m_destroy_signal_log_path))
+        {
+            for (const auto& candidate : collect_r5_log_candidates(m_destroy_signal_log_path))
+            {
+                if (std::filesystem::exists(candidate))
+                {
+                    m_destroy_signal_log_path = candidate;
+                    m_destroy_signal_log_initialized = false;
+                    break;
+                }
+            }
+        }
+
+        if (m_destroy_signal_log_path.empty() || !std::filesystem::exists(m_destroy_signal_log_path))
+        {
+            return;
+        }
+
+        std::error_code size_ec{};
+        const auto size = std::filesystem::file_size(m_destroy_signal_log_path, size_ec);
+        if (size_ec)
+        {
+            return;
+        }
+
+        if (!m_destroy_signal_log_initialized || m_destroy_signal_log_offset > size)
+        {
+            m_destroy_signal_log_initialized = true;
+            m_destroy_signal_log_offset = size;
+            log_line("[save] destroy_signal_r5log armed path=" + m_destroy_signal_log_path.string() +
+                     " offset=" + std::to_string(static_cast<unsigned long long>(size)));
+            return;
+        }
+
+        if (size == m_destroy_signal_log_offset)
+        {
+            return;
+        }
+
+        const auto runtime_role_lower = lower_ascii(m_runtime_role);
+        const bool localclient_runtime =
+            runtime_role_lower == "localclient" ||
+            runtime_role_lower == "localclientpending";
+        const bool dedicated_authoritative_runtime =
+            is_dedicated_runtime_process() &&
+            m_sidecar_authoritative;
+        // Parse destroy/construct signals in:
+        // 1) LocalClient runtime states (including Pending), so short-lived evidence
+        //    is not lost during authority-route bootstrap churn.
+        // 2) Dedicated authoritative runtime, so authoritative prune decisions can be
+        //    committed server-side and propagated to clients.
+        const bool parse_destroy_construct_signals =
+            dedicated_authoritative_runtime ||
+            (!is_dedicated_runtime_process() && localclient_runtime);
+
+        std::ifstream input{m_destroy_signal_log_path, std::ios::binary};
+        if (!input)
+        {
+            return;
+        }
+        input.seekg(static_cast<std::streamoff>(m_destroy_signal_log_offset), std::ios::beg);
+        const auto bytes_to_read = std::min<uintmax_t>(size - m_destroy_signal_log_offset, 262144);
+        std::string chunk{};
+        chunk.resize(static_cast<size_t>(bytes_to_read));
+        input.read(chunk.data(), static_cast<std::streamsize>(chunk.size()));
+        chunk.resize(static_cast<size_t>(std::max<std::streamsize>(0, input.gcount())));
+        m_destroy_signal_log_offset = size;
+        if (chunk.empty())
+        {
+            return;
+        }
+
+        static const std::regex slot_token_rx{R"((BuildingBlock)\|([A-Fa-f0-9]{16,32})\|([0-9]+))", std::regex::icase};
+        static const std::regex guid_key_value_rx{R"((?:BuildingGuid|Guid|ActorGuid)\s*[:=]\s*([A-Fa-f0-9]{16,32}))", std::regex::icase};
+        static const std::regex guid_any_rx{R"(\b([A-Fa-f0-9]{32})\b)"};
+        static const std::regex index_key_value_rx{R"((?:Block(?:Index)?|Index|Slot)\s*[:=]\s*([0-9]+))", std::regex::icase};
+        static const std::regex construct_block_rx{
+            R"(Construct\s+BuildingBlock\s+([0-9]+)\s+from\s+building\s+([A-Fa-f0-9]{16,32}))",
+            std::regex::icase};
+        std::istringstream lines{chunk};
+        std::string line{};
+        bool definitive_start_reset_fired = false;
+        const auto gameplay_world_hint_from_line = [](const std::string& lower_line) -> std::string {
+            auto extract_token = [&](size_t start_pos) -> std::string {
+                if (start_pos == std::string::npos || start_pos >= lower_line.size())
+                {
+                    return {};
+                }
+                size_t end_pos = start_pos;
+                while (end_pos < lower_line.size())
+                {
+                    const char ch = lower_line[end_pos];
+                    if (std::isspace(static_cast<unsigned char>(ch)) ||
+                        ch == ',' || ch == ';' || ch == ')' || ch == ']' || ch == '"' || ch == '\'')
+                    {
+                        break;
+                    }
+                    ++end_pos;
+                }
+                return lower_line.substr(start_pos, end_pos - start_pos);
+            };
+
+            size_t maps_pos = lower_line.find("/game/maps/");
+            if (maps_pos != std::string::npos)
+            {
+                return extract_token(maps_pos);
+            }
+            maps_pos = lower_line.find("game/maps/");
+            if (maps_pos != std::string::npos)
+            {
+                return extract_token(maps_pos);
+            }
+            return {};
+        };
+        const auto is_non_gameplay_hint = [](const std::string& hint_lower) -> bool {
+            return hint_lower.empty() ||
+                   hint_lower.find("lobby") != std::string::npos ||
+                   hint_lower.find("transition") != std::string::npos ||
+                   hint_lower.find("entrance") != std::string::npos;
+        };
+        const auto try_begin_definitive_reset = [&](const std::string& category,
+                                                    const std::string& signal,
+                                                    const std::string& world_hint) -> bool {
+            constexpr auto k_definitive_reset_debounce = std::chrono::seconds(30);
+            const auto signature = category + "|" + signal + "|" + world_hint;
+            const bool within_debounce =
+                m_definitive_session_reset_last_trigger.time_since_epoch().count() != 0 &&
+                (now - m_definitive_session_reset_last_trigger) < k_definitive_reset_debounce &&
+                m_definitive_session_reset_last_category == category &&
+                m_definitive_session_reset_last_signature == signature;
+            if (within_debounce)
+            {
+                log_line("[session] reset_suppressed reason=debounce_30s category=" + category +
+                         " signal=" + signal +
+                         " worldHint=" + (world_hint.empty() ? "none" : world_hint));
+                return false;
+            }
+
+            m_definitive_session_reset_last_trigger = now;
+            m_definitive_session_reset_last_category = category;
+            m_definitive_session_reset_last_signature = signature;
+            return true;
+        };
+        while (std::getline(lines, line))
+        {
+            const auto line_lower = lower_ascii(line);
+
+            const bool advisory_generation_marker =
+                line_lower.find("createisland") != std::string::npos ||
+                line_lower.find("createworlddescription") != std::string::npos;
+            if (advisory_generation_marker)
+            {
+                m_worldid_generation_in_progress = true;
+                m_worldid_generation_last_signal = now;
+                std::smatch world_id_match{};
+                if (std::regex_search(line, world_id_match, guid_any_rx) && world_id_match.size() >= 2)
+                {
+                    auto marker_id = world_id_match[1].str();
+                    std::transform(marker_id.begin(), marker_id.end(), marker_id.begin(), [](unsigned char c) {
+                        return static_cast<char>(std::toupper(c));
+                    });
+                    if (is_hex_world_id(marker_id) && marker_id != m_worldid_generation_last_marker_id)
+                    {
+                        m_worldid_generation_last_marker_id = marker_id;
+                        log_line("[worldid] provisional_seen id=" + marker_id + " source=r5_generation_marker");
+                    }
+                }
+            }
+
+            if (!definitive_start_reset_fired)
+            {
+                std::string world_hint{};
+                const bool level_open_or_loadmap =
+                    line_lower.find("ur5datakeeper::openlevel") != std::string::npos ||
+                    line_lower.find("logload: loadmap:") != std::string::npos ||
+                    line_lower.find("loadmap:") != std::string::npos;
+                if (level_open_or_loadmap)
+                {
+                    world_hint = gameplay_world_hint_from_line(line_lower);
+                    if (!is_non_gameplay_hint(world_hint))
+                    {
+                        m_definitive_session_start_candidate_active = true;
+                        m_definitive_session_start_candidate_signal = "level_open_started";
+                        m_definitive_session_start_candidate_world_hint = world_hint;
+                    }
+                }
+                const bool bringing_world_up_for_play =
+                    line_lower.find("bringing world") != std::string::npos &&
+                    line_lower.find("up for play") != std::string::npos;
+                if (bringing_world_up_for_play)
+                {
+                    world_hint = gameplay_world_hint_from_line(line_lower);
+                    if (!is_non_gameplay_hint(world_hint))
+                    {
+                        m_definitive_session_start_candidate_active = true;
+                        m_definitive_session_start_candidate_signal = "world_play_begin";
+                        m_definitive_session_start_candidate_world_hint = world_hint;
+                    }
+                }
+
+                if (m_definitive_session_start_candidate_active)
+                {
+                    std::string ready_reason{};
+                    const bool start_confirmed = is_session_ready_for_role_resolution(&ready_reason);
+                    if (start_confirmed)
+                    {
+                        const auto detected_signal = m_definitive_session_start_candidate_signal.empty()
+                            ? std::string{"world_play_begin_confirmed"}
+                            : m_definitive_session_start_candidate_signal + "_confirmed";
+                        const auto detected_world_hint = m_definitive_session_start_candidate_world_hint;
+                        if (try_begin_definitive_reset("start", detected_signal, detected_world_hint))
+                        {
+                            log_line("[session] definitive_start_detected signal=" + detected_signal +
+                                     " worldHint=" + (detected_world_hint.empty() ? "none" : detected_world_hint));
+                            reset_session_state("definitive_session_start");
+                            log_line("[session] reset_extended_clears applied=true");
+                            definitive_start_reset_fired = true;
+                        }
+                        m_definitive_session_start_candidate_active = false;
+                        m_definitive_session_start_candidate_signal.clear();
+                        m_definitive_session_start_candidate_world_hint.clear();
+                    }
+                }
+            }
+
+            if (line_lower.find("world client") != std::string::npos &&
+                !m_hosted_ready_world_client_seen)
+            {
+                m_hosted_ready_world_client_seen = true;
+                log_line("[save] hosted_ready_signal signal=world_client");
+            }
+            if (line_lower.find("openlevel") != std::string::npos ||
+                line_lower.find("loadmap:") != std::string::npos)
+            {
+                log_line("[save] hosted_ready_signal signal=level_open_started");
+            }
+            if (line_lower.find("bringing world") != std::string::npos &&
+                line_lower.find("up for play") != std::string::npos)
+            {
+                log_line("[save] hosted_ready_signal signal=world_play_begin");
+            }
+            if (line_lower.find("onplayerisready") != std::string::npos &&
+                line_lower.find("character bp_") != std::string::npos &&
+                line_lower.find("character nullptr") == std::string::npos &&
+                !m_hosted_ready_player_ready_seen)
+            {
+                m_hosted_ready_player_ready_seen = true;
+                log_line("[save] hosted_ready_signal signal=player_ready");
+            }
+            if (line_lower.find("datakeeper is ready to play") != std::string::npos &&
+                !m_hosted_ready_datakeeper_seen)
+            {
+                m_hosted_ready_datakeeper_seen = true;
+                log_line("[save] hosted_ready_signal signal=datakeeper_ready");
+            }
+            if (line_lower.find("hide loading screen") != std::string::npos &&
+                !m_hosted_ready_hide_loading_seen)
+            {
+                m_hosted_ready_hide_loading_seen = true;
+                log_line("[save] hosted_ready_signal signal=hide_loading");
+            }
+            if (!m_hosted_ready_sequence_complete &&
+                m_hosted_ready_world_client_seen &&
+                m_hosted_ready_player_ready_seen &&
+                m_hosted_ready_datakeeper_seen &&
+                m_hosted_ready_hide_loading_seen)
+            {
+                m_hosted_ready_sequence_complete = true;
+                log_line("[save] hosted_ready_sequence complete=true");
+                if (m_session_ready_latched && lower_ascii(m_runtime_role) == "localclientpending")
+                {
+                    tick_localclient_role_resolution();
+                }
+            }
+
+            const bool farewell_transition =
+                line_lower.find("change state readytoplay => sentfarewell") != std::string::npos ||
+                line_lower.find("change state readytoplay => saidfarewell") != std::string::npos;
+            if (farewell_transition)
+            {
+                if (try_begin_definitive_reset("end", "sent_farewell", "none"))
+                {
+                    log_line("[session] definitive_end_detected signal=sent_farewell");
+                    arm_phase7_definitive_teardown("sent_farewell");
+                }
+            }
+            const bool request_exit =
+                line_lower.find("requestexit(") != std::string::npos ||
+                line_lower.find("engine exit requested") != std::string::npos;
+            if (request_exit)
+            {
+                if (try_begin_definitive_reset("end", "engine_request_exit", "none"))
+                {
+                    log_line("[session] definitive_end_detected signal=engine_request_exit");
+                    arm_phase7_definitive_teardown("engine_request_exit");
+                }
+            }
+
+            if (!parse_destroy_construct_signals)
+            {
+                continue;
+            }
+
+            const bool destroy_rule = line_lower.find("destroyrule::do_impl") != std::string::npos;
+            const bool construct_rule = line_lower.find("constructrule::do_impl") != std::string::npos;
+            if (!destroy_rule && !construct_rule)
+            {
+                continue;
+            }
+
+            std::string guid{};
+            std::string index{};
+            std::smatch match{};
+            if (construct_rule && std::regex_search(line, match, construct_block_rx) && match.size() >= 3)
+            {
+                index = match[1].str();
+                guid = match[2].str();
+            }
+            else if (std::regex_search(line, match, slot_token_rx) && match.size() >= 4)
+            {
+                guid = match[2].str();
+                index = match[3].str();
+            }
+            else
+            {
+                if (std::regex_search(line, match, guid_key_value_rx) && match.size() >= 2)
+                {
+                    guid = match[1].str();
+                }
+                else if (std::regex_search(line, match, guid_any_rx) && match.size() >= 2)
+                {
+                    guid = match[1].str();
+                }
+                if (std::regex_search(line, match, index_key_value_rx) && match.size() >= 2)
+                {
+                    index = match[1].str();
+                }
+            }
+
+            if (guid.empty())
+            {
+                continue;
+            }
+            std::transform(guid.begin(), guid.end(), guid.begin(), [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
+
+            if (destroy_rule)
+            {
+                m_recent_destroy_guid_signals[guid] = now;
+                log_line("[save] destroy_signal_seen guid=" + guid);
+                for (const auto& [slot_key, signal] : m_recent_construct_slot_signals)
+                {
+                    if ((now - signal.seen_at) > ttl)
+                    {
+                        continue;
+                    }
+                    const auto guid_delim = slot_key.find('|');
+                    if (guid_delim == std::string::npos || guid_delim == 0)
+                    {
+                        continue;
+                    }
+                    const auto slot_guid = slot_key.substr(0, guid_delim);
+                    if (lower_ascii(slot_guid) != lower_ascii(guid))
+                    {
+                        continue;
+                    }
+                    const auto index_value = slot_key.substr(guid_delim + 1);
+                    m_recent_destroy_slot_confirmations[slot_key] = now;
+                    log_line("[save] destroy_construct_correlated guid=" + guid + " index=" + index_value);
+                }
+            }
+            if (construct_rule)
+            {
+                if (!index.empty())
+                {
+                    const auto slot_key = make_building_slot_key(guid, index);
+                    m_recent_construct_slot_signals[slot_key] = RecentConstructSignal{
+                        now,
+                        active_storage_world_id(m_role_lock_world_id.empty() ? m_session_ready_world_id : m_role_lock_world_id),
+                        m_session_epoch};
+                    log_line("[save] construct_signal_seen guid=" + guid + " index=" + index);
+                    const auto guid_it = m_recent_destroy_guid_signals.find(guid);
+                    if (guid_it != m_recent_destroy_guid_signals.end() && (now - guid_it->second) <= ttl)
+                    {
+                        m_recent_destroy_slot_confirmations[slot_key] = now;
+                        log_line("[save] destroy_construct_correlated guid=" + guid + " index=" + index);
+                    }
+                }
+            }
+        }
     }
 
     auto SignTextMod::refresh_recent_destroy_signals_from_r5_log() -> void
@@ -13243,11 +13034,7 @@ namespace WindroseTextSigns
             return;
         }
 
-        UObject* controlled_pawn = get_object_property_if_present(controller, "Pawn");
-        if (!controlled_pawn)
-        {
-            controlled_pawn = get_object_property_if_present(controller, "AcknowledgedPawn");
-        }
+        UObject* controlled_pawn = get_controller_pawn_property_only(controller);
         const bool pawn_valid = controlled_pawn != nullptr;
 
         const auto world_name = lower_ascii(narrow_ascii(world->GetName()));
@@ -13533,13 +13320,6 @@ namespace WindroseTextSigns
         m_destroy_signal_log_path.clear();
         m_destroy_signal_log_offset = 0;
         m_destroy_signal_log_initialized = false;
-        if (m_bootstrap_sources_initialized)
-        {
-            reset_bootstrap_source_for_new_epoch(m_bootstrap_client_source, "session_reset_" + reason);
-            reset_bootstrap_source_for_new_epoch(m_bootstrap_dedicated_source, "session_reset_" + reason);
-            reset_bootstrap_source_for_new_epoch(m_bootstrap_hosted_server_source, "session_reset_" + reason);
-            save_bootstrap_cursor_state();
-        }
         reset_visual_verify_debug_state();
         reset_role_route_locks("session_reset_" + reason);
         reset_bridge_snapshot_state("session_reset_" + reason);
@@ -13595,11 +13375,7 @@ namespace WindroseTextSigns
             return false;
         }
 
-        UObject* controlled_pawn = get_object_property_if_present(controller, "Pawn");
-        if (!controlled_pawn)
-        {
-            controlled_pawn = get_object_property_if_present(controller, "AcknowledgedPawn");
-        }
+        UObject* controlled_pawn = get_controller_pawn_property_only(controller);
         if (!controlled_pawn)
         {
             set_reason("controlled_pawn_missing");
@@ -13762,11 +13538,7 @@ namespace WindroseTextSigns
             return false;
         }
 
-        UObject* controlled_pawn = get_object_property_if_present(controller, "Pawn");
-        if (!controlled_pawn)
-        {
-            controlled_pawn = get_object_property_if_present(controller, "AcknowledgedPawn");
-        }
+        UObject* controlled_pawn = get_controller_pawn_property_only(controller);
         if (!controlled_pawn)
         {
             set_reason("controlled_pawn_missing");
@@ -13826,11 +13598,7 @@ namespace WindroseTextSigns
             return;
         }
 
-        UObject* controlled_pawn = get_object_property_if_present(controller, "Pawn");
-        if (!controlled_pawn)
-        {
-            controlled_pawn = get_object_property_if_present(controller, "AcknowledgedPawn");
-        }
+        UObject* controlled_pawn = get_controller_pawn_property_only(controller);
         auto* pawn_actor = controlled_pawn && controlled_pawn->IsA(AActor::StaticClass()) ? Cast<AActor>(controlled_pawn) : nullptr;
 
         const auto controller_world_id = build_world_id_for_actor(controller_actor);
@@ -14219,11 +13987,7 @@ namespace WindroseTextSigns
             UObject* controlled_pawn = nullptr;
             if (controller)
             {
-                controlled_pawn = get_object_property_if_present(controller, "Pawn");
-                if (!controlled_pawn)
-                {
-                    controlled_pawn = get_object_property_if_present(controller, "AcknowledgedPawn");
-                }
+                controlled_pawn = get_controller_pawn_property_only(controller);
             }
             if (controlled_pawn && controlled_pawn->IsA(AActor::StaticClass()))
             {
@@ -14261,11 +14025,7 @@ namespace WindroseTextSigns
             UObject* controlled_pawn = nullptr;
             if (controller)
             {
-                controlled_pawn = get_object_property_if_present(controller, "Pawn");
-                if (!controlled_pawn)
-                {
-                    controlled_pawn = get_object_property_if_present(controller, "AcknowledgedPawn");
-                }
+                controlled_pawn = get_controller_pawn_property_only(controller);
             }
             if (controlled_pawn && controlled_pawn->IsA(AActor::StaticClass()) && m_visual_verify_ready_pawn_loc_valid)
             {
@@ -14364,9 +14124,10 @@ namespace WindroseTextSigns
         }
         tick_pending_fallback_hotkeys();
         tick_file_triggers();
-        tick_r5_readiness_markers();
         if (!is_dedicated_runtime_process())
         {
+            // Always parse readiness markers in LocalClient states, including Pending.
+            tick_r5_readiness_markers();
             if (!m_session_ready_latched)
             {
                 std::string ready_reason{};
@@ -14426,20 +14187,15 @@ namespace WindroseTextSigns
             {
                 const auto runtime_role_lower = lower_ascii(m_runtime_role);
                 const bool pending_localclient = runtime_role_lower == "localclientpending";
-                const bool locked_any_session =
-                    m_session_ready_latched &&
-                    m_role_lock_acquired;
                 const bool locked_localclient_session =
                     !is_dedicated_runtime_process() &&
-                    locked_any_session;
-                const bool locked_dedicated_session =
-                    is_dedicated_runtime_process() &&
-                    locked_any_session;
-                if (locked_localclient_session || locked_dedicated_session)
+                    m_session_ready_latched &&
+                    m_role_lock_acquired;
+                if (locked_localclient_session)
                 {
                     if (!m_locked_world_inactive_ignored_logged)
                     {
-                        log_line("[session] reset_ignored reason=locked_session_transient_world_inactive role=" + m_runtime_role);
+                        log_line("[session] reset_ignored reason=locked_session_transient_world_inactive");
                         m_locked_world_inactive_ignored_logged = true;
                     }
                     m_world_inactive_since = {};
@@ -15394,7 +15150,13 @@ namespace WindroseTextSigns
         {
             static bool live_surface_tune = true;
             float autosize_char_width_factor_value = std::clamp(m_autosize_char_width_factor, 0.20f, 2.00f);
-            float row_gap_factor_value = std::clamp(m_row_gap_factor, 0.00f, 2.00f);
+            float row_gap_factor_2_value = std::clamp(m_row_gap_factor_2, 0.00f, 3.00f);
+            float row_gap_factor_3_value = std::clamp(m_row_gap_factor_3, 0.00f, 3.00f);
+            float row_gap_factor_4_value = std::clamp(m_row_gap_factor_4, 0.00f, 3.00f);
+            float row_offsets_1_value[1] = {m_row_offsets_1[0]};
+            float row_offsets_2_value[2] = {m_row_offsets_2[0], m_row_offsets_2[1]};
+            float row_offsets_3_value[3] = {m_row_offsets_3[0], m_row_offsets_3[1], m_row_offsets_3[2]};
+            float row_offsets_4_value[4] = {m_row_offsets_4[0], m_row_offsets_4[1], m_row_offsets_4[2], m_row_offsets_4[3]};
             float axis_value = std::clamp(found->second.surface_axis, 0.0f, 1.0f);
             int sign_value = (found->second.surface_sign < 0) ? -1 : 1;
             float depth_value = found->second.depth_offset;
@@ -15415,15 +15177,52 @@ namespace WindroseTextSigns
                 m_autosize_char_width_factor = std::clamp(autosize_char_width_factor_value, 0.20f, 2.00f);
                 log_line("[autosize] char_width_factor_updated value=" + std::to_string(m_autosize_char_width_factor));
             }
-            if (ImGui::DragFloat("Row Gap Factor", &row_gap_factor_value, 0.01f, 0.00f, 2.00f, "%.2f"))
+            bool row_gap_factors_changed = false;
+            row_gap_factors_changed = ImGui::DragFloat("Row Gap Factor (2 rows)", &row_gap_factor_2_value, 0.01f, 0.00f, 3.00f, "%.2f") || row_gap_factors_changed;
+            row_gap_factors_changed = ImGui::DragFloat("Row Gap Factor (3 rows)", &row_gap_factor_3_value, 0.01f, 0.00f, 3.00f, "%.2f") || row_gap_factors_changed;
+            row_gap_factors_changed = ImGui::DragFloat("Row Gap Factor (4 rows)", &row_gap_factor_4_value, 0.01f, 0.00f, 3.00f, "%.2f") || row_gap_factors_changed;
+            if (row_gap_factors_changed)
             {
-                m_row_gap_factor = std::clamp(row_gap_factor_value, 0.00f, 2.00f);
-                log_line("[autosize] row_gap_factor_updated value=" + std::to_string(m_row_gap_factor));
+                m_row_gap_factor_2 = std::clamp(row_gap_factor_2_value, 0.00f, 3.00f);
+                m_row_gap_factor_3 = std::clamp(row_gap_factor_3_value, 0.00f, 3.00f);
+                m_row_gap_factor_4 = std::clamp(row_gap_factor_4_value, 0.00f, 3.00f);
+                log_line("[autosize] row_gap_factors_updated row2=" + std::to_string(m_row_gap_factor_2) +
+                         " row3=" + std::to_string(m_row_gap_factor_3) +
+                         " row4=" + std::to_string(m_row_gap_factor_4));
                 if (live_surface_tune)
                 {
                     const bool rendered = apply_text_to_actor_component(m_selected->actor, found->second.text);
-                    log_line("[phase4] row_gap_tune_live key=" + key +
-                             " rowGapFactor=" + std::to_string(m_row_gap_factor) +
+                    log_line("[phase4] row_gap_factors_tune_live key=" + key +
+                             " rendered=" + std::string{rendered ? "true" : "false"});
+                }
+            }
+            ImGui::Separator();
+            ImGui::Text("Row Offset Tuning (Z offsets)");
+            bool row_offsets_changed = false;
+            row_offsets_changed = ImGui::DragFloat("Row1 Off0", &row_offsets_1_value[0], 0.05f, -60.0f, 60.0f, "%.2f") || row_offsets_changed;
+            row_offsets_changed = ImGui::DragFloat("Row2 Off0", &row_offsets_2_value[0], 0.05f, -60.0f, 60.0f, "%.2f") || row_offsets_changed;
+            row_offsets_changed = ImGui::DragFloat("Row2 Off1", &row_offsets_2_value[1], 0.05f, -60.0f, 60.0f, "%.2f") || row_offsets_changed;
+            row_offsets_changed = ImGui::DragFloat("Row3 Off0", &row_offsets_3_value[0], 0.05f, -60.0f, 60.0f, "%.2f") || row_offsets_changed;
+            row_offsets_changed = ImGui::DragFloat("Row3 Off1", &row_offsets_3_value[1], 0.05f, -60.0f, 60.0f, "%.2f") || row_offsets_changed;
+            row_offsets_changed = ImGui::DragFloat("Row3 Off2", &row_offsets_3_value[2], 0.05f, -60.0f, 60.0f, "%.2f") || row_offsets_changed;
+            row_offsets_changed = ImGui::DragFloat("Row4 Off0", &row_offsets_4_value[0], 0.05f, -60.0f, 60.0f, "%.2f") || row_offsets_changed;
+            row_offsets_changed = ImGui::DragFloat("Row4 Off1", &row_offsets_4_value[1], 0.05f, -60.0f, 60.0f, "%.2f") || row_offsets_changed;
+            row_offsets_changed = ImGui::DragFloat("Row4 Off2", &row_offsets_4_value[2], 0.05f, -60.0f, 60.0f, "%.2f") || row_offsets_changed;
+            row_offsets_changed = ImGui::DragFloat("Row4 Off3", &row_offsets_4_value[3], 0.05f, -60.0f, 60.0f, "%.2f") || row_offsets_changed;
+            if (row_offsets_changed)
+            {
+                m_row_offsets_1 = {row_offsets_1_value[0]};
+                m_row_offsets_2 = {row_offsets_2_value[0], row_offsets_2_value[1]};
+                m_row_offsets_3 = {row_offsets_3_value[0], row_offsets_3_value[1], row_offsets_3_value[2]};
+                m_row_offsets_4 = {row_offsets_4_value[0], row_offsets_4_value[1], row_offsets_4_value[2], row_offsets_4_value[3]};
+                log_line("[autosize] row_offsets_updated row1=" + std::to_string(m_row_offsets_1[0]) +
+                         " row2=" + std::to_string(m_row_offsets_2[0]) + "," + std::to_string(m_row_offsets_2[1]) +
+                         " row3=" + std::to_string(m_row_offsets_3[0]) + "," + std::to_string(m_row_offsets_3[1]) + "," + std::to_string(m_row_offsets_3[2]) +
+                         " row4=" + std::to_string(m_row_offsets_4[0]) + "," + std::to_string(m_row_offsets_4[1]) + "," + std::to_string(m_row_offsets_4[2]) + "," + std::to_string(m_row_offsets_4[3]));
+                if (live_surface_tune)
+                {
+                    const bool rendered = apply_text_to_actor_component(m_selected->actor, found->second.text);
+                    log_line("[phase4] row_offsets_tune_live key=" + key +
                              " rendered=" + std::string{rendered ? "true" : "false"});
                 }
             }
