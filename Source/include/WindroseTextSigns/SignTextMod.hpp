@@ -240,6 +240,11 @@ namespace WindroseTextSigns
         auto sanitize_backup_reason(std::string reason) const -> std::string;
 
         auto configure_bridge_role(const std::string& reason) -> void;
+        auto reset_server_role_classification_state(const std::string& reason) -> void;
+        auto maybe_begin_server_role_classification(const std::filesystem::path& log_path, uintmax_t window_start_offset) -> void;
+        auto maybe_observe_server_role_signal(const std::string& line_lower, uintmax_t line_window_start, uintmax_t line_window_end) -> void;
+        auto maybe_commit_server_role_classification(std::chrono::steady_clock::time_point now, const std::string& reason) -> void;
+        auto apply_server_role_classification(bool hosted_server_relay, const std::string& reason) -> void;
         auto bridge_upnp_mode_name() const -> std::string;
         auto maybe_start_bridge_upnp_attempt(const std::string& reason) -> void;
         auto tick_bridge_upnp() -> void;
@@ -388,6 +393,15 @@ namespace WindroseTextSigns
         bool m_hosted_server_authority_route_configured{false};
         std::chrono::steady_clock::time_point m_hosted_server_next_hello{};
         std::chrono::steady_clock::time_point m_hosted_server_next_resync_request{};
+        bool m_server_role_classification_pending{false};
+        bool m_server_role_signal_executable_seen{false};
+        bool m_server_role_signal_hosted_ini_seen{false};
+        bool m_server_role_signal_host_ready_seen{false};
+        uintmax_t m_server_role_window_start_offset{0};
+        uintmax_t m_server_role_window_end_offset{0};
+        std::filesystem::path m_server_role_log_path{};
+        std::chrono::steady_clock::time_point m_server_role_classification_started{};
+        std::chrono::steady_clock::time_point m_server_role_pending_last_log{};
 
         std::atomic<bool> m_hotkey_requested{false};
         std::atomic<bool> m_native_transport_inventory_requested{false};

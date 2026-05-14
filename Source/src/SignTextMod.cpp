@@ -1379,11 +1379,11 @@ namespace
     {
         DataRootResolution out{};
         const bool dedicated_server = is_dedicated_server_process(cwd, mod_root);
-        out.runtime_role = dedicated_server ? "DedicatedServer" : "LocalClientPending";
-        out.authority_mode = dedicated_server ? "DedicatedServerAuthoritative" : "WorldAuthorityPending";
-        out.data_mode = dedicated_server ? "ServerAuthoritative" : "LocalClientStartupCache";
-        out.sidecar_kind = dedicated_server ? "authoritative" : "cache";
-        out.authoritative = dedicated_server;
+        out.runtime_role = dedicated_server ? "ServerRolePending" : "LocalClientPending";
+        out.authority_mode = dedicated_server ? "ServerRoleClassificationPending" : "WorldAuthorityPending";
+        out.data_mode = dedicated_server ? "ServerClassificationPending" : "LocalClientStartupCache";
+        out.sidecar_kind = dedicated_server ? "pending" : "cache";
+        out.authoritative = false;
 
         const auto profile_roots = dedicated_server
             ? collect_dedicated_save_profile_roots(cwd, mod_root)
@@ -1396,7 +1396,7 @@ namespace
                 out.profile_root = profile_root;
                 out.world_id = *world_id;
                 out.data_root = dedicated_server
-                    ? profile_root / "WindroseTextSigns" / *world_id
+                    ? profile_root / "WindroseTextSigns" / "ServerPending" / *world_id
                     : profile_root / "WindroseTextSigns" / "StartupCache" / *world_id;
                 return out;
             }
@@ -1407,21 +1407,21 @@ namespace
             out.profile_root = profile_roots.front();
             out.world_id = "unknown-world";
             out.data_root = dedicated_server
-                ? out.profile_root / "WindroseTextSigns" / out.world_id
+                ? out.profile_root / "WindroseTextSigns" / "ServerPending" / out.world_id
                 : out.profile_root / "WindroseTextSigns" / "StartupCache" / out.world_id;
-            out.data_mode = dedicated_server ? "ServerAuthoritativePendingWorld" : "LocalClientStartupCachePendingWorld";
-            out.sidecar_kind = dedicated_server ? "authoritative-pending-world" : "cache-pending-world";
-            out.authoritative = dedicated_server;
+            out.data_mode = dedicated_server ? "ServerClassificationPendingWorld" : "LocalClientStartupCachePendingWorld";
+            out.sidecar_kind = dedicated_server ? "pending-world" : "cache-pending-world";
+            out.authoritative = false;
             return out;
         }
 
         out.profile_root = mod_root;
         out.world_id = "unknown-world";
         out.data_root = mod_root / "Cache";
-        out.data_mode = dedicated_server ? "ServerAuthoritativeFallbackModRoot" : "LocalClientStartupCacheFallbackModRoot";
-        out.sidecar_kind = dedicated_server ? "authoritative-fallback-modroot" : "cache-fallback-modroot";
-        out.authoritative = dedicated_server;
-        out.data_root /= dedicated_server ? "DedicatedServer" : "StartupCache";
+        out.data_mode = dedicated_server ? "ServerClassificationPendingFallbackModRoot" : "LocalClientStartupCacheFallbackModRoot";
+        out.sidecar_kind = dedicated_server ? "pending-fallback-modroot" : "cache-fallback-modroot";
+        out.authoritative = false;
+        out.data_root /= dedicated_server ? "ServerPending" : "StartupCache";
         out.data_root /= out.world_id;
         return out;
     }
@@ -4594,6 +4594,7 @@ namespace WindroseTextSigns
         m_bridge_route_rejected_candidates_logged.clear();
         m_bridge_route_fallback_candidates_logged.clear();
         m_bridge_route_bootstrap_pause_logged = false;
+        reset_server_role_classification_state("bootstrap_open_log");
         log_line("[session] bootstrap_begin stage=startup");
         log_line("[startup] WindroseTextSigns initialized");
     }
@@ -9989,14 +9990,318 @@ namespace WindroseTextSigns
         m_hosted_server_next_resync_request = {};
     }
 
+    auto SignTextMod::reset_server_role_classification_state(const std::string& reason) -> void
+    {
+        (void)reason;
+        m_server_role_classification_pending = false;
+        m_server_role_signal_executable_seen = false;
+        m_server_role_signal_hosted_ini_seen = false;
+        m_server_role_signal_host_ready_seen = false;
+        m_server_role_window_start_offset = 0;
+        m_server_role_window_end_offset = 0;
+        m_server_role_log_path.clear();
+        m_server_role_classification_started = {};
+        m_server_role_pending_last_log = {};
+    }
+
+    auto SignTextMod::maybe_begin_server_role_classification(
+        const std::filesystem::path& log_path,
+        const uintmax_t window_start_offset) -> void
+    {
+        if (!is_dedicated_runtime_process() || m_role_lock_acquired)
+        {
+            return;
+        }
+        if (!m_server_role_classification_pending)
+        {
+            m_server_role_classification_pending = true;
+            m_server_role_signal_executable_seen = false;
+            m_server_role_signal_hosted_ini_seen = false;
+            m_server_role_signal_host_ready_seen = false;
+            m_server_role_classification_started = std::chrono::steady_clock::now();
+            m_server_role_window_start_offset = window_start_offset;
+            m_server_role_window_end_offset = window_start_offset;
+            m_server_role_log_path = log_path;
+            log_line("[role] server_role_classification_pending epoch=" + std::to_string(m_session_epoch) +
+                     " runtimeRole=" + m_runtime_role +
+                     " bridgeRole=" + bridge_role_name(m_bridge_role) +
+                     " authorityMode=" + m_authority_mode +
+                     " authoritative=" + std::string{m_sidecar_authoritative ? "true" : "false"} +
+                     " logPath=" + (m_server_role_log_path.empty() ? "unknown" : m_server_role_log_path.string()) +
+                     " windowStartOffset=" + std::to_string(static_cast<unsigned long long>(m_server_role_window_start_offset)) +
+                     " windowEndOffset=" + std::to_string(static_cast<unsigned long long>(m_server_role_window_end_offset)) +
+                     " signal=classification_window_opened");
+        }
+        else if (!log_path.empty() && m_server_role_log_path.empty())
+        {
+            m_server_role_log_path = log_path;
+        }
+    }
+
+    auto SignTextMod::maybe_observe_server_role_signal(
+        const std::string& line_lower,
+        const uintmax_t line_window_start,
+        const uintmax_t line_window_end) -> void
+    {
+        if (!m_server_role_classification_pending || m_role_lock_acquired)
+        {
+            return;
+        }
+
+        m_server_role_window_end_offset = line_window_end;
+        if (line_lower.find("executablename: windroseserver-win64-shipping.exe") != std::string::npos)
+        {
+            m_server_role_signal_executable_seen = true;
+            m_server_role_window_start_offset = line_window_start;
+            log_line("[role] server_role_classification_pending epoch=" + std::to_string(m_session_epoch) +
+                     " runtimeRole=" + m_runtime_role +
+                     " bridgeRole=" + bridge_role_name(m_bridge_role) +
+                     " authorityMode=" + m_authority_mode +
+                     " authoritative=" + std::string{m_sidecar_authoritative ? "true" : "false"} +
+                     " logPath=" + (m_server_role_log_path.empty() ? "unknown" : m_server_role_log_path.string()) +
+                     " windowStartOffset=" + std::to_string(static_cast<unsigned long long>(m_server_role_window_start_offset)) +
+                     " windowEndOffset=" + std::to_string(static_cast<unsigned long long>(m_server_role_window_end_offset)) +
+                     " signal=server_executable");
+            return;
+        }
+
+        if (m_server_role_signal_executable_seen &&
+            line_lower.find("-ini:game:[/script/r5datakeepers.r5datakeeper_settings]") != std::string::npos)
+        {
+            m_server_role_signal_hosted_ini_seen = true;
+            log_line("[role] server_role_classification_pending epoch=" + std::to_string(m_session_epoch) +
+                     " runtimeRole=" + m_runtime_role +
+                     " bridgeRole=" + bridge_role_name(m_bridge_role) +
+                     " authorityMode=" + m_authority_mode +
+                     " authoritative=" + std::string{m_sidecar_authoritative ? "true" : "false"} +
+                     " logPath=" + (m_server_role_log_path.empty() ? "unknown" : m_server_role_log_path.string()) +
+                     " windowStartOffset=" + std::to_string(static_cast<unsigned long long>(m_server_role_window_start_offset)) +
+                     " windowEndOffset=" + std::to_string(static_cast<unsigned long long>(m_server_role_window_end_offset)) +
+                     " signal=hosted_marker_ini");
+            return;
+        }
+
+        if (m_server_role_signal_executable_seen &&
+            line_lower.find("host server is ready for owner to connect") != std::string::npos)
+        {
+            m_server_role_signal_host_ready_seen = true;
+            log_line("[role] server_role_classification_pending epoch=" + std::to_string(m_session_epoch) +
+                     " runtimeRole=" + m_runtime_role +
+                     " bridgeRole=" + bridge_role_name(m_bridge_role) +
+                     " authorityMode=" + m_authority_mode +
+                     " authoritative=" + std::string{m_sidecar_authoritative ? "true" : "false"} +
+                     " logPath=" + (m_server_role_log_path.empty() ? "unknown" : m_server_role_log_path.string()) +
+                     " windowStartOffset=" + std::to_string(static_cast<unsigned long long>(m_server_role_window_start_offset)) +
+                     " windowEndOffset=" + std::to_string(static_cast<unsigned long long>(m_server_role_window_end_offset)) +
+                     " signal=host_ready");
+        }
+    }
+
+    auto SignTextMod::apply_server_role_classification(const bool hosted_server_relay, const std::string& reason) -> void
+    {
+        const auto cwd = std::filesystem::current_path();
+        const auto profile_roots = collect_dedicated_save_profile_roots(cwd, m_mod_root);
+        std::filesystem::path profile_root{};
+        if (!profile_roots.empty())
+        {
+            profile_root = profile_roots.front();
+        }
+        else if (!m_save_profile_root.empty() && std::filesystem::exists(m_save_profile_root))
+        {
+            profile_root = std::filesystem::path{m_save_profile_root};
+        }
+        std::string world_id = is_hex_world_id(m_world_folder_id) ? m_world_folder_id : std::string{"unknown-world"};
+        if (!is_hex_world_id(world_id) && !profile_root.empty())
+        {
+            if (auto chosen = choose_world_id_for_profile(profile_root); chosen.has_value())
+            {
+                world_id = *chosen;
+            }
+        }
+        if (!is_hex_world_id(world_id))
+        {
+            world_id = "unknown-world";
+        }
+
+        std::filesystem::path data_root{};
+        if (!profile_root.empty())
+        {
+            data_root = hosted_server_relay
+                ? profile_root / "WindroseTextSigns" / "HostedRelayCache" / world_id
+                : profile_root / "WindroseTextSigns" / world_id;
+        }
+        else
+        {
+            data_root = hosted_server_relay
+                ? m_mod_root / "Cache" / "HostedRelayCache" / world_id
+                : m_mod_root / "Cache" / "DedicatedServer" / world_id;
+        }
+
+        if (hosted_server_relay)
+        {
+            set_sidecar_route(
+                data_root,
+                "DedicatedServer",
+                profile_root.empty() ? "HostedServerRelayCacheFallbackModRoot" : "HostedServerRelayCache",
+                "HostedServerRelayNonAuthoritative",
+                profile_root.empty() ? "relay-cache-fallback" : "relay-cache",
+                false,
+                profile_root,
+                world_id,
+                reason);
+        }
+        else
+        {
+            set_sidecar_route(
+                data_root,
+                "DedicatedServer",
+                profile_root.empty() ? "ServerAuthoritativeFallbackModRoot" : "ServerAuthoritative",
+                "DedicatedServerAuthoritative",
+                profile_root.empty() ? "authoritative-fallback-modroot" : "authoritative",
+                true,
+                profile_root,
+                world_id,
+                reason);
+        }
+    }
+
+    auto SignTextMod::maybe_commit_server_role_classification(
+        const std::chrono::steady_clock::time_point now,
+        const std::string& reason) -> void
+    {
+        (void)reason;
+        if (!is_dedicated_runtime_process() || m_role_lock_acquired || !m_server_role_classification_pending)
+        {
+            return;
+        }
+
+        constexpr auto k_dedicated_window = std::chrono::seconds(6);
+        const bool hosted_chain_complete =
+            m_server_role_signal_executable_seen &&
+            m_server_role_signal_hosted_ini_seen &&
+            m_server_role_signal_host_ready_seen;
+        const bool dedicated_ready =
+            m_server_role_signal_executable_seen &&
+            m_server_role_signal_host_ready_seen &&
+            !m_server_role_signal_hosted_ini_seen &&
+            m_server_role_classification_started.time_since_epoch().count() != 0 &&
+            (now - m_server_role_classification_started) >= k_dedicated_window;
+
+        if (hosted_chain_complete)
+        {
+            apply_server_role_classification(true, "server_role_classification_hosted");
+            configure_bridge_role("server_role_classification_hosted");
+            maybe_acquire_role_lock(now, "server_role_classification_hosted");
+            log_line("[role] server_role_classification_hosted epoch=" + std::to_string(m_session_epoch) +
+                     " runtimeRole=" + m_runtime_role +
+                     " bridgeRole=" + bridge_role_name(m_bridge_role) +
+                     " authorityMode=" + m_authority_mode +
+                     " authoritative=" + std::string{m_sidecar_authoritative ? "true" : "false"} +
+                     " logPath=" + (m_server_role_log_path.empty() ? "unknown" : m_server_role_log_path.string()) +
+                     " windowStartOffset=" + std::to_string(static_cast<unsigned long long>(m_server_role_window_start_offset)) +
+                     " windowEndOffset=" + std::to_string(static_cast<unsigned long long>(m_server_role_window_end_offset)) +
+                     " signal=hosted_chain_complete");
+            if (m_role_lock_acquired)
+            {
+                log_line("[role] server_role_lock_committed epoch=" + std::to_string(m_session_epoch) +
+                         " runtimeRole=" + m_runtime_role +
+                         " bridgeRole=" + bridge_role_name(m_bridge_role) +
+                         " authorityMode=" + m_authority_mode +
+                         " authoritative=" + std::string{m_sidecar_authoritative ? "true" : "false"} +
+                         " logPath=" + (m_server_role_log_path.empty() ? "unknown" : m_server_role_log_path.string()) +
+                         " windowStartOffset=" + std::to_string(static_cast<unsigned long long>(m_server_role_window_start_offset)) +
+                         " windowEndOffset=" + std::to_string(static_cast<unsigned long long>(m_server_role_window_end_offset)) +
+                         " signal=role_lock_committed");
+            }
+            reset_server_role_classification_state("hosted_committed");
+            return;
+        }
+
+        if (dedicated_ready)
+        {
+            apply_server_role_classification(false, "server_role_classification_dedicated");
+            configure_bridge_role("server_role_classification_dedicated");
+            maybe_acquire_role_lock(now, "server_role_classification_dedicated");
+            log_line("[role] server_role_classification_dedicated epoch=" + std::to_string(m_session_epoch) +
+                     " runtimeRole=" + m_runtime_role +
+                     " bridgeRole=" + bridge_role_name(m_bridge_role) +
+                     " authorityMode=" + m_authority_mode +
+                     " authoritative=" + std::string{m_sidecar_authoritative ? "true" : "false"} +
+                     " logPath=" + (m_server_role_log_path.empty() ? "unknown" : m_server_role_log_path.string()) +
+                     " windowStartOffset=" + std::to_string(static_cast<unsigned long long>(m_server_role_window_start_offset)) +
+                     " windowEndOffset=" + std::to_string(static_cast<unsigned long long>(m_server_role_window_end_offset)) +
+                     " signal=dedicated_window_elapsed");
+            if (m_role_lock_acquired)
+            {
+                log_line("[role] server_role_lock_committed epoch=" + std::to_string(m_session_epoch) +
+                         " runtimeRole=" + m_runtime_role +
+                         " bridgeRole=" + bridge_role_name(m_bridge_role) +
+                         " authorityMode=" + m_authority_mode +
+                         " authoritative=" + std::string{m_sidecar_authoritative ? "true" : "false"} +
+                         " logPath=" + (m_server_role_log_path.empty() ? "unknown" : m_server_role_log_path.string()) +
+                         " windowStartOffset=" + std::to_string(static_cast<unsigned long long>(m_server_role_window_start_offset)) +
+                         " windowEndOffset=" + std::to_string(static_cast<unsigned long long>(m_server_role_window_end_offset)) +
+                         " signal=role_lock_committed");
+            }
+            reset_server_role_classification_state("dedicated_committed");
+            return;
+        }
+
+        if (m_server_role_pending_last_log.time_since_epoch().count() == 0 ||
+            (now - m_server_role_pending_last_log) >= std::chrono::seconds(2))
+        {
+            std::string signal = "awaiting_server_executable";
+            if (m_server_role_signal_executable_seen && !m_server_role_signal_host_ready_seen)
+            {
+                signal = "awaiting_host_ready";
+            }
+            else if (m_server_role_signal_executable_seen && m_server_role_signal_host_ready_seen && !m_server_role_signal_hosted_ini_seen)
+            {
+                signal = "awaiting_dedicated_window";
+            }
+            log_line("[role] server_role_lock_skipped_pending_evidence epoch=" + std::to_string(m_session_epoch) +
+                     " runtimeRole=" + m_runtime_role +
+                     " bridgeRole=" + bridge_role_name(m_bridge_role) +
+                     " authorityMode=" + m_authority_mode +
+                     " authoritative=" + std::string{m_sidecar_authoritative ? "true" : "false"} +
+                     " logPath=" + (m_server_role_log_path.empty() ? "unknown" : m_server_role_log_path.string()) +
+                     " windowStartOffset=" + std::to_string(static_cast<unsigned long long>(m_server_role_window_start_offset)) +
+                     " windowEndOffset=" + std::to_string(static_cast<unsigned long long>(m_server_role_window_end_offset)) +
+                     " signal=" + signal);
+            m_server_role_pending_last_log = now;
+        }
+    }
+
     auto SignTextMod::configure_bridge_role(const std::string& reason) -> void
     {
         const auto now = std::chrono::steady_clock::now();
         const auto runtime_role_lower = lower_ascii(m_runtime_role);
         BridgeRole desired = BridgeRole::Unknown;
-        if (is_dedicated_server_process(std::filesystem::current_path(), m_mod_root))
+        const bool server_process_shape = is_dedicated_server_process(std::filesystem::current_path(), m_mod_root);
+        const bool server_pending_classification =
+            server_process_shape &&
+            (runtime_role_lower == "serverrolepending" ||
+             lower_ascii(m_authority_mode) == "serverroleclassificationpending");
+        if (server_process_shape && !server_pending_classification)
         {
             desired = BridgeRole::DedicatedServer;
+        }
+        else if (server_pending_classification)
+        {
+            if (m_server_role_pending_last_log.time_since_epoch().count() == 0 ||
+                (now - m_server_role_pending_last_log) >= std::chrono::seconds(2))
+            {
+                log_line("[role] server_role_lock_skipped_pending_evidence epoch=" + std::to_string(m_session_epoch) +
+                         " runtimeRole=" + m_runtime_role +
+                         " bridgeRole=" + bridge_role_name(m_bridge_role) +
+                         " authorityMode=" + m_authority_mode +
+                         " authoritative=" + std::string{m_sidecar_authoritative ? "true" : "false"} +
+                         " logPath=" + (m_server_role_log_path.empty() ? "unknown" : m_server_role_log_path.string()) +
+                         " windowStartOffset=" + std::to_string(static_cast<unsigned long long>(m_server_role_window_start_offset)) +
+                         " windowEndOffset=" + std::to_string(static_cast<unsigned long long>(m_server_role_window_end_offset)) +
+                         " signal=server_classification_pending_bridge_deferred");
+                m_server_role_pending_last_log = now;
+            }
         }
         else if (m_sidecar_authoritative && runtime_role_lower == "localclient")
         {
@@ -12463,6 +12768,7 @@ namespace WindroseTextSigns
         {
             return;
         }
+        const bool server_runtime_process = is_dedicated_runtime_process();
 
         std::error_code size_ec{};
         const auto size = std::filesystem::file_size(m_destroy_signal_log_path, size_ec);
@@ -12474,14 +12780,27 @@ namespace WindroseTextSigns
         if (!m_destroy_signal_log_initialized || m_destroy_signal_log_offset > size)
         {
             m_destroy_signal_log_initialized = true;
-            m_destroy_signal_log_offset = size;
+            const uintmax_t backfill_bytes = server_runtime_process ? std::min<uintmax_t>(size, 512 * 1024) : 0;
+            m_destroy_signal_log_offset = size - backfill_bytes;
             log_line("[save] destroy_signal_r5log armed path=" + m_destroy_signal_log_path.string() +
-                     " offset=" + std::to_string(static_cast<unsigned long long>(size)));
-            return;
+                     " offset=" + std::to_string(static_cast<unsigned long long>(m_destroy_signal_log_offset)));
+            if (server_runtime_process)
+            {
+                maybe_begin_server_role_classification(m_destroy_signal_log_path, m_destroy_signal_log_offset);
+            }
+            if (m_destroy_signal_log_offset == size)
+            {
+                maybe_commit_server_role_classification(now, "r5log_armed");
+                return;
+            }
         }
 
         if (size == m_destroy_signal_log_offset)
         {
+            if (server_runtime_process)
+            {
+                maybe_commit_server_role_classification(now, "r5log_no_new_bytes");
+            }
             return;
         }
 
@@ -12506,6 +12825,7 @@ namespace WindroseTextSigns
         {
             return;
         }
+        const auto chunk_start_offset = m_destroy_signal_log_offset;
         input.seekg(static_cast<std::streamoff>(m_destroy_signal_log_offset), std::ios::beg);
         const auto bytes_to_read = std::min<uintmax_t>(size - m_destroy_signal_log_offset, 262144);
         std::string chunk{};
@@ -12515,7 +12835,15 @@ namespace WindroseTextSigns
         m_destroy_signal_log_offset = size;
         if (chunk.empty())
         {
+            if (server_runtime_process)
+            {
+                maybe_commit_server_role_classification(now, "r5log_empty_chunk");
+            }
             return;
+        }
+        if (server_runtime_process)
+        {
+            maybe_begin_server_role_classification(m_destroy_signal_log_path, chunk_start_offset);
         }
 
         static const std::regex slot_token_rx{R"((BuildingBlock)\|([A-Fa-f0-9]{16,32})\|([0-9]+))", std::regex::icase};
@@ -12527,6 +12855,7 @@ namespace WindroseTextSigns
             std::regex::icase};
         std::istringstream lines{chunk};
         std::string line{};
+        uintmax_t line_offset = chunk_start_offset;
         bool definitive_start_reset_fired = false;
         const auto gameplay_world_hint_from_line = [](const std::string& lower_line) -> std::string {
             auto extract_token = [&](size_t start_pos) -> std::string {
@@ -12592,168 +12921,177 @@ namespace WindroseTextSigns
         while (std::getline(lines, line))
         {
             const auto line_lower = lower_ascii(line);
-
-            const bool advisory_generation_marker =
-                line_lower.find("createisland") != std::string::npos ||
-                line_lower.find("createworlddescription") != std::string::npos;
-            if (advisory_generation_marker)
+            if (server_runtime_process)
             {
-                m_worldid_generation_in_progress = true;
-                m_worldid_generation_last_signal = now;
-                std::smatch world_id_match{};
-                if (std::regex_search(line, world_id_match, guid_any_rx) && world_id_match.size() >= 2)
-                {
-                    auto marker_id = world_id_match[1].str();
-                    std::transform(marker_id.begin(), marker_id.end(), marker_id.begin(), [](unsigned char c) {
-                        return static_cast<char>(std::toupper(c));
-                    });
-                    if (is_hex_world_id(marker_id) && marker_id != m_worldid_generation_last_marker_id)
-                    {
-                        m_worldid_generation_last_marker_id = marker_id;
-                        log_line("[worldid] provisional_seen id=" + marker_id + " source=r5_generation_marker");
-                    }
-                }
+                const auto line_end = line_offset + static_cast<uintmax_t>(line.size()) + 1;
+                maybe_observe_server_role_signal(line_lower, line_offset, line_end);
+                line_offset = line_end;
             }
 
-            if (!definitive_start_reset_fired)
+            if (!server_runtime_process)
             {
-                std::string world_hint{};
-                const bool level_open_or_loadmap =
-                    line_lower.find("ur5datakeeper::openlevel") != std::string::npos ||
-                    line_lower.find("logload: loadmap:") != std::string::npos ||
-                    line_lower.find("loadmap:") != std::string::npos;
-                if (level_open_or_loadmap)
+                const bool advisory_generation_marker =
+                    line_lower.find("createisland") != std::string::npos ||
+                    line_lower.find("createworlddescription") != std::string::npos;
+                if (advisory_generation_marker)
                 {
-                    world_hint = gameplay_world_hint_from_line(line_lower);
-                    if (!is_non_gameplay_hint(world_hint))
+                    m_worldid_generation_in_progress = true;
+                    m_worldid_generation_last_signal = now;
+                    std::smatch world_id_match{};
+                    if (std::regex_search(line, world_id_match, guid_any_rx) && world_id_match.size() >= 2)
                     {
-                        m_definitive_session_start_candidate_active = true;
-                        m_definitive_session_start_candidate_signal = "level_open_started";
-                        m_definitive_session_start_candidate_world_hint = world_hint;
-                    }
-                }
-                const bool bringing_world_up_for_play =
-                    line_lower.find("bringing world") != std::string::npos &&
-                    line_lower.find("up for play") != std::string::npos;
-                if (bringing_world_up_for_play)
-                {
-                    world_hint = gameplay_world_hint_from_line(line_lower);
-                    if (!is_non_gameplay_hint(world_hint))
-                    {
-                        m_definitive_session_start_candidate_active = true;
-                        m_definitive_session_start_candidate_signal = "world_play_begin";
-                        m_definitive_session_start_candidate_world_hint = world_hint;
-                    }
-                }
-
-                if (m_definitive_session_start_candidate_active)
-                {
-                    std::string ready_reason{};
-                    const bool start_confirmed = is_session_ready_for_role_resolution(&ready_reason);
-                    if (start_confirmed)
-                    {
-                        const auto detected_signal = m_definitive_session_start_candidate_signal.empty()
-                            ? std::string{"world_play_begin_confirmed"}
-                            : m_definitive_session_start_candidate_signal + "_confirmed";
-                        const auto detected_world_hint = m_definitive_session_start_candidate_world_hint;
-                        if (try_begin_definitive_reset("start", detected_signal, detected_world_hint))
+                        auto marker_id = world_id_match[1].str();
+                        std::transform(marker_id.begin(), marker_id.end(), marker_id.begin(), [](unsigned char c) {
+                            return static_cast<char>(std::toupper(c));
+                        });
+                        if (is_hex_world_id(marker_id) && marker_id != m_worldid_generation_last_marker_id)
                         {
-                            log_line("[session] definitive_start_detected signal=" + detected_signal +
-                                     " worldHint=" + (detected_world_hint.empty() ? "none" : detected_world_hint));
-                            reset_session_state("definitive_session_start");
-                            log_line("[session] reset_extended_clears applied=true");
-                            definitive_start_reset_fired = true;
+                            m_worldid_generation_last_marker_id = marker_id;
+                            log_line("[worldid] provisional_seen id=" + marker_id + " source=r5_generation_marker");
                         }
-                        m_definitive_session_start_candidate_active = false;
-                        m_definitive_session_start_candidate_signal.clear();
-                        m_definitive_session_start_candidate_world_hint.clear();
                     }
                 }
-            }
 
-            if (line_lower.find("world client") != std::string::npos &&
-                !m_hosted_ready_world_client_seen)
-            {
-                m_hosted_ready_world_client_seen = true;
-                log_line("[save] hosted_ready_signal signal=world_client");
-            }
-            if (line_lower.find("openlevel") != std::string::npos ||
-                line_lower.find("loadmap:") != std::string::npos)
-            {
-                log_line("[save] hosted_ready_signal signal=level_open_started");
-            }
-            if (line_lower.find("bringing world") != std::string::npos &&
-                line_lower.find("up for play") != std::string::npos)
-            {
-                log_line("[save] hosted_ready_signal signal=world_play_begin");
-            }
-            if (line_lower.find("onplayerisready") != std::string::npos &&
-                line_lower.find("character bp_") != std::string::npos &&
-                line_lower.find("character nullptr") == std::string::npos &&
-                !m_hosted_ready_player_ready_seen)
-            {
-                m_hosted_ready_player_ready_seen = true;
-                log_line("[save] hosted_ready_signal signal=player_ready");
-            }
-            if (line_lower.find("datakeeper is ready to play") != std::string::npos &&
-                !m_hosted_ready_datakeeper_seen)
-            {
-                m_hosted_ready_datakeeper_seen = true;
-                log_line("[save] hosted_ready_signal signal=datakeeper_ready");
-            }
-            if (line_lower.find("hide loading screen") != std::string::npos &&
-                !m_hosted_ready_hide_loading_seen)
-            {
-                m_hosted_ready_hide_loading_seen = true;
-                log_line("[save] hosted_ready_signal signal=hide_loading");
-            }
-            if (!m_hosted_ready_sequence_complete &&
-                m_hosted_ready_world_client_seen &&
-                m_hosted_ready_player_ready_seen &&
-                m_hosted_ready_datakeeper_seen &&
-                m_hosted_ready_hide_loading_seen)
-            {
-                m_hosted_ready_sequence_complete = true;
-                log_line("[save] hosted_ready_sequence complete=true");
-                if (m_session_ready_latched && lower_ascii(m_runtime_role) == "localclientpending")
+                if (!definitive_start_reset_fired)
                 {
-                    tick_localclient_role_resolution();
-                }
-            }
+                    std::string world_hint{};
+                    const bool level_open_or_loadmap =
+                        line_lower.find("ur5datakeeper::openlevel") != std::string::npos ||
+                        line_lower.find("logload: loadmap:") != std::string::npos ||
+                        line_lower.find("loadmap:") != std::string::npos;
+                    if (level_open_or_loadmap)
+                    {
+                        world_hint = gameplay_world_hint_from_line(line_lower);
+                        if (!is_non_gameplay_hint(world_hint))
+                        {
+                            m_definitive_session_start_candidate_active = true;
+                            m_definitive_session_start_candidate_signal = "level_open_started";
+                            m_definitive_session_start_candidate_world_hint = world_hint;
+                        }
+                    }
+                    const bool bringing_world_up_for_play =
+                        line_lower.find("bringing world") != std::string::npos &&
+                        line_lower.find("up for play") != std::string::npos;
+                    if (bringing_world_up_for_play)
+                    {
+                        world_hint = gameplay_world_hint_from_line(line_lower);
+                        if (!is_non_gameplay_hint(world_hint))
+                        {
+                            m_definitive_session_start_candidate_active = true;
+                            m_definitive_session_start_candidate_signal = "world_play_begin";
+                            m_definitive_session_start_candidate_world_hint = world_hint;
+                        }
+                    }
 
-            const bool lobby_transition =
-                line_lower.find("start transition to lobby") != std::string::npos;
-            if (lobby_transition)
-            {
-                if (try_begin_definitive_reset("end", "start_transition_to_lobby", "none"))
-                {
-                    log_line("[session] definitive_end_detected signal=start_transition_to_lobby");
-                    arm_phase7_definitive_teardown("start_transition_to_lobby");
-                    reset_session_state("definitive_session_end_lobby_transition");
-                    log_line("[session] reset_extended_clears applied=true");
+                    if (m_definitive_session_start_candidate_active)
+                    {
+                        std::string ready_reason{};
+                        const bool start_confirmed = is_session_ready_for_role_resolution(&ready_reason);
+                        if (start_confirmed)
+                        {
+                            const auto detected_signal = m_definitive_session_start_candidate_signal.empty()
+                                ? std::string{"world_play_begin_confirmed"}
+                                : m_definitive_session_start_candidate_signal + "_confirmed";
+                            const auto detected_world_hint = m_definitive_session_start_candidate_world_hint;
+                            if (try_begin_definitive_reset("start", detected_signal, detected_world_hint))
+                            {
+                                log_line("[session] definitive_start_detected signal=" + detected_signal +
+                                         " worldHint=" + (detected_world_hint.empty() ? "none" : detected_world_hint));
+                                reset_session_state("definitive_session_start");
+                                log_line("[session] reset_extended_clears applied=true");
+                                definitive_start_reset_fired = true;
+                            }
+                            m_definitive_session_start_candidate_active = false;
+                            m_definitive_session_start_candidate_signal.clear();
+                            m_definitive_session_start_candidate_world_hint.clear();
+                        }
+                    }
                 }
-            }
 
-            const bool farewell_transition =
-                line_lower.find("change state readytoplay => sentfarewell") != std::string::npos ||
-                line_lower.find("change state readytoplay => saidfarewell") != std::string::npos;
-            if (farewell_transition)
-            {
-                if (try_begin_definitive_reset("end", "sent_farewell", "none"))
+                if (line_lower.find("world client") != std::string::npos &&
+                    !m_hosted_ready_world_client_seen)
                 {
-                    log_line("[session] definitive_end_detected signal=sent_farewell");
-                    arm_phase7_definitive_teardown("sent_farewell");
+                    m_hosted_ready_world_client_seen = true;
+                    log_line("[save] hosted_ready_signal signal=world_client");
                 }
-            }
-            const bool request_exit =
-                line_lower.find("requestexit(") != std::string::npos ||
-                line_lower.find("engine exit requested") != std::string::npos;
-            if (request_exit)
-            {
-                if (try_begin_definitive_reset("end", "engine_request_exit", "none"))
+                if (line_lower.find("openlevel") != std::string::npos ||
+                    line_lower.find("loadmap:") != std::string::npos)
                 {
-                    log_line("[session] definitive_end_detected signal=engine_request_exit");
-                    arm_phase7_definitive_teardown("engine_request_exit");
+                    log_line("[save] hosted_ready_signal signal=level_open_started");
+                }
+                if (line_lower.find("bringing world") != std::string::npos &&
+                    line_lower.find("up for play") != std::string::npos)
+                {
+                    log_line("[save] hosted_ready_signal signal=world_play_begin");
+                }
+                if (line_lower.find("onplayerisready") != std::string::npos &&
+                    line_lower.find("character bp_") != std::string::npos &&
+                    line_lower.find("character nullptr") == std::string::npos &&
+                    !m_hosted_ready_player_ready_seen)
+                {
+                    m_hosted_ready_player_ready_seen = true;
+                    log_line("[save] hosted_ready_signal signal=player_ready");
+                }
+                if (line_lower.find("datakeeper is ready to play") != std::string::npos &&
+                    !m_hosted_ready_datakeeper_seen)
+                {
+                    m_hosted_ready_datakeeper_seen = true;
+                    log_line("[save] hosted_ready_signal signal=datakeeper_ready");
+                }
+                if (line_lower.find("hide loading screen") != std::string::npos &&
+                    !m_hosted_ready_hide_loading_seen)
+                {
+                    m_hosted_ready_hide_loading_seen = true;
+                    log_line("[save] hosted_ready_signal signal=hide_loading");
+                }
+                if (!m_hosted_ready_sequence_complete &&
+                    m_hosted_ready_world_client_seen &&
+                    m_hosted_ready_player_ready_seen &&
+                    m_hosted_ready_datakeeper_seen &&
+                    m_hosted_ready_hide_loading_seen)
+                {
+                    m_hosted_ready_sequence_complete = true;
+                    log_line("[save] hosted_ready_sequence complete=true");
+                    if (m_session_ready_latched && lower_ascii(m_runtime_role) == "localclientpending")
+                    {
+                        tick_localclient_role_resolution();
+                    }
+                }
+
+                const bool lobby_transition =
+                    line_lower.find("start transition to lobby") != std::string::npos;
+                if (lobby_transition)
+                {
+                    if (try_begin_definitive_reset("end", "start_transition_to_lobby", "none"))
+                    {
+                        log_line("[session] definitive_end_detected signal=start_transition_to_lobby");
+                        arm_phase7_definitive_teardown("start_transition_to_lobby");
+                        reset_session_state("definitive_session_end_lobby_transition");
+                        log_line("[session] reset_extended_clears applied=true");
+                    }
+                }
+
+                const bool farewell_transition =
+                    line_lower.find("change state readytoplay => sentfarewell") != std::string::npos ||
+                    line_lower.find("change state readytoplay => saidfarewell") != std::string::npos;
+                if (farewell_transition)
+                {
+                    if (try_begin_definitive_reset("end", "sent_farewell", "none"))
+                    {
+                        log_line("[session] definitive_end_detected signal=sent_farewell");
+                        arm_phase7_definitive_teardown("sent_farewell");
+                    }
+                }
+                const bool request_exit =
+                    line_lower.find("requestexit(") != std::string::npos ||
+                    line_lower.find("engine exit requested") != std::string::npos;
+                if (request_exit)
+                {
+                    if (try_begin_definitive_reset("end", "engine_request_exit", "none"))
+                    {
+                        log_line("[session] definitive_end_detected signal=engine_request_exit");
+                        arm_phase7_definitive_teardown("engine_request_exit");
+                    }
                 }
             }
 
@@ -12847,6 +13185,10 @@ namespace WindroseTextSigns
                     }
                 }
             }
+        }
+        if (server_runtime_process)
+        {
+            maybe_commit_server_role_classification(now, "r5log_parse_pass");
         }
     }
 
@@ -13749,6 +14091,7 @@ namespace WindroseTextSigns
         m_destroy_signal_log_offset = 0;
         m_destroy_signal_log_initialized = false;
         reset_visual_verify_debug_state();
+        reset_server_role_classification_state("session_reset_" + reason);
         reset_role_route_locks("session_reset_" + reason);
         reset_bridge_snapshot_state("session_reset_" + reason);
         if (!is_dedicated_runtime_process())
@@ -14552,10 +14895,9 @@ namespace WindroseTextSigns
         }
         tick_pending_fallback_hotkeys();
         tick_file_triggers();
+        tick_r5_readiness_markers();
         if (!is_dedicated_runtime_process())
         {
-            // Always parse readiness markers in LocalClient states, including Pending.
-            tick_r5_readiness_markers();
             if (!m_session_ready_latched)
             {
                 std::string ready_reason{};
