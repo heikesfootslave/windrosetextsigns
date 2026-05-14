@@ -8654,6 +8654,7 @@ namespace WindroseTextSigns
         payload << "{\"mod\":\"WindroseTextSigns\",\"schema\":\"bridge.v1\",\"type\":\"snapshot_request\""
                 << ",\"session\":\"" << escape_json(m_session_id) << "\""
                 << ",\"worldId\":\"" << escape_json(m_world_folder_id) << "\""
+                << ",\"requesterRevision\":" << m_revision
                 << ",\"reason\":\"" << escape_json(reason) << "\""
                 << "}";
         m_bridge_snapshot_world_id.clear();
@@ -8769,6 +8770,8 @@ namespace WindroseTextSigns
                 << ",\"session\":\"" << escape_json(m_session_id) << "\""
                 << ",\"worldId\":\"" << escape_json(m_world_folder_id) << "\""
                 << ",\"writer\":\"HostedServerRelay\""
+                << ",\"relayCacheInitialized\":" << (m_hosted_server_cache_initialized ? "true" : "false")
+                << ",\"relayCacheRevision\":" << m_hosted_server_cache_revision
                 << ",\"reason\":\"" << escape_json(reason) << "\""
                 << ",\"epoch\":" << m_session_epoch
                 << "}";
@@ -9266,6 +9269,9 @@ namespace WindroseTextSigns
         const auto local_world_id = (!m_world_folder_id.empty() && m_world_folder_id != "unknown-world")
             ? m_world_folder_id
             : unescape_json(fields.count("worldId") ? fields.at("worldId") : "unknown-world");
+        const uint64_t incoming_revision = fields.count("revision")
+            ? static_cast<uint64_t>(safe_stoi(fields.at("revision"), static_cast<int>(m_revision)))
+            : m_revision;
         const auto key = build_storage_key(local_world_id, stable_id);
         const bool acked_pending = m_bridge_pending_request_keys.erase(key) > 0;
         const auto snapshot_id = unescape_json(fields.count("snapshotId") ? fields.at("snapshotId") : "");
@@ -9350,11 +9356,26 @@ namespace WindroseTextSigns
             !same_float(existing->second.color_b, rec.color_b) ||
             !same_float(existing->second.color_a, rec.color_a);
 
+        std::ostringstream dedupe_signature{};
+        dedupe_signature << rec.stable_id << '\x1f' << rec.world_id << '\x1f'
+                         << rec.text << '\x1f' << rec.asset << '\x1f'
+                         << rec.kind << '\x1f' << rec.backing_asset << '\x1f'
+                         << std::fixed << std::setprecision(4)
+                         << rec.surface_axis << '\x1f' << rec.surface_sign << '\x1f'
+                         << rec.depth_offset << '\x1f' << rec.align_x << '\x1f' << rec.align_y << '\x1f'
+                         << rec.font_size << '\x1f'
+                         << rec.color_r << '\x1f' << rec.color_g << '\x1f'
+                         << rec.color_b << '\x1f' << rec.color_a;
+        const uint64_t content_hash = std::hash<std::string>{}(dedupe_signature.str());
+        const bool duplicate_authoritative_delta =
+            !changed &&
+            m_remote_delta_applied_state.count(key) > 0 &&
+            m_remote_delta_applied_state.at(key).revision == incoming_revision &&
+            m_remote_delta_applied_state.at(key).content_hash == content_hash;
+
         m_labels[key] = rec;
-        if (fields.count("revision"))
-        {
-            m_revision = std::max<uint64_t>(m_revision, static_cast<uint64_t>(safe_stoi(fields.at("revision"), static_cast<int>(m_revision))));
-        }
+        m_remote_delta_applied_state[key] = RemoteDeltaApplyState{incoming_revision, content_hash};
+        m_revision = std::max<uint64_t>(m_revision, incoming_revision);
         if (changed)
         {
             save_sidecar_json("bridge_cache_upsert", key, stable_id, local_world_id);
@@ -9366,18 +9387,27 @@ namespace WindroseTextSigns
         }
         if (is_confirmed_label_text_kind(rec.kind) && !render_suppressed_by_rebuild_guard)
         {
-            UObjectGlobals::ForEachUObject([&](UObject* object, int32, int32) {
-                if (!object || !object->IsA(AActor::StaticClass()))
-                {
+            if (duplicate_authoritative_delta)
+            {
+                log_line("[bridge] client_upsert_ignored reason=idempotent_duplicate key=" + key +
+                         " stableId=" + stable_id +
+                         " revision=" + std::to_string(incoming_revision));
+            }
+            else
+            {
+                UObjectGlobals::ForEachUObject([&](UObject* object, int32, int32) {
+                    if (!object || !object->IsA(AActor::StaticClass()))
+                    {
+                        return LoopAction::Continue;
+                    }
+                    auto* actor = Cast<AActor>(object);
+                    if (actor && is_probable_label_actor(actor) && extract_stable_id(actor) == stable_id)
+                    {
+                        (void)apply_text_to_actor_component(actor, rec.text);
+                    }
                     return LoopAction::Continue;
-                }
-                auto* actor = Cast<AActor>(object);
-                if (actor && is_probable_label_actor(actor) && extract_stable_id(actor) == stable_id)
-                {
-                    (void)apply_text_to_actor_component(actor, rec.text);
-                }
-                return LoopAction::Continue;
-            });
+                });
+            }
         }
         m_bridge_snapshot_received = true;
         m_bridge_snapshot_world_id = local_world_id;
@@ -9386,11 +9416,12 @@ namespace WindroseTextSigns
                  " stableId=" + stable_id +
                  " localWorldId=" + local_world_id +
                  " changed=" + std::string{changed ? "true" : "false"} +
+                 " duplicate=" + std::string{duplicate_authoritative_delta ? "true" : "false"} +
                  " ackedPending=" + std::string{acked_pending ? "true" : "false"} +
                  " renderSuppressed=" + std::string{render_suppressed_by_rebuild_guard ? "true" : "false"} +
                  " pending=" + std::to_string(m_bridge_pending_request_keys.size()) +
                  " textChars=" + std::to_string(rec.text.size()));
-        if (!m_sidecar_authoritative && writer == "HostedClientAuthority")
+        if (!m_sidecar_authoritative && writer == "HostedClientAuthority" && !duplicate_authoritative_delta)
         {
             log_line("[bridge-hosted] hosted_remote_applied_authoritative_delta type=upsert key=" + key +
                      " stableId=" + stable_id +
@@ -9441,7 +9472,23 @@ namespace WindroseTextSigns
         const auto local_world_id = (!m_world_folder_id.empty() && m_world_folder_id != "unknown-world")
             ? m_world_folder_id
             : unescape_json(fields.count("worldId") ? fields.at("worldId") : "unknown-world");
+        const uint64_t incoming_revision = fields.count("revision")
+            ? static_cast<uint64_t>(safe_stoi(fields.at("revision"), static_cast<int>(m_revision)))
+            : m_revision;
         const auto key = build_storage_key(local_world_id, stable_id);
+        const bool already_cleared = (m_labels.find(key) == m_labels.end());
+        const bool duplicate_clear =
+            already_cleared &&
+            m_remote_delta_applied_state.count(key) > 0 &&
+            m_remote_delta_applied_state.at(key).revision == incoming_revision &&
+            m_remote_delta_applied_state.at(key).content_hash == 0;
+        if (duplicate_clear)
+        {
+            log_line("[bridge] client_clear_ignored reason=idempotent_duplicate key=" + key +
+                     " stableId=" + stable_id +
+                     " revision=" + std::to_string(incoming_revision));
+            return;
+        }
         const bool acked_pending = m_bridge_pending_request_keys.erase(key) > 0;
         m_labels.erase(key);
         m_rendered_text_cache.erase(key);
@@ -9449,6 +9496,8 @@ namespace WindroseTextSigns
         m_phase4_next_retry.erase(key);
         m_create_null_retry_states.erase(key);
         m_phase4_last_failure_reason.erase(key);
+        m_remote_delta_applied_state[key] = RemoteDeltaApplyState{incoming_revision, 0};
+        m_revision = std::max<uint64_t>(m_revision, incoming_revision);
         save_sidecar_json("bridge_cache_clear", key, stable_id, local_world_id);
         UObjectGlobals::ForEachUObject([&](UObject* object, int32, int32) {
             if (!object || !object->IsA(AActor::StaticClass()))
@@ -9698,6 +9747,38 @@ namespace WindroseTextSigns
         const auto stable_id = unescape_json(fields.count("stableId") ? fields.at("stableId") : "");
         const auto world_id = unescape_json(fields.count("worldId") ? fields.at("worldId") : "");
         const auto writer = unescape_json(fields.count("writer") ? fields.at("writer") : "");
+        const auto parse_bool_field = [&](const std::string& name, const bool fallback) -> bool {
+            const auto it = fields.find(name);
+            if (it == fields.end())
+            {
+                return fallback;
+            }
+            const auto raw = lower_ascii(unescape_json(it->second));
+            if (raw == "true" || raw == "1" || raw == "yes")
+            {
+                return true;
+            }
+            if (raw == "false" || raw == "0" || raw == "no")
+            {
+                return false;
+            }
+            return fallback;
+        };
+        const auto parse_u64_field = [&](const std::string& name, const uint64_t fallback) -> uint64_t {
+            const auto it = fields.find(name);
+            if (it == fields.end())
+            {
+                return fallback;
+            }
+            try
+            {
+                return static_cast<uint64_t>(std::stoull(unescape_json(it->second)));
+            }
+            catch (...)
+            {
+                return fallback;
+            }
+        };
         const bool hosted_control_type = (type == "hosted_server_hello" || type == "hosted_server_resync_request");
         const auto incoming_session = unescape_json(fields.count("session") ? fields.at("session") : "");
         if (m_bridge_role == BridgeRole::ListenHost &&
@@ -9715,10 +9796,32 @@ namespace WindroseTextSigns
             if (is_hosted_client_authority_context())
             {
                 (void)ensure_hosted_client_authority_route("hosted_server_hello");
+                const bool relay_cache_initialized = parse_bool_field("relayCacheInitialized", false);
+                const uint64_t relay_cache_revision = parse_u64_field("relayCacheRevision", 0);
+                const bool world_mismatch =
+                    is_hex_world_id(m_world_folder_id) &&
+                    is_hex_world_id(world_id) &&
+                    lower_ascii(world_id) != lower_ascii(m_world_folder_id);
+                const bool should_push_snapshot =
+                    !relay_cache_initialized ||
+                    relay_cache_revision < m_revision ||
+                    world_mismatch;
                 log_line("[bridge-hosted] hosted_server_hello_received epoch=" + std::to_string(m_session_epoch) +
                          " role=" + bridge_role_name(m_bridge_role) +
-                         " authority=true worldId=" + m_world_folder_id);
-                broadcast_bridge_snapshot("hosted_server_hello");
+                         " authority=true worldId=" + m_world_folder_id +
+                         " relayCacheInitialized=" + std::string{relay_cache_initialized ? "true" : "false"} +
+                         " relayCacheRevision=" + std::to_string(relay_cache_revision));
+                if (should_push_snapshot)
+                {
+                    broadcast_bridge_snapshot("hosted_server_hello");
+                }
+                else
+                {
+                    log_line("[bridge-hosted] hosted_authority_snapshot_skip reason=server_cache_fresh trigger=hosted_server_hello" +
+                             std::string(" relayCacheRevision=") + std::to_string(relay_cache_revision) +
+                             " localRevision=" + std::to_string(m_revision) +
+                             " worldId=" + m_world_folder_id);
+                }
             }
             return;
         }
@@ -9727,16 +9830,35 @@ namespace WindroseTextSigns
             if (is_hosted_client_authority_context())
             {
                 (void)ensure_hosted_client_authority_route("hosted_server_resync_request");
+                const bool relay_cache_initialized = parse_bool_field("relayCacheInitialized", false);
+                const uint64_t relay_cache_revision = parse_u64_field("relayCacheRevision", 0);
+                const bool should_push_snapshot = !relay_cache_initialized || relay_cache_revision < m_revision;
                 log_line("[bridge-hosted] hosted_resync_request epoch=" + std::to_string(m_session_epoch) +
                          " role=" + bridge_role_name(m_bridge_role) +
-                         " authority=true worldId=" + m_world_folder_id);
-                broadcast_bridge_snapshot("hosted_server_resync_request");
+                         " authority=true worldId=" + m_world_folder_id +
+                         " relayCacheInitialized=" + std::string{relay_cache_initialized ? "true" : "false"} +
+                         " relayCacheRevision=" + std::to_string(relay_cache_revision));
+                if (should_push_snapshot)
+                {
+                    broadcast_bridge_snapshot("hosted_server_resync_request");
+                }
+                else
+                {
+                    log_line("[bridge-hosted] hosted_authority_snapshot_skip reason=server_cache_fresh trigger=hosted_server_resync_request" +
+                             std::string(" relayCacheRevision=") + std::to_string(relay_cache_revision) +
+                             " localRevision=" + std::to_string(m_revision) +
+                             " worldId=" + m_world_folder_id);
+                }
             }
             return;
         }
         if (type == "snapshot_request")
         {
-            log_line("[bridge] snapshot_request_received fromSession=" + unescape_json(fields.count("session") ? fields.at("session") : ""));
+            const uint64_t requester_revision = fields.count("requesterRevision")
+                ? static_cast<uint64_t>(safe_stoi(fields.at("requesterRevision"), 0))
+                : 0;
+            log_line("[bridge] snapshot_request_received fromSession=" + unescape_json(fields.count("session") ? fields.at("session") : "") +
+                     " requesterRevision=" + std::to_string(requester_revision));
             if (is_hosted_server_relay_context() && !m_hosted_server_cache_initialized)
             {
                 (void)send_hosted_server_control_message("hosted_server_resync_request", "snapshot_request_no_cache");
@@ -9752,6 +9874,25 @@ namespace WindroseTextSigns
                          " authority=" + std::string{m_sidecar_authoritative ? "true" : "false"} +
                          " sent=" + std::string{sent ? "true" : "false"} +
                          " epoch=" + std::to_string(m_session_epoch));
+                return;
+            }
+            if (is_hosted_server_relay_context() &&
+                m_hosted_server_cache_initialized &&
+                requester_revision >= m_hosted_server_cache_revision)
+            {
+                log_line("[bridge-hosted] hosted_server_snapshot_skip reason=requester_fresh requesterRevision=" +
+                         std::to_string(requester_revision) +
+                         " cacheRevision=" + std::to_string(m_hosted_server_cache_revision) +
+                         " epoch=" + std::to_string(m_session_epoch));
+                return;
+            }
+            if (!is_hosted_server_relay_context() &&
+                m_sidecar_authoritative &&
+                requester_revision >= m_revision)
+            {
+                log_line("[bridge] snapshot_skip reason=requester_fresh requesterRevision=" +
+                         std::to_string(requester_revision) +
+                         " localRevision=" + std::to_string(m_revision));
                 return;
             }
             broadcast_bridge_snapshot("snapshot_request");
@@ -10178,6 +10319,7 @@ namespace WindroseTextSigns
         m_hosted_server_authority_route_configured = false;
         m_hosted_server_cache_initialized = false;
         m_hosted_server_cache_revision = 0;
+        m_remote_delta_applied_state.clear();
         m_hosted_server_next_hello = {};
         m_hosted_server_next_resync_request = {};
     }
@@ -11007,7 +11149,7 @@ namespace WindroseTextSigns
                 (void)send_hosted_server_control_message("hosted_server_hello", "hosted_server_tick_hello");
                 m_hosted_server_next_hello = now + std::chrono::seconds(5);
             }
-            if (now >= m_hosted_server_next_resync_request)
+            if (now >= m_hosted_server_next_resync_request && !m_hosted_server_cache_initialized)
             {
                 const bool sent = send_hosted_server_control_message("hosted_server_resync_request", "hosted_server_periodic_resync");
                 if (sent)

@@ -422,6 +422,12 @@ namespace WindroseTextSigns
         bool m_hosted_server_authority_route_configured{false};
         bool m_hosted_server_cache_initialized{false};
         uint64_t m_hosted_server_cache_revision{0};
+        struct RemoteDeltaApplyState
+        {
+            uint64_t revision{0};
+            uint64_t content_hash{0};
+        };
+        std::unordered_map<std::string, RemoteDeltaApplyState> m_remote_delta_applied_state{};
         std::chrono::steady_clock::time_point m_hosted_server_next_hello{};
         std::chrono::steady_clock::time_point m_hosted_server_next_resync_request{};
         bool m_server_role_classification_pending{false};
