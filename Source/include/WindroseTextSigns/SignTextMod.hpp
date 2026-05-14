@@ -171,6 +171,9 @@ namespace WindroseTextSigns
         auto maybe_run_hosted_post_ready_reconcile() -> void;
         auto is_localclient_runtime_stable_for_post_ready(std::string* out_reason = nullptr) -> bool;
         auto is_session_ready_for_role_resolution(std::string* out_reason = nullptr) -> bool;
+        auto is_session_window_active_for_gameplay(std::string* out_reason = nullptr) const -> bool;
+        auto open_session_window(const std::string& signal, const std::filesystem::path& log_path, uintmax_t offset) -> void;
+        auto close_session_window(const std::string& signal, const std::filesystem::path& log_path, uintmax_t offset) -> void;
         auto is_world_id_latched_for_authoritative_localclient_bind(std::string* out_reason = nullptr) -> bool;
         auto reset_session_state(const std::string& reason) -> void;
         auto reset_visual_verify_debug_state() -> void;
@@ -563,6 +566,14 @@ namespace WindroseTextSigns
         bool m_definitive_session_start_candidate_active{false};
         std::string m_definitive_session_start_candidate_signal{};
         std::string m_definitive_session_start_candidate_world_hint{};
+        bool m_session_window_open{false};
+        bool m_definitive_session_start_seen{false};
+        std::string m_definitive_session_start_signal{};
+        std::string m_definitive_session_exit_signal{};
+        std::filesystem::path m_session_window_log_path{};
+        uintmax_t m_session_window_start_offset{0};
+        uintmax_t m_session_window_end_offset{0};
+        std::chrono::steady_clock::time_point m_session_window_blocked_last_log{};
         std::chrono::steady_clock::time_point m_last_player_activity{};
         std::chrono::steady_clock::time_point m_pending_role_watchdog_started{};
         bool m_pending_role_watchdog_logged{false};

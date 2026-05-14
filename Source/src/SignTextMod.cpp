@@ -4594,6 +4594,14 @@ namespace WindroseTextSigns
         m_bridge_route_rejected_candidates_logged.clear();
         m_bridge_route_fallback_candidates_logged.clear();
         m_bridge_route_bootstrap_pause_logged = false;
+        m_session_window_open = false;
+        m_definitive_session_start_seen = false;
+        m_definitive_session_start_signal.clear();
+        m_definitive_session_exit_signal.clear();
+        m_session_window_log_path.clear();
+        m_session_window_start_offset = 0;
+        m_session_window_end_offset = 0;
+        m_session_window_blocked_last_log = {};
         reset_server_role_classification_state("bootstrap_open_log");
         log_line("[session] bootstrap_begin stage=startup");
         log_line("[startup] WindroseTextSigns initialized");
@@ -12856,45 +12864,6 @@ namespace WindroseTextSigns
         std::istringstream lines{chunk};
         std::string line{};
         uintmax_t line_offset = chunk_start_offset;
-        bool definitive_start_reset_fired = false;
-        const auto gameplay_world_hint_from_line = [](const std::string& lower_line) -> std::string {
-            auto extract_token = [&](size_t start_pos) -> std::string {
-                if (start_pos == std::string::npos || start_pos >= lower_line.size())
-                {
-                    return {};
-                }
-                size_t end_pos = start_pos;
-                while (end_pos < lower_line.size())
-                {
-                    const char ch = lower_line[end_pos];
-                    if (std::isspace(static_cast<unsigned char>(ch)) ||
-                        ch == ',' || ch == ';' || ch == ')' || ch == ']' || ch == '"' || ch == '\'')
-                    {
-                        break;
-                    }
-                    ++end_pos;
-                }
-                return lower_line.substr(start_pos, end_pos - start_pos);
-            };
-
-            size_t maps_pos = lower_line.find("/game/maps/");
-            if (maps_pos != std::string::npos)
-            {
-                return extract_token(maps_pos);
-            }
-            maps_pos = lower_line.find("game/maps/");
-            if (maps_pos != std::string::npos)
-            {
-                return extract_token(maps_pos);
-            }
-            return {};
-        };
-        const auto is_non_gameplay_hint = [](const std::string& hint_lower) -> bool {
-            return hint_lower.empty() ||
-                   hint_lower.find("lobby") != std::string::npos ||
-                   hint_lower.find("transition") != std::string::npos ||
-                   hint_lower.find("entrance") != std::string::npos;
-        };
         const auto try_begin_definitive_reset = [&](const std::string& category,
                                                     const std::string& signal,
                                                     const std::string& world_hint) -> bool {
@@ -12921,11 +12890,44 @@ namespace WindroseTextSigns
         while (std::getline(lines, line))
         {
             const auto line_lower = lower_ascii(line);
+            const auto line_start = line_offset;
+            const auto line_end = line_start + static_cast<uintmax_t>(line.size()) + 1;
+            line_offset = line_end;
             if (server_runtime_process)
             {
-                const auto line_end = line_offset + static_cast<uintmax_t>(line.size()) + 1;
-                maybe_observe_server_role_signal(line_lower, line_offset, line_end);
-                line_offset = line_end;
+                maybe_observe_server_role_signal(line_lower, line_start, line_end);
+            }
+
+            std::string definitive_start_signal{};
+            if (!server_runtime_process)
+            {
+                if (line_lower.find("startcoopofflinegameonselectedworld") != std::string::npos)
+                {
+                    definitive_start_signal = "startcoopofflinegameonselectedworld";
+                }
+                else if (line_lower.find("client. change state readytoplay => verifyingcoopconnection") != std::string::npos)
+                {
+                    definitive_start_signal = "client_readytoplay_to_verifyingcoopconnection";
+                }
+                else if (line_lower.find("client. change state readytoplay => startcoophostserver") != std::string::npos)
+                {
+                    definitive_start_signal = "client_readytoplay_to_startcoophostserver";
+                }
+            }
+            else
+            {
+                if (line_lower.find("host server is ready for owner to connect") != std::string::npos)
+                {
+                    definitive_start_signal = "server_host_ready_for_owner";
+                }
+            }
+            if (!definitive_start_signal.empty() &&
+                try_begin_definitive_reset("start", definitive_start_signal, "none"))
+            {
+                log_line("[session] definitive_start_detected signal=" + definitive_start_signal + " worldHint=none");
+                reset_session_state("definitive_session_start");
+                open_session_window(definitive_start_signal, m_destroy_signal_log_path, line_end);
+                log_line("[session] reset_extended_clears applied=true");
             }
 
             if (!server_runtime_process)
@@ -12948,62 +12950,6 @@ namespace WindroseTextSigns
                         {
                             m_worldid_generation_last_marker_id = marker_id;
                             log_line("[worldid] provisional_seen id=" + marker_id + " source=r5_generation_marker");
-                        }
-                    }
-                }
-
-                if (!definitive_start_reset_fired)
-                {
-                    std::string world_hint{};
-                    const bool level_open_or_loadmap =
-                        line_lower.find("ur5datakeeper::openlevel") != std::string::npos ||
-                        line_lower.find("logload: loadmap:") != std::string::npos ||
-                        line_lower.find("loadmap:") != std::string::npos;
-                    if (level_open_or_loadmap)
-                    {
-                        world_hint = gameplay_world_hint_from_line(line_lower);
-                        if (!is_non_gameplay_hint(world_hint))
-                        {
-                            m_definitive_session_start_candidate_active = true;
-                            m_definitive_session_start_candidate_signal = "level_open_started";
-                            m_definitive_session_start_candidate_world_hint = world_hint;
-                        }
-                    }
-                    const bool bringing_world_up_for_play =
-                        line_lower.find("bringing world") != std::string::npos &&
-                        line_lower.find("up for play") != std::string::npos;
-                    if (bringing_world_up_for_play)
-                    {
-                        world_hint = gameplay_world_hint_from_line(line_lower);
-                        if (!is_non_gameplay_hint(world_hint))
-                        {
-                            m_definitive_session_start_candidate_active = true;
-                            m_definitive_session_start_candidate_signal = "world_play_begin";
-                            m_definitive_session_start_candidate_world_hint = world_hint;
-                        }
-                    }
-
-                    if (m_definitive_session_start_candidate_active)
-                    {
-                        std::string ready_reason{};
-                        const bool start_confirmed = is_session_ready_for_role_resolution(&ready_reason);
-                        if (start_confirmed)
-                        {
-                            const auto detected_signal = m_definitive_session_start_candidate_signal.empty()
-                                ? std::string{"world_play_begin_confirmed"}
-                                : m_definitive_session_start_candidate_signal + "_confirmed";
-                            const auto detected_world_hint = m_definitive_session_start_candidate_world_hint;
-                            if (try_begin_definitive_reset("start", detected_signal, detected_world_hint))
-                            {
-                                log_line("[session] definitive_start_detected signal=" + detected_signal +
-                                         " worldHint=" + (detected_world_hint.empty() ? "none" : detected_world_hint));
-                                reset_session_state("definitive_session_start");
-                                log_line("[session] reset_extended_clears applied=true");
-                                definitive_start_reset_fired = true;
-                            }
-                            m_definitive_session_start_candidate_active = false;
-                            m_definitive_session_start_candidate_signal.clear();
-                            m_definitive_session_start_candidate_world_hint.clear();
                         }
                     }
                 }
@@ -13064,33 +13010,11 @@ namespace WindroseTextSigns
                 {
                     if (try_begin_definitive_reset("end", "start_transition_to_lobby", "none"))
                     {
+                        close_session_window("start_transition_to_lobby", m_destroy_signal_log_path, line_end);
                         log_line("[session] definitive_end_detected signal=start_transition_to_lobby");
                         arm_phase7_definitive_teardown("start_transition_to_lobby");
                         reset_session_state("definitive_session_end_lobby_transition");
                         log_line("[session] reset_extended_clears applied=true");
-                    }
-                }
-
-                const bool farewell_transition =
-                    line_lower.find("change state readytoplay => sentfarewell") != std::string::npos ||
-                    line_lower.find("change state readytoplay => saidfarewell") != std::string::npos;
-                if (farewell_transition)
-                {
-                    if (try_begin_definitive_reset("end", "sent_farewell", "none"))
-                    {
-                        log_line("[session] definitive_end_detected signal=sent_farewell");
-                        arm_phase7_definitive_teardown("sent_farewell");
-                    }
-                }
-                const bool request_exit =
-                    line_lower.find("requestexit(") != std::string::npos ||
-                    line_lower.find("engine exit requested") != std::string::npos;
-                if (request_exit)
-                {
-                    if (try_begin_definitive_reset("end", "engine_request_exit", "none"))
-                    {
-                        log_line("[session] definitive_end_detected signal=engine_request_exit");
-                        arm_phase7_definitive_teardown("engine_request_exit");
                     }
                 }
             }
@@ -13994,6 +13918,67 @@ namespace WindroseTextSigns
         m_pending_role_watchdog_logged = false;
     }
 
+    auto SignTextMod::is_session_window_active_for_gameplay(std::string* out_reason) const -> bool
+    {
+        const auto set_reason = [&](const std::string& reason) {
+            if (out_reason)
+            {
+                *out_reason = reason;
+            }
+        };
+
+        if (!m_session_window_open)
+        {
+            set_reason("session_window_closed");
+            return false;
+        }
+        if (!m_definitive_session_start_seen)
+        {
+            set_reason("definitive_start_not_seen");
+            return false;
+        }
+        set_reason("ok");
+        return true;
+    }
+
+    auto SignTextMod::open_session_window(
+        const std::string& signal,
+        const std::filesystem::path& log_path,
+        const uintmax_t offset) -> void
+    {
+        m_session_window_open = true;
+        m_definitive_session_start_seen = true;
+        m_definitive_session_start_signal = signal;
+        m_definitive_session_exit_signal.clear();
+        m_session_window_log_path = log_path;
+        m_session_window_start_offset = offset;
+        m_session_window_end_offset = offset;
+        m_session_window_blocked_last_log = {};
+        log_line("[session] session_window_opened epoch=" + std::to_string(m_session_epoch) +
+                 " signal=" + signal +
+                 " logPath=" + (m_session_window_log_path.empty() ? "unknown" : m_session_window_log_path.string()) +
+                 " windowStartOffset=" + std::to_string(static_cast<unsigned long long>(m_session_window_start_offset)) +
+                 " windowEndOffset=" + std::to_string(static_cast<unsigned long long>(m_session_window_end_offset)));
+    }
+
+    auto SignTextMod::close_session_window(
+        const std::string& signal,
+        const std::filesystem::path& log_path,
+        const uintmax_t offset) -> void
+    {
+        m_session_window_open = false;
+        m_definitive_session_start_seen = false;
+        m_definitive_session_exit_signal = signal;
+        m_session_window_log_path = log_path;
+        m_session_window_end_offset = offset;
+        m_session_window_blocked_last_log = {};
+        log_line("[session] session_window_closed epoch=" + std::to_string(m_session_epoch) +
+                 " signal=" + signal +
+                 " logPath=" + (m_session_window_log_path.empty() ? "unknown" : m_session_window_log_path.string()) +
+                 " windowStartOffset=" + std::to_string(static_cast<unsigned long long>(m_session_window_start_offset)) +
+                 " windowEndOffset=" + std::to_string(static_cast<unsigned long long>(m_session_window_end_offset)));
+    }
+
     auto SignTextMod::reset_session_state(const std::string& reason) -> void
     {
         const auto old_epoch = m_session_epoch;
@@ -14032,6 +14017,14 @@ namespace WindroseTextSigns
         m_definitive_session_start_candidate_active = false;
         m_definitive_session_start_candidate_signal.clear();
         m_definitive_session_start_candidate_world_hint.clear();
+        m_session_window_open = false;
+        m_definitive_session_start_seen = false;
+        m_definitive_session_start_signal.clear();
+        m_definitive_session_exit_signal.clear();
+        m_session_window_log_path.clear();
+        m_session_window_start_offset = 0;
+        m_session_window_end_offset = 0;
+        m_session_window_blocked_last_log = {};
         m_pending_role_watchdog_started = {};
         m_pending_role_watchdog_logged = false;
         m_pending_resolution_last_block_reason.clear();
@@ -14116,6 +14109,13 @@ namespace WindroseTextSigns
             }
         };
 
+        std::string window_reason{};
+        if (!is_session_window_active_for_gameplay(&window_reason))
+        {
+            set_reason(window_reason);
+            return false;
+        }
+
         if (is_dedicated_runtime_process())
         {
             set_reason("dedicated_runtime");
@@ -14168,21 +14168,7 @@ namespace WindroseTextSigns
             world_name.find("transition") == std::string::npos &&
             world_name.find("lobby") == std::string::npos &&
             world_name.find("entrance") == std::string::npos;
-        const bool local_ready_signals_seen =
-            m_hosted_ready_datakeeper_seen ||
-            m_hosted_ready_hide_loading_seen ||
-            m_hosted_ready_player_ready_seen ||
-            m_hosted_ready_sequence_complete;
-        const bool pending_localclient_inprocess_fallback =
-            runtime_role_lower == "localclientpending" &&
-            authority_mode_lower == "worldauthoritypending" &&
-            gameplay_ready_inprocess &&
-            local_ready_signals_seen;
-        if (pending_localclient_inprocess_fallback)
-        {
-            set_reason("ready_inprocess_pending_fallback");
-            return true;
-        }
+        (void)gameplay_ready_inprocess;
         if (!authority_source_resolved && !local_ready_equivalent)
         {
             set_reason("authority_or_local_ready_pending");
@@ -14828,6 +14814,8 @@ namespace WindroseTextSigns
             return;
         }
 
+        tick_r5_readiness_markers();
+
         if (!is_dedicated_runtime_process())
         {
             maybe_run_phase7_bootstrap_sanitize();
@@ -14895,7 +14883,6 @@ namespace WindroseTextSigns
         }
         tick_pending_fallback_hotkeys();
         tick_file_triggers();
-        tick_r5_readiness_markers();
         if (!is_dedicated_runtime_process())
         {
             if (!m_session_ready_latched)
@@ -14948,6 +14935,22 @@ namespace WindroseTextSigns
                 m_localclient_stability_skip_last_log = now;
                 m_localclient_stability_skip_last_reason = localclient_stability_reason;
             }
+        }
+
+        std::string session_window_reason{};
+        if (!is_session_window_active_for_gameplay(&session_window_reason))
+        {
+            if (m_session_window_blocked_last_log.time_since_epoch().count() == 0 ||
+                (now - m_session_window_blocked_last_log) >= std::chrono::seconds(2))
+            {
+                log_line("[session] gameplay_construction_blocked_until_definitive_start epoch=" +
+                         std::to_string(m_session_epoch) +
+                         " reason=" + session_window_reason +
+                         " runtimeRole=" + m_runtime_role +
+                         " authorityMode=" + m_authority_mode);
+                m_session_window_blocked_last_log = now;
+            }
+            return;
         }
 
         if (now - m_last_restore_scan > std::chrono::seconds(2))
