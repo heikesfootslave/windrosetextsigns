@@ -12205,21 +12205,39 @@ namespace WindroseTextSigns
             return m_world_text_font_override_pak_detected;
         }
 
-        std::vector<std::filesystem::path> roots{};
-        if (auto from_cwd = find_r5_root_from_path(std::filesystem::current_path()); from_cwd.has_value())
+        std::vector<std::filesystem::path> mods_dirs{};
+        auto collect_mods_dirs_from_ancestors = [&](std::filesystem::path seed) -> void
         {
-            roots.push_back(*from_cwd);
-        }
-        if (auto from_mod = find_r5_root_from_path(m_mod_root); from_mod.has_value())
-        {
-            roots.push_back(*from_mod);
-        }
+            if (seed.empty())
+            {
+                return;
+            }
+
+            std::error_code ec{};
+            if (!std::filesystem::is_directory(seed, ec))
+            {
+                seed = seed.parent_path();
+            }
+
+            for (auto current = seed; !current.empty(); current = current.parent_path())
+            {
+                const auto mods_dir = current / "Content" / "Paks" / "~mods";
+                if (std::filesystem::exists(mods_dir, ec) && std::filesystem::is_directory(mods_dir, ec))
+                {
+                    append_unique_path(mods_dirs, mods_dir);
+                }
+                if (current == current.parent_path())
+                {
+                    break;
+                }
+            }
+        };
+
+        collect_mods_dirs_from_ancestors(std::filesystem::current_path());
+        collect_mods_dirs_from_ancestors(m_mod_root);
         if (const auto exe_path = current_executable_path(); !exe_path.empty())
         {
-            if (auto from_exe = find_r5_root_from_path(exe_path.parent_path()); from_exe.has_value())
-            {
-                roots.push_back(*from_exe);
-            }
+            collect_mods_dirs_from_ancestors(exe_path.parent_path());
         }
 
         m_world_text_font_override_pak_checked = true;
@@ -12230,15 +12248,11 @@ namespace WindroseTextSigns
             ".utoc",
             ".ucas"};
 
-        for (const auto& root : roots)
+        std::filesystem::path detected_mods_dir{};
+        size_t detected_hit_count = 0;
+        for (const auto& mods_dir : mods_dirs)
         {
             std::error_code ec{};
-            const auto mods_dir = root / "Content" / "Paks" / "~mods";
-            if (!std::filesystem::exists(mods_dir, ec))
-            {
-                continue;
-            }
-
             size_t hit_count = 0;
             for (const auto& suffix : required_suffixes)
             {
@@ -12251,12 +12265,17 @@ namespace WindroseTextSigns
             if (hit_count >= 2)
             {
                 m_world_text_font_override_pak_detected = true;
+                detected_mods_dir = mods_dir;
+                detected_hit_count = hit_count;
                 break;
             }
         }
 
         log_line("[phase4-font] override_pak_detected=" +
-                 std::string{m_world_text_font_override_pak_detected ? "true" : "false"});
+                 std::string{m_world_text_font_override_pak_detected ? "true" : "false"} +
+                 " searchedModsDirs=" + std::to_string(mods_dirs.size()) +
+                 " detectedModsDir=" + (detected_mods_dir.empty() ? std::string{"none"} : detected_mods_dir.string()) +
+                 " detectedHitCount=" + std::to_string(detected_hit_count));
         return m_world_text_font_override_pak_detected;
     }
 
