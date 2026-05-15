@@ -228,7 +228,8 @@ namespace
                 {
                     const auto arm_until_ms = g_phase7_mouse_capture_arm_until_ms->load(std::memory_order_relaxed);
                     const auto now_ms = static_cast<uint64_t>(GetTickCount64());
-                    if (arm_until_ms > 0 && now_ms <= arm_until_ms)
+                    const bool arm_until_consumed = (arm_until_ms == UINT64_MAX);
+                    if (arm_until_ms > 0 && (arm_until_consumed || now_ms <= arm_until_ms))
                     {
                         bool expected = false;
                         if (g_phase7_mouse_first_down_consumed->compare_exchange_strong(
@@ -1862,6 +1863,19 @@ namespace
                 }
 
                 auto line_words = split_words(raw_line);
+                // For explicit multi-line input, preserve a single typed word per line
+                // whenever possible. If a single word does not fit the current width,
+                // force a smaller font first instead of splitting the word across rows.
+                // Only allow intra-word splitting at the absolute minimum font as a
+                // last-resort fallback when there is no smaller font left to try.
+                if (has_explicit_line_breaks &&
+                    line_words.size() == 1 &&
+                    static_cast<int>(line_words.front().size()) > char_limit &&
+                    font > (k_font_min + 0.001f))
+                {
+                    candidate.truncated = true;
+                    break;
+                }
                 auto line_wrap = wrap_words_with_limit(line_words, char_limit, remaining_rows);
                 if (line_wrap.truncated)
                 {
@@ -5065,63 +5079,6 @@ namespace WindroseTextSigns
             0.1f,
             1.0f);
         m_world_text_font_enabled = config_bool_value("WTS_WORLD_TEXT_FONT_ENABLED", false);
-        m_autosize_char_width_factor = std::clamp(
-            safe_stof(config_string_value("WTS_AUTOSIZE_CHAR_WIDTH_FACTOR", "0.85"), 0.85f),
-            0.20f,
-            2.00f);
-        m_row_gap_factor = std::clamp(
-            safe_stof(config_string_value("WTS_ROW_GAP_FACTOR", "1.50"), 1.50f),
-            0.00f,
-            2.00f);
-        m_row_gap_factor_2 = std::clamp(
-            safe_stof(config_string_value("WTS_ROW_GAP_FACTOR_2", "1.50"), 1.50f),
-            0.00f,
-            3.00f);
-        m_row_gap_factor_3 = std::clamp(
-            safe_stof(config_string_value("WTS_ROW_GAP_FACTOR_3", "1.25"), 1.25f),
-            0.00f,
-            3.00f);
-        m_row_gap_factor_4 = std::clamp(
-            safe_stof(config_string_value("WTS_ROW_GAP_FACTOR_4", "1.00"), 1.00f),
-            0.00f,
-            3.00f);
-        const auto parse_row_offsets = [this](const std::string& raw, const std::vector<float>& fallback) -> std::vector<float>
-        {
-            std::vector<float> out{};
-            out.reserve(fallback.size());
-            std::istringstream input{raw};
-            std::string token{};
-            while (std::getline(input, token, ','))
-            {
-                token.erase(std::remove_if(token.begin(), token.end(), [](unsigned char c) {
-                    return std::isspace(c) != 0;
-                }), token.end());
-                if (token.empty())
-                {
-                    continue;
-                }
-                out.push_back(safe_stof(token, fallback[out.size()]));
-                if (out.size() >= fallback.size())
-                {
-                    break;
-                }
-            }
-            while (out.size() < fallback.size())
-            {
-                out.push_back(fallback[out.size()]);
-            }
-            return out;
-        };
-        {
-            const auto v1 = parse_row_offsets(config_string_value("WTS_ROW_OFFSETS_1", "0"), {0.0f});
-            const auto v2 = parse_row_offsets(config_string_value("WTS_ROW_OFFSETS_2", "8,-5"), {8.0f, -5.0f});
-            const auto v3 = parse_row_offsets(config_string_value("WTS_ROW_OFFSETS_3", "12,2,-8"), {12.0f, 2.0f, -8.0f});
-            const auto v4 = parse_row_offsets(config_string_value("WTS_ROW_OFFSETS_4", "17,7,-3,-13"), {17.0f, 7.0f, -3.0f, -13.0f});
-            m_row_offsets_1 = {v1[0]};
-            m_row_offsets_2 = {v2[0], v2[1]};
-            m_row_offsets_3 = {v3[0], v3[1], v3[2]};
-            m_row_offsets_4 = {v4[0], v4[1], v4[2], v4[3]};
-        }
         const auto hotkey_config_value = config_string_value("WTS_HOTKEY", "F8");
         m_hotkey_vk = hotkey_vk_from_config(hotkey_config_value, k_default_hotkey_vk);
         m_hotkey_name = display_name_for_vk(m_hotkey_vk);
@@ -5200,6 +5157,36 @@ namespace WindroseTextSigns
         log_line("[save] destroy_confirm_ttl_sec=" + std::to_string(m_destroy_confirm_ttl_sec));
         log_line("[save] localclient_controller_probe_interval_sec=" + std::to_string(m_localclient_controller_probe_interval_sec));
         log_line("[save] localclient_motion_reapply_enabled=" + std::string{m_localclient_motion_reapply_enabled ? "true" : "false"});
+        {
+            const bool has_override_pak = has_world_text_font_override_pak();
+            if (has_override_pak)
+            {
+                // Defaults when 0_WindroseTextSigns_RDFOverride_P.pak is installed.
+                m_autosize_char_width_factor = 0.85f;
+                m_row_gap_factor = 1.50f;
+                m_row_gap_factor_2 = 1.50f;
+                m_row_gap_factor_3 = 1.25f;
+                m_row_gap_factor_4 = 1.00f;
+                m_row_offsets_1 = {0.0f};
+                m_row_offsets_2 = {8.0f, -5.0f};
+                m_row_offsets_3 = {12.0f, 2.0f, -8.0f};
+                m_row_offsets_4 = {17.0f, 7.0f, -3.0f, -13.0f};
+            }
+            else
+            {
+                // Defaults when 0_WindroseTextSigns_RDFOverride_P.pak is NOT installed.
+                m_autosize_char_width_factor = 1.40f;
+                m_row_gap_factor = 1.50f;
+                m_row_gap_factor_2 = 1.50f;
+                m_row_gap_factor_3 = 1.25f;
+                m_row_gap_factor_4 = 1.00f;
+                m_row_offsets_1 = {0.0f};
+                m_row_offsets_2 = {6.0f, -6.0f};
+                m_row_offsets_3 = {11.0f, 1.0f, -9.0f};
+                m_row_offsets_4 = {16.0f, 6.0f, -4.0f, -14.0f};
+            }
+            log_line("[autosize] defaults_profile=" + std::string{has_override_pak ? "custom_font_pak_installed" : "custom_font_pak_missing"});
+        }
         log_line("[autosize] char_width_factor=" + std::to_string(m_autosize_char_width_factor));
         log_line("[autosize] row_gap_factor=" + std::to_string(m_row_gap_factor));
         log_line("[autosize] row_gap_factors row2=" + std::to_string(m_row_gap_factor_2) +
@@ -5502,6 +5489,14 @@ namespace WindroseTextSigns
         if (enable_ui_mode)
         {
             install_phase7_keyboard_capture_hook();
+            // Hook install is async; wait briefly so first-click capture is armed
+            // before the editor is interactable.
+            const auto hook_deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(150);
+            while (!m_phase7_keyboard_hook_installed.load(std::memory_order_relaxed) &&
+                   std::chrono::steady_clock::now() < hook_deadline)
+            {
+                std::this_thread::sleep_for(std::chrono::milliseconds(2));
+            }
             m_phase7_keyboard_capture_active.store(true);
             // Do not hard-consume all mouse input; that blocks text box interaction.
             // Keep first-click arm swallow as the passthrough guard.
@@ -5578,9 +5573,8 @@ namespace WindroseTextSigns
 
         const bool added = invoke_add_to_viewport(widget, 1000);
         const bool input_mode = set_phase7_game_and_ui_input_mode(true);
-        const uint64_t now_ms = static_cast<uint64_t>(GetTickCount64());
         m_phase7_mouse_first_down_consumed.store(false);
-        m_phase7_mouse_capture_arm_until_ms.store(now_ms + 180);
+        m_phase7_mouse_capture_arm_until_ms.store(UINT64_MAX);
         if (!added)
         {
             log_line("[phase7] open_native_editor failed reason=AddToViewportReturnedFalse inputModeApplied=" +
@@ -5759,6 +5753,9 @@ namespace WindroseTextSigns
         m_phase7_fn_set_focus = nullptr;
         m_phase7_fn_set_visibility = nullptr;
         m_phase7_umg_in_viewport = false;
+        m_phase7_umg_open_pending = false;
+        m_phase7_open_sla_violation_logged = false;
+        m_phase7_open_pending_since = {};
         m_phase7_ui_input_mode_active = false;
         m_phase7_active_epoch = 0;
         m_phase7_teardown_pending = false;
@@ -5972,9 +5969,31 @@ namespace WindroseTextSigns
         }
         m_phase7_umg_prewarm_attempted = true;
         const bool built = ensure_phase7_umg_widget_built();
-        m_phase7_umg_prewarm_succeeded = built;
-        m_phase7_umg_prewarm_next_try = now + std::chrono::seconds(built ? 60 : 3);
-        log_line("[phase7-umg] prewarm_try success=" + std::string{built ? "true" : "false"} +
+        bool collapsed = false;
+        if (built && m_phase7_umg_widget)
+        {
+            if (!m_phase7_umg_in_viewport)
+            {
+                m_phase7_umg_in_viewport =
+                    invoke_with_int_param_cached(m_phase7_umg_widget, m_phase7_fn_add_to_viewport, 1000) ||
+                    invoke_add_to_viewport(m_phase7_umg_widget, 1000);
+            }
+            collapsed = invoke_with_byte_or_int_param_cached(m_phase7_umg_widget, m_phase7_fn_set_visibility, 1);
+        }
+
+        install_phase7_keyboard_capture_hook();
+        const bool hook_installed = m_phase7_keyboard_hook_installed.load(std::memory_order_relaxed);
+
+        // Prewarm is complete only when build+attach+hook-install are done. This keeps
+        // F8 open path fast and avoids one-time hook startup cost during interaction.
+        const bool prewarm_ready = built && m_phase7_umg_in_viewport && hook_installed;
+        m_phase7_umg_prewarm_succeeded = prewarm_ready;
+        m_phase7_umg_prewarm_next_try = now + std::chrono::seconds(prewarm_ready ? 60 : 3);
+        log_line("[phase7-umg] prewarm_try success=" + std::string{prewarm_ready ? "true" : "false"} +
+                 " built=" + std::string{built ? "true" : "false"} +
+                 " attached=" + std::string{m_phase7_umg_in_viewport ? "true" : "false"} +
+                 " collapsed=" + std::string{collapsed ? "true" : "false"} +
+                 " llHookInstalled=" + std::string{hook_installed ? "true" : "false"} +
                  " sessionReady=" + std::string{m_session_ready_latched ? "true" : "false"});
     }
 
@@ -6063,25 +6082,35 @@ namespace WindroseTextSigns
             m_phase7_umg_in_viewport = added;
         }
         const bool input_mode_post = input_mode_pre ? true : set_phase7_game_and_ui_input_mode(true);
-        // Swallow the very first post-open mouse down even if input mode settles a frame late.
-        const uint64_t now_ms = static_cast<uint64_t>(GetTickCount64());
+        const bool ll_hook_installed = m_phase7_keyboard_hook_installed.load(std::memory_order_relaxed);
+        // Swallow the very first post-open mouse down. Keep this armed until consumed
+        // so delayed user clicks are still protected from passthrough.
         m_phase7_mouse_first_down_consumed.store(false);
-        m_phase7_mouse_capture_arm_until_ms.store(now_ms + 180);
-        const bool focus_keyboard = invoke_no_param_cached(m_phase7_umg_text_box, m_phase7_fn_set_keyboard_focus) ||
-                                    invoke_no_param(m_phase7_umg_text_box, STR("SetKeyboardFocus"), STR("/Script/UMG.Widget:SetKeyboardFocus"));
-        const bool focus_widget = invoke_no_param_cached(m_phase7_umg_text_box, m_phase7_fn_set_focus) ||
-                                  invoke_no_param(m_phase7_umg_text_box, STR("SetFocus"), STR("/Script/UMG.Widget:SetFocus"));
-        const bool visible = invoke_with_byte_or_int_param_cached(m_phase7_umg_widget, m_phase7_fn_set_visibility, 0);
+        m_phase7_mouse_capture_arm_until_ms.store(UINT64_MAX);
+        bool focus_keyboard = false;
+        bool focus_widget = false;
+        bool visible = false;
+        const bool ready_to_show = added && input_mode_post && ll_hook_installed;
+        if (ready_to_show)
+        {
+            focus_keyboard = invoke_no_param_cached(m_phase7_umg_text_box, m_phase7_fn_set_keyboard_focus) ||
+                             invoke_no_param(m_phase7_umg_text_box, STR("SetKeyboardFocus"), STR("/Script/UMG.Widget:SetKeyboardFocus"));
+            focus_widget = invoke_no_param_cached(m_phase7_umg_text_box, m_phase7_fn_set_focus) ||
+                           invoke_no_param(m_phase7_umg_text_box, STR("SetFocus"), STR("/Script/UMG.Widget:SetFocus"));
+            visible = invoke_with_byte_or_int_param_cached(m_phase7_umg_widget, m_phase7_fn_set_visibility, 0);
+        }
 
         log_line("[phase7-umg] open_result added=" + std::string{added ? "true" : "false"} +
                  " inputModePre=" + std::string{input_mode_pre ? "true" : "false"} +
                  " inputModePost=" + std::string{input_mode_post ? "true" : "false"} +
+                 " llHookInstalled=" + std::string{ll_hook_installed ? "true" : "false"} +
+                 " readyToShow=" + std::string{ready_to_show ? "true" : "false"} +
                  " visible=" + std::string{visible ? "true" : "false"} +
                  " collapsedFirst=" + std::string{collapsed ? "true" : "false"} +
                  " inputText=" + std::string{input_text ? "true" : "false"} +
                  " focusKeyboard=" + std::string{focus_keyboard ? "true" : "false"} +
                  " focusWidget=" + std::string{focus_widget ? "true" : "false"} +
-                 " firstClickArmMs=180" +
+                 " firstClickArm=until_consumed" +
                  " key=" + key);
         if (m_f8_latency_breakdown_enabled && m_f8_latency_trace.active)
         {
@@ -6110,12 +6139,39 @@ namespace WindroseTextSigns
                      " construct_children_ok_to_open_result_ms=" + std::to_string(construct_to_open_ms) +
                      " edge_to_open_result_ms=" + std::to_string(edge_to_open_ms) +
                      " umgAdded=" + std::string{added ? "true" : "false"});
+            log_line("[phase7-umg] f8_open_total_ms=" + std::to_string(edge_to_open_ms));
+            if (edge_to_open_ms > 1000)
+            {
+                log_line("[phase7-umg] open_sla_violation thresholdMs=1000 totalMs=" + std::to_string(edge_to_open_ms) +
+                         " edge_to_target_ms=" + std::to_string(edge_to_target_ms) +
+                         " target_to_construct_children_ok_ms=" + std::to_string(target_to_construct_ms) +
+                         " construct_children_ok_to_open_result_ms=" + std::to_string(construct_to_open_ms) +
+                         " readyToShow=" + std::string{ready_to_show ? "true" : "false"} +
+                         " llHookInstalled=" + std::string{ll_hook_installed ? "true" : "false"} +
+                         " inputModePost=" + std::string{input_mode_post ? "true" : "false"});
+            }
             m_f8_latency_trace.active = false;
         }
 
         if (!added)
         {
             return false;
+        }
+        if (!ready_to_show)
+        {
+            m_phase7_umg_open_pending = true;
+            m_phase7_open_sla_violation_logged = false;
+            m_phase7_open_pending_since = std::chrono::steady_clock::now();
+            log_line("[phase7-umg] open_deferred reason=await_ready_gate llHookInstalled=" +
+                     std::string{ll_hook_installed ? "true" : "false"} +
+                     " inputModePost=" + std::string{input_mode_post ? "true" : "false"} +
+                     " added=" + std::string{added ? "true" : "false"});
+        }
+        else
+        {
+            m_phase7_umg_open_pending = false;
+            m_phase7_open_sla_violation_logged = false;
+            m_phase7_open_pending_since = {};
         }
         m_phase7_teardown_skip_logged = false;
         m_phase7_enter_was_down = false;
@@ -6133,23 +6189,82 @@ namespace WindroseTextSigns
         return true;
     }
 
+    auto SignTextMod::tick_phase7_umg_open_pending() -> void
+    {
+        if (!m_phase7_umg_open_pending)
+        {
+            return;
+        }
+        if (!m_phase7_umg_widget || !m_phase7_umg_text_box ||
+            !is_uobject_reflection_safe(m_phase7_umg_widget) ||
+            !is_uobject_reflection_safe(m_phase7_umg_text_box))
+        {
+            m_phase7_umg_open_pending = false;
+            m_phase7_open_sla_violation_logged = false;
+            m_phase7_open_pending_since = {};
+            invalidate_phase7_umg_widget_cache("open_pending_invalid_widget");
+            return;
+        }
+
+        const bool input_mode_ready = set_phase7_game_and_ui_input_mode(true);
+        const bool ll_hook_installed = m_phase7_keyboard_hook_installed.load(std::memory_order_relaxed);
+        const bool ready_to_show = input_mode_ready && ll_hook_installed;
+        if (ready_to_show)
+        {
+            const bool focus_keyboard = invoke_no_param_cached(m_phase7_umg_text_box, m_phase7_fn_set_keyboard_focus) ||
+                                        invoke_no_param(m_phase7_umg_text_box, STR("SetKeyboardFocus"), STR("/Script/UMG.Widget:SetKeyboardFocus"));
+            const bool focus_widget = invoke_no_param_cached(m_phase7_umg_text_box, m_phase7_fn_set_focus) ||
+                                      invoke_no_param(m_phase7_umg_text_box, STR("SetFocus"), STR("/Script/UMG.Widget:SetFocus"));
+            const bool visible = invoke_with_byte_or_int_param_cached(m_phase7_umg_widget, m_phase7_fn_set_visibility, 0);
+            m_phase7_umg_open_pending = false;
+            m_phase7_open_sla_violation_logged = false;
+            const auto now = std::chrono::steady_clock::now();
+            const long long total_ms =
+                (m_phase7_open_pending_since.time_since_epoch().count() == 0)
+                    ? 0
+                    : std::chrono::duration_cast<std::chrono::milliseconds>(now - m_phase7_open_pending_since).count();
+            m_phase7_open_pending_since = {};
+            log_line("[phase7-umg] open_pending_resolved readyToShow=true visible=" +
+                     std::string{visible ? "true" : "false"} +
+                     " focusKeyboard=" + std::string{focus_keyboard ? "true" : "false"} +
+                     " focusWidget=" + std::string{focus_widget ? "true" : "false"} +
+                     " pendingMs=" + std::to_string(total_ms));
+            return;
+        }
+
+        if (m_phase7_open_pending_since.time_since_epoch().count() != 0 && !m_phase7_open_sla_violation_logged)
+        {
+            const auto now = std::chrono::steady_clock::now();
+            const long long pending_ms =
+                std::chrono::duration_cast<std::chrono::milliseconds>(now - m_phase7_open_pending_since).count();
+            if (pending_ms > 1000)
+            {
+                log_line("[phase7-umg] open_sla_violation thresholdMs=1000 pendingMs=" + std::to_string(pending_ms) +
+                         " reason=await_ready_gate llHookInstalled=" + std::string{ll_hook_installed ? "true" : "false"} +
+                         " inputModeReady=" + std::string{input_mode_ready ? "true" : "false"});
+                m_phase7_open_sla_violation_logged = true;
+            }
+        }
+    }
+
     auto SignTextMod::close_phase7_umg_editor(bool restore_game_input) -> void
     {
         m_phase7_keyboard_capture_active.store(false);
         m_phase7_mouse_capture_arm_until_ms.store(0);
         m_phase7_mouse_first_down_consumed.store(false);
         m_phase7_force_full_mouse_consume.store(false);
+        m_phase7_umg_open_pending = false;
+        m_phase7_open_sla_violation_logged = false;
+        m_phase7_open_pending_since = {};
         m_phase7_last_close_removed = false;
         if (m_phase7_umg_widget)
         {
             const bool hidden = invoke_with_byte_or_int_param_cached(m_phase7_umg_widget, m_phase7_fn_set_visibility, 1);
-            const bool removed = invoke_no_param_cached(m_phase7_umg_widget, m_phase7_fn_remove_from_parent) ||
-                invoke_no_param(
-                    m_phase7_umg_widget,
-                    STR("RemoveFromParent"),
-                    STR("/Script/UMG.Widget:RemoveFromParent"));
+            // Keep the widget attached and only hide it. Reusing the same instance avoids
+            // repeated AddToViewport/RemoveFromParent churn and keeps F8 open latency low.
+            const bool removed = false;
             m_phase7_last_close_removed = removed;
-            m_phase7_umg_in_viewport = !removed;
+            m_phase7_umg_in_viewport = true;
             log_line("[phase7-umg] close hidden=" + std::string{hidden ? "true" : "false"} +
                      " removedWidget=" + std::string{removed ? "true" : "false"});
         }
@@ -6170,6 +6285,12 @@ namespace WindroseTextSigns
 
     auto SignTextMod::reset_phase7_runtime_state() -> void
     {
+        if (m_phase7_umg_widget && is_uobject_reflection_safe(m_phase7_umg_widget))
+        {
+            (void)invoke_with_byte_or_int_param_cached(m_phase7_umg_widget, m_phase7_fn_set_visibility, 1);
+            (void)(invoke_no_param_cached(m_phase7_umg_widget, m_phase7_fn_remove_from_parent) ||
+                   invoke_no_param(m_phase7_umg_widget, STR("RemoveFromParent"), STR("/Script/UMG.Widget:RemoveFromParent")));
+        }
         m_phase7_keyboard_capture_active.store(false);
         m_phase7_mouse_capture_arm_until_ms.store(0);
         m_phase7_mouse_first_down_consumed.store(false);
@@ -6181,6 +6302,9 @@ namespace WindroseTextSigns
         m_phase7_shift_was_down = false;
         m_phase7_ui_input_mode_active = false;
         m_phase7_umg_in_viewport = false;
+        m_phase7_umg_open_pending = false;
+        m_phase7_open_sla_violation_logged = false;
+        m_phase7_open_pending_since = {};
         m_phase7_umg_last_text.clear();
         m_phase7_native_editor_open = false;
         m_phase7_native_widget = nullptr;
@@ -6215,7 +6339,8 @@ namespace WindroseTextSigns
             m_phase7_native_widget ||
             m_phase7_umg_widget ||
             m_phase7_native_editor_open ||
-            m_phase7_umg_in_viewport ||
+            (m_phase7_active_epoch != 0) ||
+            m_phase7_umg_open_pending ||
             m_phase7_ui_input_mode_active;
         const bool had_active_session_state =
             had_phase7_state ||
@@ -6258,7 +6383,8 @@ namespace WindroseTextSigns
             m_phase7_native_widget ||
             m_phase7_umg_widget ||
             m_phase7_native_editor_open ||
-            m_phase7_umg_in_viewport ||
+            (m_phase7_active_epoch != 0) ||
+            m_phase7_umg_open_pending ||
             m_phase7_ui_input_mode_active;
 
         if (had_phase7_state && !m_phase7_teardown_skip_logged)
@@ -7875,7 +8001,7 @@ namespace WindroseTextSigns
         const auto now = std::chrono::steady_clock::now();
         if (new_request)
         {
-            const bool umg_open = m_phase7_umg_in_viewport || m_phase7_ui_input_mode_active;
+            const bool umg_open = (m_phase7_active_epoch != 0) || m_phase7_ui_input_mode_active || m_phase7_umg_open_pending;
             const bool native_open = m_phase7_native_editor_open;
             const bool imgui_open = m_ui_open;
             if (umg_open || native_open || imgui_open)
@@ -15891,6 +16017,7 @@ namespace WindroseTextSigns
                 m_phase7_guard_fail_started = {};
                 m_phase7_guard_fail_reason.clear();
                 m_phase7_guard_hysteresis_logged = false;
+                tick_phase7_umg_open_pending();
                 tick_phase7_umg_editor();
             }
             else

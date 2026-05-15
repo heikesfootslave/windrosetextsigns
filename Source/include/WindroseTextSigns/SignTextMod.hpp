@@ -109,6 +109,7 @@ namespace WindroseTextSigns
         auto ensure_phase7_umg_widget_built() -> bool;
         auto maybe_prewarm_phase7_umg_editor() -> void;
         auto open_phase7_umg_editor_for_selection() -> bool;
+        auto tick_phase7_umg_open_pending() -> void;
         auto close_phase7_umg_editor(bool restore_game_input) -> void;
         auto force_close_phase7_for_teardown(const std::string& reason) -> void;
         auto arm_phase7_definitive_teardown(const std::string& reason) -> void;
@@ -519,8 +520,11 @@ namespace WindroseTextSigns
         bool m_phase7_umg_prewarm_attempted{false};
         bool m_phase7_umg_prewarm_succeeded{false};
         bool m_phase7_umg_in_viewport{false};
+        bool m_phase7_umg_open_pending{false};
+        bool m_phase7_open_sla_violation_logged{false};
         bool m_phase7_teardown_skip_logged{false};
         std::chrono::steady_clock::time_point m_phase7_umg_prewarm_next_try{};
+        std::chrono::steady_clock::time_point m_phase7_open_pending_since{};
         bool m_phase7_teardown_pending{false};
         std::string m_phase7_teardown_pending_reason{};
         bool m_phase7_definitive_teardown_armed{false};
