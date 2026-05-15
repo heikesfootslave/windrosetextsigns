@@ -9,6 +9,7 @@
 #include <cstdio>
 #include <cstdint>
 #include <cstdlib>
+#include <cstring>
 #include <ctime>
 #include <functional>
 #include <iomanip>
@@ -29,6 +30,7 @@
 #include <Unreal/FText.hpp>
 #include <Unreal/Property/FBoolProperty.hpp>
 #include <Unreal/Property/FClassProperty.hpp>
+#include <Unreal/Property/FEnumProperty.hpp>
 #include <Unreal/Property/FNameProperty.hpp>
 #include <Unreal/Property/FObjectProperty.hpp>
 #include <Unreal/Property/FStructProperty.hpp>
@@ -3342,6 +3344,90 @@ namespace
         return true;
     }
 
+    struct EnumInvokeDiag
+    {
+        bool has_unhandled_param{false};
+        std::string fn_name{};
+        std::string prop_class{};
+        int32_t prop_size{0};
+    };
+
+    auto invoke_with_enum_byte_or_int_param_cached(UObject* context, UFunction* fn, uint8_t value, EnumInvokeDiag* out_diag) -> bool
+    {
+        if (!context || !fn)
+        {
+            return false;
+        }
+
+        std::vector<uint8_t> params(static_cast<size_t>(std::max<int32_t>(fn->GetStructureSize(), 16)), 0);
+        bool assigned = false;
+        bool captured_unhandled = false;
+
+        for_each_property_in_chain_compat(fn, [&](FProperty* prop) {
+            if (!prop || prop->HasAnyPropertyFlags(CPF_ReturnParm) || prop->HasAnyPropertyFlags(CPF_OutParm))
+            {
+                return;
+            }
+
+            const auto prop_hash = prop->GetClass().HashObject();
+            const auto prop_size = prop->GetSize();
+
+            if (prop_hash == FEnumProperty::StaticClass().HashObject())
+            {
+                if (auto* raw_ptr = prop->ContainerPtrToValuePtr<uint8_t>(params.data()))
+                {
+                    std::memset(raw_ptr, 0, static_cast<size_t>(std::max<int32_t>(prop_size, 0)));
+                    const uint64_t enum_value = static_cast<uint64_t>(value);
+                    std::memcpy(raw_ptr, &enum_value, static_cast<size_t>(std::min<int32_t>(prop_size, static_cast<int32_t>(sizeof(enum_value)))));
+                    assigned = true;
+                }
+                return;
+            }
+            if (prop_hash == FByteProperty::StaticClass().HashObject())
+            {
+                if (auto* value_ptr = prop->ContainerPtrToValuePtr<uint8_t>(params.data()))
+                {
+                    *value_ptr = value;
+                    assigned = true;
+                }
+                return;
+            }
+            if (prop_size == static_cast<int32_t>(sizeof(int32)))
+            {
+                if (auto* value_ptr = prop->ContainerPtrToValuePtr<int32>(params.data()))
+                {
+                    *value_ptr = static_cast<int32>(value);
+                    assigned = true;
+                }
+                return;
+            }
+
+            if (!captured_unhandled && out_diag)
+            {
+                captured_unhandled = true;
+                out_diag->has_unhandled_param = true;
+                out_diag->fn_name = RC::to_string(fn->GetFullName());
+                out_diag->prop_class = RC::to_string(prop->GetName());
+                out_diag->prop_size = prop_size;
+            }
+        });
+
+        if (!assigned)
+        {
+            if (out_diag && !out_diag->has_unhandled_param)
+            {
+                out_diag->has_unhandled_param = true;
+                out_diag->fn_name = RC::to_string(fn->GetFullName());
+                out_diag->prop_class = "none";
+                out_diag->prop_size = 0;
+            }
+            return false;
+        }
+
+        context->ProcessEvent(fn, params.data());
+        return true;
+    }
+
     auto invoke_with_bool_param(UObject* context, const TCHAR* in_chain_name, const TCHAR* path_name, bool value) -> bool
     {
         auto* fn = find_function_by_chain_or_path(context, in_chain_name, path_name);
@@ -5978,7 +6064,7 @@ namespace WindroseTextSigns
                     invoke_with_int_param_cached(m_phase7_umg_widget, m_phase7_fn_add_to_viewport, 1000) ||
                     invoke_add_to_viewport(m_phase7_umg_widget, 1000);
             }
-            collapsed = invoke_with_byte_or_int_param_cached(m_phase7_umg_widget, m_phase7_fn_set_visibility, 1);
+            collapsed = invoke_phase7_set_visibility(1, "prewarm_collapse");
         }
 
         install_phase7_keyboard_capture_hook();
@@ -6072,7 +6158,7 @@ namespace WindroseTextSigns
 
         // Keep the widget collapsed while we acquire input mode and focus to avoid
         // the first click racing through to gameplay before UI capture is settled.
-        const bool collapsed = invoke_with_byte_or_int_param_cached(m_phase7_umg_widget, m_phase7_fn_set_visibility, 1);
+        const bool collapsed = invoke_phase7_set_visibility(1, "open_collapse");
         const bool input_mode_pre = set_phase7_game_and_ui_input_mode(true);
         bool added = m_phase7_umg_in_viewport;
         if (!m_phase7_umg_in_viewport)
@@ -6097,7 +6183,7 @@ namespace WindroseTextSigns
                              invoke_no_param(m_phase7_umg_text_box, STR("SetKeyboardFocus"), STR("/Script/UMG.Widget:SetKeyboardFocus"));
             focus_widget = invoke_no_param_cached(m_phase7_umg_text_box, m_phase7_fn_set_focus) ||
                            invoke_no_param(m_phase7_umg_text_box, STR("SetFocus"), STR("/Script/UMG.Widget:SetFocus"));
-            visible = invoke_with_byte_or_int_param_cached(m_phase7_umg_widget, m_phase7_fn_set_visibility, 0);
+            visible = invoke_phase7_set_visibility(0, "open_visible");
         }
 
         log_line("[phase7-umg] open_result added=" + std::string{added ? "true" : "false"} +
@@ -6215,7 +6301,7 @@ namespace WindroseTextSigns
                                         invoke_no_param(m_phase7_umg_text_box, STR("SetKeyboardFocus"), STR("/Script/UMG.Widget:SetKeyboardFocus"));
             const bool focus_widget = invoke_no_param_cached(m_phase7_umg_text_box, m_phase7_fn_set_focus) ||
                                       invoke_no_param(m_phase7_umg_text_box, STR("SetFocus"), STR("/Script/UMG.Widget:SetFocus"));
-            const bool visible = invoke_with_byte_or_int_param_cached(m_phase7_umg_widget, m_phase7_fn_set_visibility, 0);
+            const bool visible = invoke_phase7_set_visibility(0, "open_pending_visible");
             m_phase7_umg_open_pending = false;
             m_phase7_open_sla_violation_logged = false;
             const auto now = std::chrono::steady_clock::now();
@@ -6247,6 +6333,61 @@ namespace WindroseTextSigns
         }
     }
 
+    auto SignTextMod::invoke_phase7_set_visibility(uint8_t value, const char* source_tag) -> bool
+    {
+        if (!m_phase7_umg_widget || !is_uobject_reflection_safe(m_phase7_umg_widget))
+        {
+            return false;
+        }
+
+        cache_phase7_umg_function_pointers();
+
+        EnumInvokeDiag diag_cached{};
+        const bool cached_ok = invoke_with_enum_byte_or_int_param_cached(m_phase7_umg_widget, m_phase7_fn_set_visibility, value, &diag_cached);
+        if (cached_ok)
+        {
+            return true;
+        }
+
+        if (!m_phase7_set_visibility_param_unhandled_logged && diag_cached.has_unhandled_param)
+        {
+            log_line("[phase7-umg] set_visibility_param_unhandled fn=" + diag_cached.fn_name +
+                     " propClass=" + diag_cached.prop_class +
+                     " size=" + std::to_string(diag_cached.prop_size));
+            m_phase7_set_visibility_param_unhandled_logged = true;
+        }
+
+        // Hardening: retry with a fresh function lookup in case cached pointer went stale.
+        auto* fresh_fn = find_function_by_chain_or_path(
+            m_phase7_umg_widget,
+            STR("SetVisibility"),
+            STR("/Script/UMG.Widget:SetVisibility"));
+        if (fresh_fn)
+        {
+            m_phase7_fn_set_visibility = fresh_fn;
+            EnumInvokeDiag diag_fresh{};
+            const bool fresh_ok = invoke_with_enum_byte_or_int_param_cached(m_phase7_umg_widget, m_phase7_fn_set_visibility, value, &diag_fresh);
+            if (fresh_ok)
+            {
+                return true;
+            }
+            if (!m_phase7_set_visibility_param_unhandled_logged && diag_fresh.has_unhandled_param)
+            {
+                log_line("[phase7-umg] set_visibility_param_unhandled fn=" + diag_fresh.fn_name +
+                         " propClass=" + diag_fresh.prop_class +
+                         " size=" + std::to_string(diag_fresh.prop_size));
+                m_phase7_set_visibility_param_unhandled_logged = true;
+            }
+        }
+
+        if (source_tag && *source_tag)
+        {
+            log_line("[phase7-umg] set_visibility_failed source=" + std::string{source_tag} +
+                     " value=" + std::to_string(static_cast<int>(value)));
+        }
+        return false;
+    }
+
     auto SignTextMod::close_phase7_umg_editor(bool restore_game_input) -> void
     {
         m_phase7_keyboard_capture_active.store(false);
@@ -6259,13 +6400,48 @@ namespace WindroseTextSigns
         m_phase7_last_close_removed = false;
         if (m_phase7_umg_widget)
         {
-            const bool hidden = invoke_with_byte_or_int_param_cached(m_phase7_umg_widget, m_phase7_fn_set_visibility, 1);
-            // Keep the widget attached and only hide it. Reusing the same instance avoids
-            // repeated AddToViewport/RemoveFromParent churn and keeps F8 open latency low.
-            const bool removed = false;
+            bool hidden = false;
+            bool visible_after_attempt = true;
+            for (int attempt = 1; attempt <= 3; ++attempt)
+            {
+                hidden = invoke_phase7_set_visibility(1, "close_hide_attempt");
+                bool is_visible = true;
+                const bool got_visible = invoke_bool_return_no_param(
+                    m_phase7_umg_widget,
+                    STR("IsVisible"),
+                    STR("/Script/UMG.Widget:IsVisible"),
+                    is_visible);
+                visible_after_attempt = got_visible ? is_visible : true;
+                log_line("[phase7-umg] close_hide_attempt attempt=" + std::to_string(attempt) +
+                         " hiddenCall=" + std::string{hidden ? "true" : "false"} +
+                         " gotIsVisible=" + std::string{got_visible ? "true" : "false"} +
+                         " isVisible=" + std::string{visible_after_attempt ? "true" : "false"});
+                if (hidden && got_visible && !visible_after_attempt)
+                {
+                    break;
+                }
+                if (attempt < 3)
+                {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+                }
+            }
+
+            // Fast path: keep attached and hidden. If still visible after retries,
+            // force RemoveFromParent as safety net.
+            bool removed = false;
+            if (visible_after_attempt)
+            {
+                removed =
+                    invoke_no_param_cached(m_phase7_umg_widget, m_phase7_fn_remove_from_parent) ||
+                    invoke_no_param(
+                        m_phase7_umg_widget,
+                        STR("RemoveFromParent"),
+                        STR("/Script/UMG.Widget:RemoveFromParent"));
+            }
             m_phase7_last_close_removed = removed;
-            m_phase7_umg_in_viewport = true;
+            m_phase7_umg_in_viewport = !removed;
             log_line("[phase7-umg] close hidden=" + std::string{hidden ? "true" : "false"} +
+                     " visibleAfterRetries=" + std::string{visible_after_attempt ? "true" : "false"} +
                      " removedWidget=" + std::string{removed ? "true" : "false"});
         }
         if (restore_game_input)
@@ -6287,7 +6463,7 @@ namespace WindroseTextSigns
     {
         if (m_phase7_umg_widget && is_uobject_reflection_safe(m_phase7_umg_widget))
         {
-            (void)invoke_with_byte_or_int_param_cached(m_phase7_umg_widget, m_phase7_fn_set_visibility, 1);
+            (void)invoke_phase7_set_visibility(1, "reset_hide");
             (void)(invoke_no_param_cached(m_phase7_umg_widget, m_phase7_fn_remove_from_parent) ||
                    invoke_no_param(m_phase7_umg_widget, STR("RemoveFromParent"), STR("/Script/UMG.Widget:RemoveFromParent")));
         }

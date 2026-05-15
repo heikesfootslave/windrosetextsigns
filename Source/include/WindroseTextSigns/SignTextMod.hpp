@@ -105,6 +105,7 @@ namespace WindroseTextSigns
         auto set_phase7_game_and_ui_input_mode(bool enable_ui_mode) -> bool;
         auto cache_phase7_umg_class_pointers() -> bool;
         auto cache_phase7_umg_function_pointers() -> void;
+        auto invoke_phase7_set_visibility(uint8_t value, const char* source_tag = nullptr) -> bool;
         auto invalidate_phase7_umg_widget_cache(const std::string& reason) -> void;
         auto ensure_phase7_umg_widget_built() -> bool;
         auto maybe_prewarm_phase7_umg_editor() -> void;
@@ -522,6 +523,7 @@ namespace WindroseTextSigns
         bool m_phase7_umg_in_viewport{false};
         bool m_phase7_umg_open_pending{false};
         bool m_phase7_open_sla_violation_logged{false};
+        bool m_phase7_set_visibility_param_unhandled_logged{false};
         bool m_phase7_teardown_skip_logged{false};
         std::chrono::steady_clock::time_point m_phase7_umg_prewarm_next_try{};
         std::chrono::steady_clock::time_point m_phase7_open_pending_since{};
