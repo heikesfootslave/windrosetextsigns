@@ -9147,6 +9147,7 @@ namespace WindroseTextSigns
         }
 
         LabelRecord rec{};
+        LabelRecord existing_record{};
         const auto world_id = is_hex_world_id(m_world_folder_id)
             ? m_world_folder_id
             : unescape_json(fields.count("worldId") ? fields.at("worldId") : "unknown-world");
@@ -9156,6 +9157,7 @@ namespace WindroseTextSigns
         if (const auto existing = m_labels.find(key); existing != m_labels.end())
         {
             rec = existing->second;
+            existing_record = existing->second;
             has_existing_record = true;
             existing_is_confirmed_label_text = is_confirmed_label_text_kind(rec.kind);
         }
@@ -9187,11 +9189,106 @@ namespace WindroseTextSigns
         rec.color_b = fields.count("colorB") ? std::clamp(safe_stof(fields.at("colorB"), 0.393822f), 0.0f, 1.0f) : rec.color_b;
         rec.color_a = fields.count("colorA") ? std::clamp(safe_stof(fields.at("colorA"), 1.0f), 0.0f, 1.0f) : rec.color_a;
         rec.last_seen_utc = now_utc();
+        const auto same_float = [](const float lhs, const float rhs) {
+            return std::fabs(lhs - rhs) <= 0.0001f;
+        };
+        const bool changed_record =
+            !has_existing_record ||
+            rec.stable_id != existing_record.stable_id ||
+            rec.world_id != existing_record.world_id ||
+            rec.text != existing_record.text ||
+            rec.asset != existing_record.asset ||
+            rec.kind != existing_record.kind ||
+            rec.backing_asset != existing_record.backing_asset ||
+            !same_float(rec.surface_axis, existing_record.surface_axis) ||
+            rec.surface_sign != existing_record.surface_sign ||
+            !same_float(rec.depth_offset, existing_record.depth_offset) ||
+            !same_float(rec.align_x, existing_record.align_x) ||
+            !same_float(rec.align_y, existing_record.align_y) ||
+            !same_float(rec.font_size, existing_record.font_size) ||
+            !same_float(rec.color_r, existing_record.color_r) ||
+            !same_float(rec.color_g, existing_record.color_g) ||
+            !same_float(rec.color_b, existing_record.color_b) ||
+            !same_float(rec.color_a, existing_record.color_a);
         m_labels[key] = rec;
         save_sidecar_json("bridge_set", key, stable_id, world_id);
         broadcast_bridge_record(rec, "bridge_set");
+        bool local_render_attempted = false;
+        bool local_render_applied = false;
+        bool local_render_deferred = false;
+        size_t local_actor_hits = 0;
+        std::string local_render_reason = "not_needed";
+        if (should_render_world_text_components() && is_confirmed_label_text_kind(rec.kind))
+        {
+            bool has_cached_text = false;
+            bool cached_text_matches = false;
+            if (const auto cached = m_rendered_text_cache.find(key); cached != m_rendered_text_cache.end())
+            {
+                has_cached_text = true;
+                cached_text_matches = cached->second == rec.text;
+            }
+            const bool needs_local_render_pass =
+                changed_record ||
+                m_hosted_authority_local_apply_deferred_keys.count(key) > 0 ||
+                !has_cached_text ||
+                !cached_text_matches;
+            if (needs_local_render_pass)
+            {
+                std::string world_bound_reason{};
+                const bool world_ready_for_render =
+                    m_session_ready_latched &&
+                    m_role_lock_acquired &&
+                    is_world_bound_operation_allowed("hosted_authority_local_render_apply:" + stable_id, &world_bound_reason);
+                if (!world_ready_for_render)
+                {
+                    local_render_deferred = true;
+                    local_render_reason = world_bound_reason.empty() ? "world_not_ready" : world_bound_reason;
+                    m_hosted_authority_local_apply_deferred_keys.insert(key);
+                }
+                else
+                {
+                    local_render_attempted = true;
+                    UObjectGlobals::ForEachUObject([&](UObject* object, int32, int32) {
+                        if (!object || !object->IsA(AActor::StaticClass()))
+                        {
+                            return LoopAction::Continue;
+                        }
+                        auto* actor = Cast<AActor>(object);
+                        if (actor && is_probable_label_actor(actor) && extract_stable_id(actor) == stable_id)
+                        {
+                            ++local_actor_hits;
+                            local_render_applied = apply_text_to_actor_component(actor, rec.text) || local_render_applied;
+                        }
+                        return LoopAction::Continue;
+                    });
+                    if (local_actor_hits == 0)
+                    {
+                        local_render_deferred = true;
+                        local_render_reason = "no_live_actor_hit";
+                        m_hosted_authority_local_apply_deferred_keys.insert(key);
+                    }
+                    else
+                    {
+                        local_render_reason = local_render_applied ? "applied" : "attempted_no_component_change";
+                        m_hosted_authority_local_apply_deferred_keys.erase(key);
+                    }
+                }
+            }
+            else
+            {
+                local_render_reason = "idempotent_no_change";
+            }
+        }
         if (is_hosted_client_authority_context())
         {
+            log_line("[bridge-hosted] hosted_authority_local_render_apply key=" + key +
+                     " stableId=" + stable_id +
+                     " changed=" + std::string{changed_record ? "true" : "false"} +
+                     " attempted=" + std::string{local_render_attempted ? "true" : "false"} +
+                     " applied=" + std::string{local_render_applied ? "true" : "false"} +
+                     " actorHits=" + std::to_string(local_actor_hits) +
+                     " deferred=" + std::string{local_render_deferred ? "true" : "false"} +
+                     " reason=" + local_render_reason);
             log_line("[bridge-hosted] hosted_authority_applied_edit action=apply key=" + key +
                      " stableId=" + stable_id +
                      " worldId=" + world_id +
@@ -9223,9 +9320,25 @@ namespace WindroseTextSigns
         m_labels.erase(key);
         m_rendered_text_cache.erase(key);
         m_component_name_cache.erase(key);
+        m_hosted_authority_local_apply_deferred_keys.erase(key);
         m_phase4_next_retry.erase(key);
         m_create_null_retry_states.erase(key);
         m_phase4_last_failure_reason.erase(key);
+        if (should_render_world_text_components())
+        {
+            UObjectGlobals::ForEachUObject([&](UObject* object, int32, int32) {
+                if (!object || !object->IsA(AActor::StaticClass()))
+                {
+                    return LoopAction::Continue;
+                }
+                auto* actor = Cast<AActor>(object);
+                if (actor && is_probable_label_actor(actor) && extract_stable_id(actor) == stable_id)
+                {
+                    destroy_managed_text_component(actor, key);
+                }
+                return LoopAction::Continue;
+            });
+        }
         save_sidecar_json("bridge_clear", key, stable_id, world_id);
         broadcast_bridge_clear(stable_id, world_id, "bridge_clear");
         if (is_hosted_client_authority_context())
@@ -10475,7 +10588,7 @@ namespace WindroseTextSigns
         {
             set_sidecar_route(
                 data_root,
-                "DedicatedServer",
+                "HostedServer",
                 profile_root.empty() ? "HostedServerRelayCacheFallbackModRoot" : "HostedServerRelayCache",
                 "HostedServerRelayNonAuthoritative",
                 profile_root.empty() ? "relay-cache-fallback" : "relay-cache",
@@ -11658,6 +11771,9 @@ namespace WindroseTextSigns
             STR("SetVerticalAlignment"),
             STR("/Script/Engine.TextRenderComponent:SetVerticalAlignment"),
             1);
+        (void)invoke_set_hidden_in_game(created_component, true);
+        (void)invoke_set_visibility(created_component, false);
+        (void)invoke_set_text(created_component, "");
         (void)invoke_set_relative_location(created_component, relative_location);
         log_line("[phase4-font] create_component_font component=" + narrow_ascii(created_component->GetFullName()) +
                  " applied=" + std::string{font_applied ? "true" : "false"});
@@ -12225,6 +12341,25 @@ namespace WindroseTextSigns
             clear_row_component(make_managed_row_storage_key(key, row_index));
         }
 
+        for (int row_index = 0; row_index < row_count; ++row_index)
+        {
+            const auto row_storage_key = make_managed_row_storage_key(key, row_index);
+            if (auto* existing_component = find_cached_component_only(row_storage_key))
+            {
+                (void)invoke_set_hidden_in_game(existing_component, true);
+                (void)invoke_set_visibility(existing_component, false);
+                continue;
+            }
+            if (row_index == 0)
+            {
+                if (auto* base_component = find_cached_component_only(key))
+                {
+                    (void)invoke_set_hidden_in_game(base_component, true);
+                    (void)invoke_set_visibility(base_component, false);
+                }
+            }
+        }
+
         std::unordered_set<uintptr_t> assigned_row_component_ptrs{};
         assigned_row_component_ptrs.reserve(static_cast<size_t>(row_count));
 
@@ -12299,8 +12434,8 @@ namespace WindroseTextSigns
 
             any_reused_existing = any_reused_existing || reused_existing;
             assigned_row_component_ptrs.insert(reinterpret_cast<uintptr_t>(text_component));
-            (void)invoke_set_hidden_in_game(text_component, false);
-            (void)invoke_set_visibility(text_component, true);
+            (void)invoke_set_hidden_in_game(text_component, true);
+            (void)invoke_set_visibility(text_component, false);
             bool row_moved = invoke_set_relative_location(text_component, row_relative_location);
             if (!row_moved && reused_existing)
             {
@@ -12317,8 +12452,8 @@ namespace WindroseTextSigns
                     reused_existing = false;
                     any_reused_existing = any_reused_existing || reused_existing;
                     assigned_row_component_ptrs.insert(reinterpret_cast<uintptr_t>(text_component));
-                    (void)invoke_set_hidden_in_game(text_component, false);
-                    (void)invoke_set_visibility(text_component, true);
+                    (void)invoke_set_hidden_in_game(text_component, true);
+                    (void)invoke_set_visibility(text_component, false);
                     row_moved = invoke_set_relative_location(text_component, row_relative_location);
                     log_line("[phase4] row_component_recreated key=" + key +
                              " row=" + std::to_string(row_index) +
@@ -12344,6 +12479,11 @@ namespace WindroseTextSigns
             const bool row_fonted = apply_world_text_font(text_component);
             const bool row_colored = invoke_set_text_render_color(text_component, desired_r, desired_g, desired_b, desired_a);
             const bool row_text_applied = invoke_set_text(text_component, rows[static_cast<size_t>(row_index)]);
+            if (row_text_applied)
+            {
+                (void)invoke_set_hidden_in_game(text_component, false);
+                (void)invoke_set_visibility(text_component, true);
+            }
 
             sized = sized && row_sized;
             vcentered = vcentered && row_hcentered && row_vcentered;
@@ -14347,6 +14487,7 @@ namespace WindroseTextSigns
         m_restore_skip_guard_log_buckets.clear();
         m_phase4_last_failure_reason.clear();
         m_create_null_retry_states.clear();
+        m_hosted_authority_local_apply_deferred_keys.clear();
         m_bridge_route_retry_consumed = false;
         m_localclient_controller_probe_cached = nullptr;
         m_localclient_controller_probe_cache_valid = false;
@@ -15241,6 +15382,62 @@ namespace WindroseTextSigns
                     if (controller_actor)
                     {
                         configure_sidecar_for_actor(controller_actor, m_session_ready_world_id);
+                    }
+                }
+                if (!m_hosted_authority_local_apply_deferred_keys.empty() && should_render_world_text_components())
+                {
+                    std::vector<std::string> flush_keys{};
+                    flush_keys.reserve(m_hosted_authority_local_apply_deferred_keys.size());
+                    for (const auto& key : m_hosted_authority_local_apply_deferred_keys)
+                    {
+                        flush_keys.push_back(key);
+                    }
+                    size_t flushed = 0;
+                    size_t remaining = 0;
+                    for (const auto& key : flush_keys)
+                    {
+                        const auto found = m_labels.find(key);
+                        if (found == m_labels.end() || !is_confirmed_label_text_kind(found->second.kind))
+                        {
+                            m_hosted_authority_local_apply_deferred_keys.erase(key);
+                            continue;
+                        }
+                        size_t actor_hits = 0;
+                        bool rendered = false;
+                        const auto stable_id = found->second.stable_id;
+                        UObjectGlobals::ForEachUObject([&](UObject* object, int32, int32) {
+                            if (!object || !object->IsA(AActor::StaticClass()))
+                            {
+                                return LoopAction::Continue;
+                            }
+                            auto* actor = Cast<AActor>(object);
+                            if (actor && is_probable_label_actor(actor) && extract_stable_id(actor) == stable_id)
+                            {
+                                ++actor_hits;
+                                rendered = apply_text_to_actor_component(actor, found->second.text) || rendered;
+                            }
+                            return LoopAction::Continue;
+                        });
+                        if (actor_hits > 0)
+                        {
+                            ++flushed;
+                            m_hosted_authority_local_apply_deferred_keys.erase(key);
+                            log_line("[bridge-hosted] hosted_authority_local_render_flushed key=" + key +
+                                     " stableId=" + stable_id +
+                                     " actorHits=" + std::to_string(actor_hits) +
+                                     " rendered=" + std::string{rendered ? "true" : "false"});
+                        }
+                        else
+                        {
+                            ++remaining;
+                        }
+                    }
+                    if (flushed > 0)
+                    {
+                        log_line("[bridge-hosted] hosted_authority_local_render_flush_summary flushed=" +
+                                 std::to_string(flushed) +
+                                 " remaining=" + std::to_string(remaining) +
+                                 " epoch=" + std::to_string(m_session_epoch));
                     }
                 }
                 maybe_prewarm_phase7_umg_editor();

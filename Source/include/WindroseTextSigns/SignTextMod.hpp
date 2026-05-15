@@ -418,6 +418,7 @@ namespace WindroseTextSigns
         std::string m_bridge_snapshot_id{};
         std::unordered_set<std::string> m_bridge_snapshot_seen_keys{};
         std::unordered_map<std::string, std::chrono::steady_clock::time_point> m_bridge_pending_request_keys{};
+        std::unordered_set<std::string> m_hosted_authority_local_apply_deferred_keys{};
         bool m_hosted_authority_route_active{false};
         bool m_hosted_server_authority_route_configured{false};
         bool m_hosted_server_cache_initialized{false};
