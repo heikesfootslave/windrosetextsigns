@@ -431,6 +431,10 @@ namespace WindroseTextSigns
         std::unordered_map<std::string, RemoteDeltaApplyState> m_remote_delta_applied_state{};
         std::chrono::steady_clock::time_point m_hosted_server_next_hello{};
         std::chrono::steady_clock::time_point m_hosted_server_next_resync_request{};
+        std::chrono::steady_clock::time_point m_hosted_server_last_resync_request_sent{};
+        bool m_hosted_server_resync_in_flight{false};
+        std::unordered_map<std::string, std::chrono::steady_clock::time_point> m_hosted_server_snapshot_unavailable_last_by_session{};
+        std::chrono::steady_clock::time_point m_remote_snapshot_no_cache_backoff_until{};
         bool m_server_role_classification_pending{false};
         bool m_server_role_signal_executable_seen{false};
         bool m_server_role_signal_hosted_ini_seen{false};
@@ -462,6 +466,7 @@ namespace WindroseTextSigns
         bool m_hotkey_poll_was_down{false};
         bool m_phase7_enter_was_down{false};
         bool m_phase7_escape_was_down{false};
+        bool m_phase7_shift_was_down{false};
         bool m_phase7_ui_input_mode_active{false};
         std::atomic<bool> m_phase7_keyboard_capture_active{false};
         std::atomic<bool> m_phase7_keyboard_hook_stop{false};

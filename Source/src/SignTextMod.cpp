@@ -732,7 +732,7 @@ namespace
         return out;
     }
 
-    auto has_local_dedicated_server_process_evidence() -> bool
+    auto has_local_windrose_and_server_process_evidence() -> bool
     {
         static std::chrono::steady_clock::time_point last_probe{};
         static bool cached_result{false};
@@ -761,28 +761,108 @@ namespace
             return false;
         }
 
-        uint32_t r5_shipping_count = 0;
+        bool windrose_server_seen = false;
+        bool windrose_client_seen = false;
         do
         {
             const auto exe_name = wts_lower_ascii_from_wide(entry.szExeFile);
             if (exe_name.find("windroseserver") != std::string::npos)
             {
-                cached_result = true;
-                break;
+                windrose_server_seen = true;
             }
             if (exe_name == "r5-win64-shipping.exe")
             {
-                ++r5_shipping_count;
-                if (r5_shipping_count >= 2)
-                {
-                    cached_result = true;
-                    break;
-                }
+                windrose_client_seen = true;
+            }
+            if (windrose_server_seen && windrose_client_seen)
+            {
+                cached_result = true;
+                break;
             }
         } while (Process32NextW(snapshot, &entry));
 
         CloseHandle(snapshot);
         return cached_result;
+    }
+
+    auto try_latest_remoteaddr_host_from_log_window(
+        const std::filesystem::path& log_path,
+        const uintmax_t window_start_offset) -> std::optional<std::string>
+    {
+        if (log_path.empty())
+        {
+            return std::nullopt;
+        }
+
+        std::error_code ec{};
+        const auto file_size = std::filesystem::file_size(log_path, ec);
+        if (ec || file_size == 0)
+        {
+            return std::nullopt;
+        }
+
+        const uintmax_t start_offset = std::min<uintmax_t>(window_start_offset, file_size);
+        if (start_offset >= file_size)
+        {
+            return std::nullopt;
+        }
+
+        std::ifstream input{log_path, std::ios::binary};
+        if (!input.is_open())
+        {
+            return std::nullopt;
+        }
+
+        input.seekg(static_cast<std::streamoff>(start_offset), std::ios::beg);
+        if (!input.good())
+        {
+            return std::nullopt;
+        }
+
+        std::string content{};
+        constexpr size_t k_max_read_bytes = 8 * 1024 * 1024;
+        content.reserve(k_max_read_bytes);
+
+        std::array<char, 64 * 1024> buffer{};
+        while (input.good() && content.size() < k_max_read_bytes)
+        {
+            const auto remaining = k_max_read_bytes - content.size();
+            const auto chunk_size = static_cast<std::streamsize>(std::min<size_t>(buffer.size(), remaining));
+            input.read(buffer.data(), chunk_size);
+            const auto got = input.gcount();
+            if (got <= 0)
+            {
+                break;
+            }
+            content.append(buffer.data(), static_cast<size_t>(got));
+        }
+
+        if (content.empty())
+        {
+            return std::nullopt;
+        }
+
+        static const std::regex remoteaddr_endpoint_rx{
+            R"(\bRemoteAddr:\s*([0-9]{1,3}(?:\.[0-9]{1,3}){3}):([0-9]+)\b)",
+            std::regex::icase};
+
+        std::optional<std::string> last_host{};
+        for (auto it = std::sregex_iterator(content.begin(), content.end(), remoteaddr_endpoint_rx);
+             it != std::sregex_iterator{};
+             ++it)
+        {
+            if (it->size() < 2)
+            {
+                continue;
+            }
+            const auto ip = (*it)[1].str();
+            if (parse_ipv4_octets(ip).has_value())
+            {
+                last_host = ip;
+            }
+        }
+
+        return last_host;
     }
 
     auto discover_bridge_route_from_r5_log(const std::filesystem::path& preferred) -> BridgeRouteDiscovery
@@ -906,7 +986,7 @@ namespace
             result.remote_public_candidate = remote_publics.empty() ? std::string{} : remote_publics.front();
             result.local_host_summary = summarize_ips(local_hosts);
             result.fallback_direct_candidates = fallback_direct_candidates;
-            const bool process_same_machine_evidence = has_local_dedicated_server_process_evidence();
+            const bool process_same_machine_evidence = has_local_windrose_and_server_process_evidence();
             result.same_machine_process_evidence = process_same_machine_evidence;
 
             bool same_machine = false;
@@ -5104,7 +5184,7 @@ namespace WindroseTextSigns
                 m_phase7_escape_requested.store(true);
             }
         });
-        log_line("[input] Registered hotkeys: " + m_hotkey_name + "=target/open_editor");
+        log_line("[input] Registered hotkeys: " + m_hotkey_name + "=target/open_or_close_editor");
     }
 
     auto SignTextMod::install_phase7_keyboard_capture_hook() -> void
@@ -5199,18 +5279,29 @@ namespace WindroseTextSigns
         }
 
         bool input_mode_applied = false;
+        std::string applied_mode_name = "none";
         if (enable_ui_mode)
         {
+            // Prefer UIOnly so mouse clicks stay owned by the editor widget and do not
+            // pass through to gameplay bindings underneath.
             input_mode_applied = invoke_no_param(
                 controller,
-                STR("SetInputModeGameAndUI"),
-                STR("/Script/Engine.PlayerController:SetInputModeGameAndUI"));
-            if (!input_mode_applied)
+                STR("SetInputModeUIOnly"),
+                STR("/Script/Engine.PlayerController:SetInputModeUIOnly"));
+            if (input_mode_applied)
+            {
+                applied_mode_name = "UIOnly";
+            }
+            else
             {
                 input_mode_applied = invoke_no_param(
                     controller,
-                    STR("SetInputModeUIOnly"),
-                    STR("/Script/Engine.PlayerController:SetInputModeUIOnly"));
+                    STR("SetInputModeGameAndUI"),
+                    STR("/Script/Engine.PlayerController:SetInputModeGameAndUI"));
+                if (input_mode_applied)
+                {
+                    applied_mode_name = "GameAndUI";
+                }
             }
         }
         else
@@ -5219,6 +5310,10 @@ namespace WindroseTextSigns
                 controller,
                 STR("SetInputModeGameOnly"),
                 STR("/Script/Engine.PlayerController:SetInputModeGameOnly"));
+            if (input_mode_applied)
+            {
+                applied_mode_name = "GameOnly";
+            }
         }
 
         const bool cursor_set = set_bool_property_if_present(controller, "bshowmousecursor", enable_ui_mode);
@@ -5227,6 +5322,7 @@ namespace WindroseTextSigns
         m_phase7_keyboard_capture_active.store(false);
         log_line("[phase7-umg] input_capture enable=" + std::string{enable_ui_mode ? "true" : "false"} +
                  " inputMode=" + std::string{input_mode_applied ? "true" : "false"} +
+                 " appliedMode=" + applied_mode_name +
                  " cursor=" + std::string{cursor_set ? "true" : "false"} +
                  " ignoreLook=" + std::string{look_ignored ? "true" : "false"} +
                  " ignoreMove=" + std::string{move_ignored ? "true" : "false"} +
@@ -5809,6 +5905,7 @@ namespace WindroseTextSigns
         m_phase7_teardown_skip_logged = false;
         m_phase7_enter_was_down = false;
         m_phase7_escape_was_down = false;
+        m_phase7_shift_was_down = false;
         m_phase7_enter_requested.store(false);
         m_phase7_escape_requested.store(false);
         ++m_phase7_open_epoch;
@@ -5845,6 +5942,7 @@ namespace WindroseTextSigns
         }
         m_phase7_enter_was_down = false;
         m_phase7_escape_was_down = false;
+        m_phase7_shift_was_down = false;
         m_phase7_enter_requested.store(false);
         m_phase7_escape_requested.store(false);
         m_phase7_umg_last_text.clear();
@@ -5859,6 +5957,7 @@ namespace WindroseTextSigns
         m_phase7_escape_requested.store(false);
         m_phase7_enter_was_down = false;
         m_phase7_escape_was_down = false;
+        m_phase7_shift_was_down = false;
         m_phase7_ui_input_mode_active = false;
         m_phase7_umg_in_viewport = false;
         m_phase7_umg_last_text.clear();
@@ -5955,6 +6054,7 @@ namespace WindroseTextSigns
             m_phase7_escape_requested.store(false);
             m_phase7_enter_was_down = false;
             m_phase7_escape_was_down = false;
+            m_phase7_shift_was_down = false;
             return;
         }
         if (!m_phase7_umg_widget)
@@ -6091,23 +6191,32 @@ namespace WindroseTextSigns
         const bool escape_down = ((escape_state & 0x8000) != 0);
         const bool enter_pressed_since_poll = ((enter_state & 0x0001) != 0);
         const bool escape_pressed_since_poll = ((escape_state & 0x0001) != 0);
-        const bool shift_down = ((GetAsyncKeyState(k_vk_shift) & 0x8000) != 0);
+        const short shift_state = GetAsyncKeyState(k_vk_shift);
+        const bool shift_down = ((shift_state & 0x8000) != 0);
+        const bool shift_pressed_since_poll = ((shift_state & 0x0001) != 0);
+        const bool shift_was_down = m_phase7_shift_was_down;
         const bool enter_requested = m_phase7_enter_requested.exchange(false);
         const bool escape_requested = m_phase7_escape_requested.exchange(false);
         const bool enter_edge = (enter_down && !m_phase7_enter_was_down) || enter_pressed_since_poll;
         const bool escape_edge = (escape_down && !m_phase7_escape_was_down) || escape_pressed_since_poll;
         m_phase7_enter_was_down = enter_down;
         m_phase7_escape_was_down = escape_down;
+        m_phase7_shift_was_down = shift_down;
 
         std::string live_text{};
         const bool live_read = read_text_property_value_no_process_event(m_phase7_umg_text_box, live_text) ||
             invoke_get_text_value(m_phase7_umg_text_box, live_text);
-        const bool unshifted_newline_added =
+        const bool newline_added =
             live_read &&
-            !shift_down &&
             count_line_breaks(live_text) > count_line_breaks(m_phase7_umg_last_text);
         const bool explicit_enter_intent = enter_requested || enter_edge || enter_pressed_since_poll;
-        const bool apply_pressed = explicit_enter_intent && !shift_down;
+        const bool implicit_enter_via_newline =
+            newline_added &&
+            !explicit_enter_intent &&
+            !shift_down &&
+            !shift_pressed_since_poll &&
+            !shift_was_down;
+        const bool apply_pressed = (explicit_enter_intent && !shift_down) || implicit_enter_via_newline;
         const bool cancel_pressed = escape_requested || escape_edge;
         if (enter_requested || escape_requested || enter_edge || escape_edge || enter_pressed_since_poll || escape_pressed_since_poll)
         {
@@ -6116,13 +6225,17 @@ namespace WindroseTextSigns
 
         if (!apply_pressed && !cancel_pressed)
         {
-            if (unshifted_newline_added && !explicit_enter_intent && !shift_down)
+            if (newline_added && !explicit_enter_intent)
             {
-                log_line("[phase7-umg] apply_blocked reason=no_explicit_enter enterRequested=" +
+                log_line("[phase7-umg] apply_candidate_via_newline accepted=" +
+                         std::string{implicit_enter_via_newline ? "true" : "false"} +
+                         " enterRequested=" +
                          std::string{enter_requested ? "true" : "false"} +
                          " enterEdge=" + std::string{enter_edge ? "true" : "false"} +
                          " enterAsync=" + std::string{enter_pressed_since_poll ? "true" : "false"} +
-                         " newlineApply=" + std::string{unshifted_newline_added ? "true" : "false"});
+                         " shiftDown=" + std::string{shift_down ? "true" : "false"} +
+                         " shiftWasDown=" + std::string{shift_was_down ? "true" : "false"} +
+                         " shiftAsync=" + std::string{shift_pressed_since_poll ? "true" : "false"});
             }
             if (live_read)
             {
@@ -6171,7 +6284,7 @@ namespace WindroseTextSigns
                 read = read_text_property_value_no_process_event(m_phase7_umg_text_box, text) ||
                     invoke_get_text_value(m_phase7_umg_text_box, text);
             }
-            if (unshifted_newline_added)
+            if (implicit_enter_via_newline)
             {
                 text = strip_one_terminal_line_break(text);
             }
@@ -6182,7 +6295,7 @@ namespace WindroseTextSigns
                      " enterRequested=" + std::string{enter_requested ? "true" : "false"} +
                      " enterEdge=" + std::string{enter_edge ? "true" : "false"} +
                      " enterAsync=" + std::string{enter_pressed_since_poll ? "true" : "false"} +
-                     " newlineApply=" + std::string{unshifted_newline_added ? "true" : "false"} +
+                     " implicitNewlineApply=" + std::string{implicit_enter_via_newline ? "true" : "false"} +
                      " emptyMeansBlankMarker=" + std::string{trimmed_for_clear.empty() ? "true" : "false"});
             if (read)
             {
@@ -7537,8 +7650,37 @@ namespace WindroseTextSigns
         const auto now = std::chrono::steady_clock::now();
         if (new_request)
         {
+            const bool umg_open = m_phase7_umg_in_viewport || m_phase7_ui_input_mode_active;
+            const bool native_open = m_phase7_native_editor_open;
+            const bool imgui_open = m_ui_open;
+            if (umg_open || native_open || imgui_open)
+            {
+                if (umg_open)
+                {
+                    close_phase7_umg_editor(true);
+                }
+                if (native_open)
+                {
+                    close_phase7_native_editor(true);
+                }
+                m_ui_open = false;
+                m_hotkey_retry_remaining = 0;
+                if (m_f8_latency_breakdown_enabled && m_f8_latency_trace.active)
+                {
+                    m_f8_latency_trace.active = false;
+                }
+                log_line("[input] hotkey toggle_close editorClosed=true umgOpen=" + std::string{umg_open ? "true" : "false"} +
+                         " nativeOpen=" + std::string{native_open ? "true" : "false"} +
+                         " imguiOpen=" + std::string{imgui_open ? "true" : "false"});
+                return;
+            }
+
             // One keypress should survive transient viewpoint/controller hiccups.
-            m_hotkey_retry_remaining = 8;
+            // 16 attempts at 60ms gives a ~960ms retry window.
+            // This is longer than the original ~480ms budget (8 attempts) so F8 is
+            // more resilient during brief controller/camera readiness delays, while
+            // still keeping selection response close to a 1-second ceiling.
+            m_hotkey_retry_remaining = 16;
             m_hotkey_retry_next = now;
             if (m_f8_latency_breakdown_enabled && !m_f8_latency_trace.active)
             {
@@ -9970,11 +10112,25 @@ namespace WindroseTextSigns
             const uint64_t requester_revision = fields.count("requesterRevision")
                 ? static_cast<uint64_t>(safe_stoi(fields.at("requesterRevision"), 0))
                 : 0;
+            const auto requester_session = unescape_json(fields.count("session") ? fields.at("session") : "");
+            const auto now_tp = std::chrono::steady_clock::now();
             log_line("[bridge] snapshot_request_received fromSession=" + unescape_json(fields.count("session") ? fields.at("session") : "") +
                      " requesterRevision=" + std::to_string(requester_revision));
             if (is_hosted_server_relay_context() && !m_hosted_server_cache_initialized)
             {
-                (void)send_hosted_server_control_message("hosted_server_resync_request", "snapshot_request_no_cache");
+                constexpr auto k_resync_cooldown = std::chrono::seconds(10);
+                const bool resync_cooldown_elapsed =
+                    m_hosted_server_last_resync_request_sent.time_since_epoch().count() == 0 ||
+                    (now_tp - m_hosted_server_last_resync_request_sent) >= k_resync_cooldown;
+                if (!m_hosted_server_resync_in_flight || resync_cooldown_elapsed)
+                {
+                    const bool sent_resync = send_hosted_server_control_message("hosted_server_resync_request", "snapshot_request_no_cache");
+                    if (sent_resync)
+                    {
+                        m_hosted_server_resync_in_flight = true;
+                        m_hosted_server_last_resync_request_sent = now_tp;
+                    }
+                }
                 std::ostringstream unavailable{};
                 unavailable << "{\"mod\":\"WindroseTextSigns\",\"schema\":\"bridge.v1\",\"type\":\"snapshot_unavailable\""
                             << ",\"session\":\"" << escape_json(m_session_id) << "\""
@@ -9982,11 +10138,27 @@ namespace WindroseTextSigns
                             << ",\"worldId\":\"" << escape_json(m_world_folder_id) << "\""
                             << ",\"reason\":\"snapshot_request_no_cache\""
                             << "}";
-                const bool sent = NativeBridge::instance().broadcast_to_clients(unavailable.str());
-                log_line("[bridge-hosted] hosted_server_snapshot_request_timeout_no_cache role=" + bridge_role_name(m_bridge_role) +
-                         " authority=" + std::string{m_sidecar_authoritative ? "true" : "false"} +
-                         " sent=" + std::string{sent ? "true" : "false"} +
-                         " epoch=" + std::to_string(m_session_epoch));
+                constexpr auto k_unavailable_throttle = std::chrono::seconds(10);
+                const std::string throttle_key = requester_session.empty() ? std::string{"unknown-session"} : requester_session;
+                const auto last_it = m_hosted_server_snapshot_unavailable_last_by_session.find(throttle_key);
+                const bool should_send_unavailable =
+                    last_it == m_hosted_server_snapshot_unavailable_last_by_session.end() ||
+                    (now_tp - last_it->second) >= k_unavailable_throttle;
+                if (should_send_unavailable)
+                {
+                    const bool sent = NativeBridge::instance().broadcast_to_clients(unavailable.str());
+                    m_hosted_server_snapshot_unavailable_last_by_session[throttle_key] = now_tp;
+                    log_line("[bridge-hosted] hosted_server_snapshot_request_timeout_no_cache role=" + bridge_role_name(m_bridge_role) +
+                             " authority=" + std::string{m_sidecar_authoritative ? "true" : "false"} +
+                             " sent=" + std::string{sent ? "true" : "false"} +
+                             " requesterSession=" + throttle_key +
+                             " epoch=" + std::to_string(m_session_epoch));
+                }
+                else
+                {
+                    log_line("[bridge-hosted] hosted_server_snapshot_unavailable_throttled requesterSession=" + throttle_key +
+                             " epoch=" + std::to_string(m_session_epoch));
+                }
                 return;
             }
             if (is_hosted_server_relay_context() &&
@@ -10048,6 +10220,7 @@ namespace WindroseTextSigns
                      " knownClients=" + std::to_string(NativeBridge::instance().known_client_count()) +
                      " epoch=" + std::to_string(m_session_epoch));
             m_hosted_server_cache_initialized = true;
+            m_hosted_server_resync_in_flight = false;
             if (fields.count("revision"))
             {
                 m_hosted_server_cache_revision = std::max<uint64_t>(
@@ -10157,9 +10330,29 @@ namespace WindroseTextSigns
         }
         if (type == "snapshot_unavailable")
         {
-            log_line("[bridge] snapshot_unavailable reason=" + unescape_json(fields.count("reason") ? fields.at("reason") : "unknown") +
+            const auto unavailable_reason = unescape_json(fields.count("reason") ? fields.at("reason") : "unknown");
+            log_line("[bridge] snapshot_unavailable reason=" + unavailable_reason +
                      " role=" + bridge_role_name(m_bridge_role) +
                      " worldId=" + m_world_folder_id);
+            if (m_bridge_role == BridgeRole::RemoteClient && unavailable_reason == "snapshot_request_no_cache")
+            {
+                constexpr auto k_no_cache_backoff = std::chrono::seconds(20);
+                const auto now_tp = std::chrono::steady_clock::now();
+                const auto proposed_next = now_tp + k_no_cache_backoff;
+                if (proposed_next > m_remote_snapshot_no_cache_backoff_until)
+                {
+                    m_remote_snapshot_no_cache_backoff_until = proposed_next;
+                }
+                if (m_bridge_next_snapshot_request < m_remote_snapshot_no_cache_backoff_until)
+                {
+                    m_bridge_next_snapshot_request = m_remote_snapshot_no_cache_backoff_until;
+                }
+                log_line("[bridge-hosted] remote_snapshot_backoff_applied reason=snapshot_request_no_cache" +
+                         std::string(" nextRequestInSec=") +
+                         std::to_string(std::chrono::duration_cast<std::chrono::seconds>(
+                             m_remote_snapshot_no_cache_backoff_until - now_tp).count()) +
+                         " epoch=" + std::to_string(m_session_epoch));
+            }
             return;
         }
         log_line("[bridge] payload_ignored type=" + type +
@@ -10238,58 +10431,42 @@ namespace WindroseTextSigns
             }
         }
 
-        if (!discovered.found || discovered.host.empty())
+        std::filesystem::path authority_log_path = m_session_window_log_path;
+        if (authority_log_path.empty())
         {
-            const auto wait_reason = std::string{"no_candidate|"} +
-                                     (m_bridge_route_log_path.empty() ? "unknown" : m_bridge_route_log_path.string());
-            const bool should_log_wait =
-                m_bridge_route_wait_last_reason != wait_reason ||
-                m_bridge_route_wait_last_log.time_since_epoch().count() == 0 ||
-                (now - m_bridge_route_wait_last_log) >= std::chrono::seconds(15);
-            if (should_log_wait)
-            {
-                log_line("[bridge-route] waiting reason=no_candidate logPath=" +
-                         (m_bridge_route_log_path.empty() ? "unknown" : m_bridge_route_log_path.string()));
-                m_bridge_route_wait_last_reason = wait_reason;
-                m_bridge_route_wait_last_log = now;
-            }
-            return;
+            authority_log_path = !discovered.log_path.empty() ? discovered.log_path : m_bridge_route_log_path;
+        }
+        const uintmax_t authority_window_start =
+            m_session_window_open ? m_session_window_start_offset : static_cast<uintmax_t>(0);
+        const auto authoritative_host =
+            try_latest_remoteaddr_host_from_log_window(authority_log_path, authority_window_start);
+
+        auto discovered_candidates = discovered.ordered_candidates;
+        if (discovered_candidates.empty() && discovered.found && !discovered.host.empty())
+        {
+            discovered_candidates.push_back(discovered.host);
         }
 
-        auto ordered_candidates = discovered.ordered_candidates;
-        if (ordered_candidates.empty() && !discovered.host.empty())
+        std::vector<std::string> viable_candidates{};
+        viable_candidates.reserve(discovered_candidates.size() + 1);
+        if (authoritative_host.has_value() && !authoritative_host->empty())
         {
-            ordered_candidates.push_back(discovered.host);
-        }
-        if (ordered_candidates.empty())
-        {
-            return;
+            append_unique_ip(viable_candidates, *authoritative_host);
         }
 
         const auto local_hosts = parse_comma_separated_ips(discovered.local_host_summary);
-        std::vector<std::string> viable_candidates{};
-        viable_candidates.reserve(ordered_candidates.size());
-        for (const auto& candidate : ordered_candidates)
+        // Fallback order: private LAN first, then loopback with explicit local process evidence.
+        for (const auto& candidate : discovered_candidates)
         {
-            if (candidate == "127.0.0.1" && !discovered.same_machine_evidence)
+            if (candidate == "127.0.0.1")
             {
-                if (m_bridge_route_rejected_candidates_logged.insert("127.0.0.1:no_same_machine_evidence").second)
-                {
-                    log_line("[bridge-route] candidate_rejected host=127.0.0.1 reason=loopback_without_same_machine_evidence");
-                }
                 continue;
             }
-            if (candidate == "127.0.0.1" && m_bridge_route_force_non_loopback)
+            if (!is_private_ipv4(candidate))
             {
-                if (m_bridge_route_rejected_candidates_logged.insert("127.0.0.1:force_non_loopback").second)
-                {
-                    log_line("[bridge-route] candidate_rejected host=127.0.0.1 reason=loopback_disallowed_unsynced_recovery");
-                }
                 continue;
             }
-            if (candidate != "127.0.0.1" &&
-                is_private_ipv4(candidate) &&
-                !is_private_candidate_on_local_subnet(candidate, local_hosts))
+            if (!is_private_candidate_on_local_subnet(candidate, local_hosts))
             {
                 if (m_bridge_route_rejected_candidates_logged.insert(candidate).second)
                 {
@@ -10302,9 +10479,38 @@ namespace WindroseTextSigns
             append_unique_ip(viable_candidates, candidate);
         }
 
+        bool loopback_candidate_seen = false;
+        for (const auto& candidate : discovered_candidates)
+        {
+            if (candidate == "127.0.0.1")
+            {
+                loopback_candidate_seen = true;
+                break;
+            }
+        }
+        if (!loopback_candidate_seen)
+        {
+            for (const auto& fallback : discovered.fallback_direct_candidates)
+            {
+                if (fallback.first == "127.0.0.1")
+                {
+                    loopback_candidate_seen = true;
+                    break;
+                }
+            }
+        }
+        if (loopback_candidate_seen && has_local_windrose_and_server_process_evidence() && !m_bridge_route_force_non_loopback)
+        {
+            append_unique_ip(viable_candidates, "127.0.0.1");
+        }
+        else if (loopback_candidate_seen && m_bridge_route_rejected_candidates_logged.insert("127.0.0.1:missing_windrose_and_server_evidence").second)
+        {
+            log_line("[bridge-route] candidate_rejected host=127.0.0.1 reason=missing_local_windrose_and_server_process_evidence");
+        }
+
         if (viable_candidates.empty())
         {
-            const auto wait_reason = std::string{"no_viable_candidate|"} + summarize_ips(ordered_candidates) +
+            const auto wait_reason = std::string{"no_viable_candidate|"} + summarize_ips(discovered_candidates) +
                                      "|" + (discovered.local_host_summary.empty() ? "none" : discovered.local_host_summary);
             const bool should_log_wait =
                 m_bridge_route_wait_last_reason != wait_reason ||
@@ -10312,8 +10518,9 @@ namespace WindroseTextSigns
                 (now - m_bridge_route_wait_last_log) >= std::chrono::seconds(15);
             if (should_log_wait)
             {
-                log_line("[bridge-route] waiting reason=no_viable_candidate candidates=" + summarize_ips(ordered_candidates) +
-                         " localHosts=" + (discovered.local_host_summary.empty() ? "none" : discovered.local_host_summary));
+                log_line("[bridge-route] waiting reason=no_viable_candidate candidates=" + summarize_ips(discovered_candidates) +
+                         " localHosts=" + (discovered.local_host_summary.empty() ? "none" : discovered.local_host_summary) +
+                         " authoritativeRemoteAddr=" + (authoritative_host.has_value() ? *authoritative_host : std::string{"none"}));
                 m_bridge_route_wait_last_reason = wait_reason;
                 m_bridge_route_wait_last_log = now;
             }
@@ -10379,12 +10586,13 @@ namespace WindroseTextSigns
         m_bridge_route_wait_last_reason.clear();
         m_bridge_route_wait_last_log = {};
         log_line("[bridge-route] discovered host=" + m_bridge_remote_server_host +
-                 " reason=" + discovered.reason +
+                 " reason=" + (authoritative_host.has_value() ? std::string{"authoritative_remoteaddr_endpoint"} : discovered.reason) +
                  " port=" + std::to_string(m_bridge_udp_port) +
                  " logPath=" + (discovered.log_path.empty() ? "unknown" : discovered.log_path.string()) +
                  " remoteHostCandidate=" + (discovered.remote_host_candidate.empty() ? "none" : discovered.remote_host_candidate) +
                  " remotePublicCandidate=" + (discovered.remote_public_candidate.empty() ? "none" : discovered.remote_public_candidate) +
                  " localHosts=" + discovered.local_host_summary +
+                 " authoritativeRemoteAddr=" + (authoritative_host.has_value() ? *authoritative_host : std::string{"none"}) +
                  " candidates=" + summarize_ips(viable_candidates));
         log_line("[bridge-route] lock_acquired host=" + m_bridge_route_locked_host +
                  " reason=first_viable_candidate");
@@ -10402,6 +10610,7 @@ namespace WindroseTextSigns
         m_bridge_route_retry_consumed = false;
         m_bridge_snapshot_retry_attempts = 0;
         m_bridge_sync_wait_started = std::chrono::steady_clock::now();
+        m_remote_snapshot_no_cache_backoff_until = {};
         if (was_unhealthy)
         {
             log_line("[bridge-health] recovered reason=" + reason +
@@ -10435,6 +10644,10 @@ namespace WindroseTextSigns
         m_remote_delta_applied_state.clear();
         m_hosted_server_next_hello = {};
         m_hosted_server_next_resync_request = {};
+        m_hosted_server_last_resync_request_sent = {};
+        m_hosted_server_resync_in_flight = false;
+        m_hosted_server_snapshot_unavailable_last_by_session.clear();
+        m_remote_snapshot_no_cache_backoff_until = {};
     }
 
     auto SignTextMod::reset_server_role_classification_state(const std::string& reason) -> void
@@ -11053,7 +11266,10 @@ namespace WindroseTextSigns
         m_role_lock_world_id.clear();
         m_bridge_route_lock_acquired = false;
         m_bridge_route_locked_host.clear();
+        m_bridge_route_last_candidates.clear();
         m_bridge_route_last_discovered_host.clear();
+        m_bridge_route_log_path.clear();
+        m_bridge_route_next_check = {};
         m_bridge_route_loopback_same_machine_ok = false;
         m_bridge_route_rejected_candidates_logged.clear();
         m_bridge_route_fallback_candidates_logged.clear();
@@ -11172,40 +11388,6 @@ namespace WindroseTextSigns
         }
 
         const auto waited_sec = std::chrono::duration_cast<std::chrono::seconds>(wait_time).count();
-        if (!m_bridge_route_retry_consumed)
-        {
-            m_bridge_route_retry_consumed = true;
-            m_bridge_route_lock_acquired = false;
-            m_bridge_route_locked_host.clear();
-            m_bridge_route_last_discovered_host.clear();
-            m_bridge_route_loopback_same_machine_ok = false;
-            m_bridge_route_bootstrap_pause_logged = false;
-            if (m_bridge_remote_server_host == "127.0.0.1" &&
-                !m_bridge_route_loopback_same_machine_ok)
-            {
-                if (!m_bridge_route_force_non_loopback)
-                {
-                    log_line("[bridge-route] loopback_invalidated reason=no_snapshot_ack waitedSec=" + std::to_string(waited_sec));
-                }
-                m_bridge_route_force_non_loopback = true;
-                m_bridge_route_recovery_logged = false;
-            }
-            if (m_bridge_route_auto_enabled)
-            {
-                m_bridge_remote_server_host.clear();
-                NativeBridge::instance().set_remote_server(
-                    m_bridge_remote_server_host,
-                    static_cast<uint16_t>(m_bridge_udp_port));
-            }
-            m_bridge_route_next_check = now;
-            m_bridge_next_snapshot_request = now;
-            m_bridge_sync_wait_started = {};
-            m_bridge_health_unhealthy = false;
-            m_bridge_health_warning_logged = false;
-            log_line("[bridge-route] retry_reselect reason=no_snapshot_ack waitedSec=" + std::to_string(waited_sec));
-            return;
-        }
-
         m_bridge_health_unhealthy = true;
         if (!m_bridge_health_warning_logged)
         {
@@ -11260,19 +11442,31 @@ namespace WindroseTextSigns
             if (now >= m_hosted_server_next_hello)
             {
                 (void)send_hosted_server_control_message("hosted_server_hello", "hosted_server_tick_hello");
-                m_hosted_server_next_hello = now + std::chrono::seconds(5);
+                m_hosted_server_next_hello = now + (m_hosted_server_cache_initialized ? std::chrono::seconds(120) : std::chrono::seconds(30));
             }
-            if (now >= m_hosted_server_next_resync_request && !m_hosted_server_cache_initialized)
+            if (!m_hosted_server_cache_initialized &&
+                m_hosted_server_resync_in_flight &&
+                m_hosted_server_last_resync_request_sent.time_since_epoch().count() != 0 &&
+                (now - m_hosted_server_last_resync_request_sent) >= std::chrono::seconds(45))
+            {
+                m_hosted_server_resync_in_flight = false;
+                log_line("[bridge-hosted] hosted_server_resync_request_timeout epoch=" + std::to_string(m_session_epoch));
+            }
+            if (now >= m_hosted_server_next_resync_request &&
+                !m_hosted_server_cache_initialized &&
+                !m_hosted_server_resync_in_flight)
             {
                 const bool sent = send_hosted_server_control_message("hosted_server_resync_request", "hosted_server_periodic_resync");
                 if (sent)
                 {
+                    m_hosted_server_resync_in_flight = true;
+                    m_hosted_server_last_resync_request_sent = now;
                     log_line("[bridge-hosted] hosted_resync_request epoch=" + std::to_string(m_session_epoch) +
                              " role=" + bridge_role_name(m_bridge_role) +
                              " authority=" + std::string{m_sidecar_authoritative ? "true" : "false"} +
                              " worldId=" + m_world_folder_id);
                 }
-                m_hosted_server_next_resync_request = now + std::chrono::seconds(20);
+                m_hosted_server_next_resync_request = now + std::chrono::seconds(45);
             }
         }
         const auto payloads = NativeBridge::instance().poll_incoming();
@@ -11284,6 +11478,12 @@ namespace WindroseTextSigns
         update_bridge_health(now);
         if (m_bridge_role == BridgeRole::RemoteClient && now >= m_bridge_next_snapshot_request)
         {
+            if (m_remote_snapshot_no_cache_backoff_until.time_since_epoch().count() != 0 &&
+                now < m_remote_snapshot_no_cache_backoff_until)
+            {
+                m_bridge_next_snapshot_request = m_remote_snapshot_no_cache_backoff_until;
+                return;
+            }
             if (!has_viable_remote_route_for_snapshot())
             {
                 m_bridge_next_snapshot_request = now + std::chrono::seconds(5);
@@ -11754,6 +11954,11 @@ namespace WindroseTextSigns
             return nullptr;
         }
         m_component_name_cache[storage_key] = narrow_ascii(created_component->GetFullName());
+        // Hide and blank immediately to avoid one-frame default text/size flashes.
+        (void)invoke_set_hidden_in_game(created_component, true);
+        (void)invoke_set_visibility(created_component, false);
+        (void)invoke_set_text(created_component, "");
+        (void)invoke_set_relative_location(created_component, relative_location);
         const bool font_applied = apply_world_text_font(created_component);
 
         (void)invoke_set_float_value(
@@ -11771,10 +11976,6 @@ namespace WindroseTextSigns
             STR("SetVerticalAlignment"),
             STR("/Script/Engine.TextRenderComponent:SetVerticalAlignment"),
             1);
-        (void)invoke_set_hidden_in_game(created_component, true);
-        (void)invoke_set_visibility(created_component, false);
-        (void)invoke_set_text(created_component, "");
-        (void)invoke_set_relative_location(created_component, relative_location);
         log_line("[phase4-font] create_component_font component=" + narrow_ascii(created_component->GetFullName()) +
                  " applied=" + std::string{font_applied ? "true" : "false"});
         return created_component;
@@ -12148,6 +12349,8 @@ namespace WindroseTextSigns
         bool colored = true;
         bool text_applied = true;
         bool any_reused_existing = false;
+        std::vector<UObject*> row_components_to_show{};
+        row_components_to_show.reserve(static_cast<size_t>(row_count));
 
         const auto schedule_create_retry = [&]() {
             m_phase4_last_failure_reason[key] = "CreateTextComponent";
@@ -12481,8 +12684,7 @@ namespace WindroseTextSigns
             const bool row_text_applied = invoke_set_text(text_component, rows[static_cast<size_t>(row_index)]);
             if (row_text_applied)
             {
-                (void)invoke_set_hidden_in_game(text_component, false);
-                (void)invoke_set_visibility(text_component, true);
+                row_components_to_show.push_back(text_component);
             }
 
             sized = sized && row_sized;
@@ -12500,6 +12702,16 @@ namespace WindroseTextSigns
             log_line("[phase4] apply_failed reason=SetTextFailed key=" + key +
                      " rows=" + std::to_string(row_count));
             return false;
+        }
+
+        for (auto* row_component : row_components_to_show)
+        {
+            if (!row_component)
+            {
+                continue;
+            }
+            (void)invoke_set_hidden_in_game(row_component, false);
+            (void)invoke_set_visibility(row_component, true);
         }
 
         m_phase4_last_failure_reason.erase(key);
