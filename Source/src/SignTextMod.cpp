@@ -5245,7 +5245,7 @@ namespace WindroseTextSigns
         log_line("[save] destroy_confirm_ttl_sec=" + std::to_string(m_destroy_confirm_ttl_sec));
         log_line("[save] localclient_controller_probe_interval_sec=" + std::to_string(m_localclient_controller_probe_interval_sec));
         log_line("[save] localclient_motion_reapply_enabled=" + std::string{m_localclient_motion_reapply_enabled ? "true" : "false"});
-        refresh_world_text_font_profile("startup", true);
+        log_line("[autosize] defaults_profile_deferred reason=await_ready_latch");
         log_line("[autosize] char_width_factor=" + std::to_string(m_autosize_char_width_factor));
         log_line("[autosize] row_gap_factor=" + std::to_string(m_row_gap_factor));
         log_line("[autosize] row_gap_factors row2=" + std::to_string(m_row_gap_factor_2) +
@@ -7460,18 +7460,15 @@ namespace WindroseTextSigns
             m_sidecar_authoritative != authoritative;
         if (world_changed)
         {
-            if (m_role_lock_acquired && !role_or_authority_change)
-            {
-                log_line("[role] world_change_preserve_lock reason=" + reason +
-                         " runtimeRole=" + m_runtime_role +
-                         " authorityMode=" + m_authority_mode +
-                         " oldWorldId=" + m_world_folder_id +
-                         " newWorldId=" + world_folder_id);
-            }
-            else
-            {
-                reset_role_route_locks("world_change");
-            }
+            // Keep role/bridge/route locks sticky within the epoch.
+            // A world-id path migration (for example pending-world -> real world id)
+            // must not unlock and force route re-selection.
+            log_line("[role] world_change_preserve_lock reason=" + reason +
+                     " runtimeRole=" + m_runtime_role +
+                     " authorityMode=" + m_authority_mode +
+                     " oldWorldId=" + m_world_folder_id +
+                     " newWorldId=" + world_folder_id +
+                     " roleOrAuthorityChange=" + std::string{role_or_authority_change ? "true" : "false"});
         }
 
         const auto next_sidecar_path = data_root / "SignTexts.json";
@@ -7516,6 +7513,15 @@ namespace WindroseTextSigns
         m_sidecar_authoritative = authoritative;
         m_save_profile_root = profile_root.string();
         m_world_folder_id = world_folder_id;
+        if (m_role_lock_acquired &&
+            !m_world_folder_id.empty() &&
+            m_role_lock_world_id != m_world_folder_id)
+        {
+            // Keep lock metadata aligned with definitive world-id path migration
+            // without releasing/reacquiring role or route locks.
+            m_role_lock_world_id = m_world_folder_id;
+            log_line("[role] lock_worldid_updated reason=sidecar_route_world_change worldId=" + m_role_lock_world_id);
+        }
 
         std::error_code mkdir_ec{};
         std::filesystem::create_directories(m_data_root, mkdir_ec);
@@ -10378,12 +10384,26 @@ namespace WindroseTextSigns
         {
             save_sidecar_json("bridge_cache_upsert", key, stable_id, local_world_id);
         }
+        std::string world_bound_reason{};
+        const bool world_bound_ready_for_render =
+            is_world_bound_operation_allowed("bridge_remote_render_upsert", &world_bound_reason);
         bool render_suppressed_by_rebuild_guard = false;
         if (const auto retry = m_phase4_next_retry.find(key); retry != m_phase4_next_retry.end())
         {
             render_suppressed_by_rebuild_guard = std::chrono::steady_clock::now() < retry->second;
         }
-        if (is_confirmed_label_text_kind(rec.kind) && !render_suppressed_by_rebuild_guard)
+        const bool render_suppressed_pre_ready = !world_bound_ready_for_render;
+        if (render_suppressed_pre_ready)
+        {
+            m_remote_cached_replay_pending_after_ready = true;
+            log_line("[bridge] client_upsert_render_queued key=" + key +
+                     " stableId=" + stable_id +
+                     " reason=" + world_bound_reason +
+                     " worldId=" + (m_world_folder_id.empty() ? "unknown" : m_world_folder_id));
+        }
+        if (is_confirmed_label_text_kind(rec.kind) &&
+            !render_suppressed_by_rebuild_guard &&
+            !render_suppressed_pre_ready)
         {
             if (duplicate_authoritative_delta)
             {
@@ -10424,7 +10444,7 @@ namespace WindroseTextSigns
                  " duplicate=" + std::string{duplicate_authoritative_delta ? "true" : "false"} +
                  " nochange=" + std::string{nochange_authoritative_delta ? "true" : "false"} +
                  " ackedPending=" + std::string{acked_pending ? "true" : "false"} +
-                 " renderSuppressed=" + std::string{render_suppressed_by_rebuild_guard ? "true" : "false"} +
+                 " renderSuppressed=" + std::string{(render_suppressed_by_rebuild_guard || render_suppressed_pre_ready) ? "true" : "false"} +
                  " pending=" + std::to_string(m_bridge_pending_request_keys.size()) +
                  " textChars=" + std::to_string(rec.text.size()));
         if (!m_sidecar_authoritative &&
@@ -10508,18 +10528,32 @@ namespace WindroseTextSigns
         m_remote_delta_applied_state[key] = RemoteDeltaApplyState{incoming_revision, 0};
         m_revision = std::max<uint64_t>(m_revision, incoming_revision);
         save_sidecar_json("bridge_cache_clear", key, stable_id, local_world_id);
-        UObjectGlobals::ForEachUObject([&](UObject* object, int32, int32) {
-            if (!object || !object->IsA(AActor::StaticClass()))
-            {
+        std::string world_bound_reason{};
+        const bool world_bound_ready_for_render =
+            is_world_bound_operation_allowed("bridge_remote_render_clear", &world_bound_reason);
+        if (world_bound_ready_for_render)
+        {
+            UObjectGlobals::ForEachUObject([&](UObject* object, int32, int32) {
+                if (!object || !object->IsA(AActor::StaticClass()))
+                {
+                    return LoopAction::Continue;
+                }
+                auto* actor = Cast<AActor>(object);
+                if (actor && is_probable_label_actor(actor) && extract_stable_id(actor) == stable_id)
+                {
+                    (void)destroy_managed_text_component(actor, key);
+                }
                 return LoopAction::Continue;
-            }
-            auto* actor = Cast<AActor>(object);
-            if (actor && is_probable_label_actor(actor) && extract_stable_id(actor) == stable_id)
-            {
-                (void)destroy_managed_text_component(actor, key);
-            }
-            return LoopAction::Continue;
-        });
+            });
+        }
+        else
+        {
+            m_remote_cached_replay_pending_after_ready = true;
+            log_line("[bridge] client_clear_render_queued key=" + key +
+                     " stableId=" + stable_id +
+                     " reason=" + world_bound_reason +
+                     " worldId=" + (m_world_folder_id.empty() ? "unknown" : m_world_folder_id));
+        }
         m_bridge_snapshot_received = true;
         m_bridge_snapshot_world_id = local_world_id;
         mark_bridge_healthy("client_clear_applied");
@@ -12792,6 +12826,55 @@ namespace WindroseTextSigns
             m_world_text_font_missing_logged = false;
             log_line("[phase4-font] resolve_cache_reset reason=" + (reason.empty() ? "unknown" : reason));
         }
+    }
+
+    auto SignTextMod::replay_cached_label_text_after_ready(const std::string& reason) -> void
+    {
+        std::string world_bound_reason{};
+        if (!is_world_bound_operation_allowed("bridge_cached_replay_after_ready", &world_bound_reason))
+        {
+            log_line("[bridge] cached_replay_deferred reason=" + world_bound_reason +
+                     " trigger=" + (reason.empty() ? "unknown" : reason));
+            return;
+        }
+
+        size_t candidates = 0;
+        size_t rendered = 0;
+        const auto active_world = m_world_folder_id;
+        for (const auto& [key, rec] : m_labels)
+        {
+            if (!is_confirmed_label_text_kind(rec.kind))
+            {
+                continue;
+            }
+            if (is_hex_world_id(active_world) && rec.world_id != active_world)
+            {
+                continue;
+            }
+            ++candidates;
+            bool applied_any = false;
+            UObjectGlobals::ForEachUObject([&](UObject* object, int32, int32) {
+                if (!object || !object->IsA(AActor::StaticClass()))
+                {
+                    return LoopAction::Continue;
+                }
+                auto* actor = Cast<AActor>(object);
+                if (actor && is_probable_label_actor(actor) && extract_stable_id(actor) == rec.stable_id)
+                {
+                    applied_any = apply_text_to_actor_component(actor, rec.text) || applied_any;
+                }
+                return LoopAction::Continue;
+            });
+            if (applied_any)
+            {
+                ++rendered;
+            }
+        }
+
+        log_line("[bridge] cached_replay_after_ready trigger=" + (reason.empty() ? "unknown" : reason) +
+                 " candidates=" + std::to_string(candidates) +
+                 " rendered=" + std::to_string(rendered) +
+                 " worldId=" + (m_world_folder_id.empty() ? "unknown" : m_world_folder_id));
     }
 
     auto SignTextMod::has_world_text_font_override_pak() -> bool
@@ -15952,6 +16035,7 @@ namespace WindroseTextSigns
         m_def_ready_hosted_secondary_waiting_island_ready_seen = false;
         m_def_ready_server_waiting_client_ready_seen = false;
         m_hosted_post_ready_reconcile_done = false;
+        m_remote_cached_replay_pending_after_ready = false;
         const bool definitive_teardown =
             m_phase7_definitive_teardown_armed ||
             reason.rfind("definitive_", 0) == 0;
@@ -16903,6 +16987,11 @@ namespace WindroseTextSigns
                     {
                         configure_sidecar_for_actor(controller_actor, m_session_ready_world_id);
                     }
+                }
+                if (m_remote_cached_replay_pending_after_ready)
+                {
+                    replay_cached_label_text_after_ready("ready_latch_followup");
+                    m_remote_cached_replay_pending_after_ready = false;
                 }
                 if (!m_hosted_authority_local_apply_deferred_keys.empty() && should_render_world_text_components())
                 {
