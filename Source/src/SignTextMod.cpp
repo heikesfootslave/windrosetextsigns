@@ -2845,10 +2845,21 @@ namespace
         return FVector(v.GetX() / len, v.GetY() / len, v.GetZ() / len);
     }
 
+    auto is_uobject_reflection_safe(UObject* candidate) -> bool;
+
     auto get_player_viewpoint_reflective(UObject* player_controller) -> Viewpoint
     {
         Viewpoint out{};
-        if (!player_controller)
+        if (!player_controller || !is_uobject_reflection_safe(player_controller))
+        {
+            return out;
+        }
+        if (!player_controller->IsA(AActor::StaticClass()))
+        {
+            return out;
+        }
+        auto* controller_actor = Cast<AActor>(player_controller);
+        if (!controller_actor || !controller_actor->GetWorld())
         {
             return out;
         }
@@ -2863,8 +2874,17 @@ namespace
             return out;
         }
 
-        const int32_t param_bytes = std::max<int32_t>(fn->GetStructureSize(), 256);
+        const int32_t structure_size = fn->GetStructureSize();
+        if (structure_size <= 0 || structure_size > (64 * 1024))
+        {
+            return out;
+        }
+        const int32_t param_bytes = std::max<int32_t>(structure_size, 256);
         std::vector<uint8_t> params(static_cast<size_t>(param_bytes), 0);
+        if (!is_uobject_reflection_safe(player_controller))
+        {
+            return out;
+        }
         player_controller->ProcessEvent(fn, params.data());
 
         for_each_property_in_chain_compat(fn, [&](FProperty* prop) {
@@ -6365,6 +6385,10 @@ namespace WindroseTextSigns
         for (auto* object : player_controllers)
         {
             if (!object)
+            {
+                continue;
+            }
+            if (!is_uobject_reflection_safe(object))
             {
                 continue;
             }
@@ -14712,6 +14736,8 @@ namespace WindroseTextSigns
         m_localclient_controller_probe_cached = nullptr;
         m_localclient_controller_probe_cache_valid = false;
         m_localclient_controller_probe_last = {};
+        m_localclient_stability_unstable_last = {};
+        m_localclient_stability_unstable_reason.clear();
         m_destroy_signal_log_path.clear();
         m_destroy_signal_log_offset = 0;
         m_destroy_signal_log_initialized = false;
@@ -14909,61 +14935,74 @@ namespace WindroseTextSigns
 
     auto SignTextMod::is_localclient_runtime_stable_for_post_ready(std::string* out_reason) -> bool
     {
+        const auto now = std::chrono::steady_clock::now();
         const auto set_reason = [&](const std::string& reason) {
             if (out_reason)
             {
                 *out_reason = reason;
             }
         };
+        const auto mark_unstable = [&](const std::string& reason) -> bool {
+            set_reason(reason);
+            m_localclient_stability_unstable_last = now;
+            m_localclient_stability_unstable_reason = reason;
+            return false;
+        };
+
+        constexpr auto k_unstable_probe_throttle = std::chrono::milliseconds(200);
+        if (m_localclient_stability_unstable_last.time_since_epoch().count() != 0 &&
+            (now - m_localclient_stability_unstable_last) < k_unstable_probe_throttle)
+        {
+            const auto reason = m_localclient_stability_unstable_reason.empty()
+                                    ? std::string{"localclient_unstable_throttled"}
+                                    : std::string{"localclient_unstable_throttled:"} + m_localclient_stability_unstable_reason;
+            set_reason(reason);
+            return false;
+        }
 
         if (is_dedicated_runtime_process())
         {
-            set_reason("dedicated_runtime");
-            return false;
+            return mark_unstable("dedicated_runtime");
         }
 
         const auto runtime_role_lower = lower_ascii(m_runtime_role);
         const auto authority_mode_lower = lower_ascii(m_authority_mode);
         if (runtime_role_lower != "localclient")
         {
-            set_reason("runtime_role_not_localclient");
-            return false;
+            return mark_unstable("runtime_role_not_localclient");
         }
         if (authority_mode_lower == "worldauthoritypending")
         {
-            set_reason("authority_pending");
-            return false;
+            return mark_unstable("authority_pending");
         }
 
         auto* controller = try_get_primary_player_controller();
         if (!controller || !is_uobject_reflection_safe(controller) || !controller->IsA(AActor::StaticClass()))
         {
-            set_reason("no_valid_player_controller");
-            return false;
+            return mark_unstable("no_valid_player_controller");
         }
         auto* controller_actor = Cast<AActor>(controller);
         auto* world = controller_actor ? controller_actor->GetWorld() : nullptr;
         if (!world)
         {
-            set_reason("controller_world_unavailable");
-            return false;
+            return mark_unstable("controller_world_unavailable");
         }
         const auto world_name = lower_ascii(narrow_ascii(world->GetName()));
         if (world_name.find("transition") != std::string::npos ||
             world_name.find("lobby") != std::string::npos ||
             world_name.find("entrance") != std::string::npos)
         {
-            set_reason("controller_world_transition");
-            return false;
+            return mark_unstable("controller_world_transition");
         }
 
         UObject* controlled_pawn = get_controller_pawn_property_only(controller);
         if (!controlled_pawn)
         {
-            set_reason("controlled_pawn_missing");
-            return false;
+            return mark_unstable("controlled_pawn_missing");
         }
 
+        m_localclient_stability_unstable_last = {};
+        m_localclient_stability_unstable_reason.clear();
         set_reason("stable");
         return true;
     }

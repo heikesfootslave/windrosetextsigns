@@ -662,6 +662,8 @@ namespace WindroseTextSigns
         bool m_localclient_controller_probe_cache_valid{false};
         std::chrono::steady_clock::time_point m_localclient_stability_skip_last_log{};
         std::string m_localclient_stability_skip_last_reason{};
+        std::chrono::steady_clock::time_point m_localclient_stability_unstable_last{};
+        std::string m_localclient_stability_unstable_reason{};
         bool m_visual_verify_debug_force_reapply{false};
         bool m_localclient_motion_reapply_enabled{true};
         bool m_visual_verify_session_ready{false};
