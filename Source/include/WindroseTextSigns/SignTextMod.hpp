@@ -234,6 +234,8 @@ namespace WindroseTextSigns
         auto resolve_world_text_font_asset() -> RC::Unreal::UObject*;
         auto apply_world_text_font(RC::Unreal::UObject* text_component) -> bool;
         auto has_world_text_font_override_pak() -> bool;
+        auto apply_autosize_defaults_for_font_profile(bool has_override_pak, const std::string& reason) -> void;
+        auto refresh_world_text_font_profile(const std::string& reason, bool force_recheck) -> void;
         auto resolve_world_text_font_size_limits() -> std::pair<float, float>;
         auto make_managed_component_name(const std::string& storage_key) const -> std::string;
         auto make_managed_row_storage_key(const std::string& storage_key, int row_index) const -> std::string;
@@ -262,6 +264,10 @@ namespace WindroseTextSigns
         auto reset_bridge_snapshot_state(const std::string& reason) -> void;
         auto mark_bridge_healthy(const std::string& reason) -> void;
         auto has_viable_remote_route_for_snapshot() const -> bool;
+        auto reset_route_probe_state(const std::string& reason) -> void;
+        auto build_route_probe_candidates() -> std::vector<std::pair<std::string, std::string>>;
+        auto start_next_route_probe(std::chrono::steady_clock::time_point now) -> bool;
+        auto commit_locked_route_from_probe(const std::string& host, const std::string& source) -> void;
         auto update_bridge_health(std::chrono::steady_clock::time_point now) -> void;
         auto is_bootstrap_resolution_window_active(std::chrono::steady_clock::time_point now) const -> bool;
         auto maybe_acquire_role_lock(std::chrono::steady_clock::time_point now, const std::string& reason) -> void;
@@ -388,6 +394,16 @@ namespace WindroseTextSigns
         bool m_bridge_route_retry_consumed{false};
         bool m_bridge_route_force_non_loopback{false};
         bool m_bridge_route_recovery_logged{false};
+        bool m_bridge_route_gate_open{false};
+        bool m_bridge_route_gate_pending_logged{false};
+        bool m_bridge_route_probe_active{false};
+        bool m_bridge_route_probe_waiting_ack{false};
+        std::vector<std::pair<std::string, std::string>> m_bridge_route_probe_candidates{};
+        size_t m_bridge_route_probe_index{0};
+        std::string m_bridge_route_probe_token{};
+        std::string m_bridge_route_probe_host{};
+        std::string m_bridge_route_probe_source{};
+        std::chrono::steady_clock::time_point m_bridge_route_probe_deadline{};
         std::unordered_set<std::string> m_bridge_route_rejected_candidates_logged{};
         std::unordered_set<std::string> m_bridge_route_fallback_candidates_logged{};
         bool m_bridge_route_bootstrap_pause_logged{false};
@@ -675,6 +691,8 @@ namespace WindroseTextSigns
         bool m_world_text_font_missing_logged{false};
         bool m_world_text_font_override_pak_detected{false};
         bool m_world_text_font_override_pak_checked{false};
+        bool m_autosize_profile_initialized{false};
+        bool m_autosize_profile_has_override_pak{false};
         float m_autosize_char_width_factor{0.85f};
         float m_row_gap_factor{1.50f};
         float m_row_gap_factor_2{1.50f};
