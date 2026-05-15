@@ -5845,6 +5845,10 @@ namespace WindroseTextSigns
             m_f8_latency_trace.construct_seen = true;
         }
 
+        // Keep the widget collapsed while we acquire input mode and focus to avoid
+        // the first click racing through to gameplay before UI capture is settled.
+        const bool collapsed = invoke_with_byte_or_int_param_cached(m_phase7_umg_widget, m_phase7_fn_set_visibility, 1);
+        const bool input_mode_pre = set_phase7_game_and_ui_input_mode(true);
         bool added = m_phase7_umg_in_viewport;
         if (!m_phase7_umg_in_viewport)
         {
@@ -5852,16 +5856,16 @@ namespace WindroseTextSigns
                     invoke_add_to_viewport(m_phase7_umg_widget, 1000);
             m_phase7_umg_in_viewport = added;
         }
-        const bool collapsed = invoke_with_byte_or_int_param_cached(m_phase7_umg_widget, m_phase7_fn_set_visibility, 1);
-        const bool visible = invoke_with_byte_or_int_param_cached(m_phase7_umg_widget, m_phase7_fn_set_visibility, 0);
-        const bool input_mode = set_phase7_game_and_ui_input_mode(true);
+        const bool input_mode_post = input_mode_pre ? true : set_phase7_game_and_ui_input_mode(true);
         const bool focus_keyboard = invoke_no_param_cached(m_phase7_umg_text_box, m_phase7_fn_set_keyboard_focus) ||
                                     invoke_no_param(m_phase7_umg_text_box, STR("SetKeyboardFocus"), STR("/Script/UMG.Widget:SetKeyboardFocus"));
         const bool focus_widget = invoke_no_param_cached(m_phase7_umg_text_box, m_phase7_fn_set_focus) ||
                                   invoke_no_param(m_phase7_umg_text_box, STR("SetFocus"), STR("/Script/UMG.Widget:SetFocus"));
+        const bool visible = invoke_with_byte_or_int_param_cached(m_phase7_umg_widget, m_phase7_fn_set_visibility, 0);
 
         log_line("[phase7-umg] open_result added=" + std::string{added ? "true" : "false"} +
-                 " inputModeApplied=" + std::string{input_mode ? "true" : "false"} +
+                 " inputModePre=" + std::string{input_mode_pre ? "true" : "false"} +
+                 " inputModePost=" + std::string{input_mode_post ? "true" : "false"} +
                  " visible=" + std::string{visible ? "true" : "false"} +
                  " collapsedFirst=" + std::string{collapsed ? "true" : "false"} +
                  " inputText=" + std::string{input_text ? "true" : "false"} +
