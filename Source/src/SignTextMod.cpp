@@ -11237,17 +11237,13 @@ namespace WindroseTextSigns
         // feature was previously on for this key, destroy the leftover glyph components
         // after the flat render so the sign doesn't show the curved chain on top of the
         // flat text.
-        const auto rec_it_for_curve = m_labels.find(key);
-        const float sign_curve = (rec_it_for_curve != m_labels.end())
-            ? rec_it_for_curve->second.curve_amount
-            : 0.0f;
-        if (std::abs(sign_curve) >= 0.01f)
-        {
-            apply_curved_glyphs(actor, key, text_value, text_component,
-                                desired_font_size, desired_r, desired_g, desired_b, desired_a,
-                                sign_curve);
-        }
-        else if (m_curve_glyph_count.find(key) != m_curve_glyph_count.end())
+        // STAGE 1 RECOVERY (2026-05-15): per-glyph curve render is disabled while the
+        // Stage 2 Render-Target pipeline is in development. The vanilla single-component
+        // path (above) handles all signs - this gives correct multi-line + auto-sized
+        // rendering. curve_amount values are still persisted via F6 + arrow hotkeys so
+        // Stage 2 can pick them up. Any leftover glyph components from earlier per-glyph
+        // sessions get destroyed below.
+        if (m_curve_glyph_count.find(key) != m_curve_glyph_count.end())
         {
             clear_curved_glyphs(actor, key);
         }
