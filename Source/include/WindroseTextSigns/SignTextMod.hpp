@@ -49,6 +49,7 @@ namespace WindroseTextSigns
         float color_g{0.393822f};
         float color_b{0.393822f};
         float color_a{1.00f};
+        float curve_amount{0.00f}; // -1.0 (concave/sag) .. +1.0 (convex/bow). 0 = flat.
         std::string last_seen_utc{};
     };
 
@@ -226,12 +227,13 @@ namespace WindroseTextSigns
         auto find_managed_text_component(RC::Unreal::AActor* actor, const std::string& storage_key) -> RC::Unreal::UObject*;
         auto create_managed_text_component(RC::Unreal::AActor* actor, const std::string& storage_key, const RC::Unreal::FVector& relative_location) -> RC::Unreal::UObject*;
         auto destroy_managed_text_component(RC::Unreal::AActor* actor, const std::string& storage_key) -> bool;
-        // Curved-text feature helpers. When m_curve_arc_amount > 0 the standard single-line
+        // Curved-text feature helpers. When |curve_amount| >= 0.01 the standard single-line
         // text component is hidden and one TextRenderComponent per glyph is spawned on a
         // parabolic arc along the plaque tangent. Each glyph is stored under a derived key
         // (storage_key + "__g" + index), so the existing find/create/destroy_managed_text_component
-        // helpers work unchanged for the per-glyph components.
-        auto apply_curved_glyphs(RC::Unreal::AActor* actor, const std::string& storage_key, const std::string& text_value, RC::Unreal::UObject* standard_component, float desired_font_size, float r, float g, float b, float a) -> void;
+        // helpers work unchanged for the per-glyph components. curve_amount is per-sign
+        // (signed, range [-1, +1]): positive bows the middle up, negative sags it down.
+        auto apply_curved_glyphs(RC::Unreal::AActor* actor, const std::string& storage_key, const std::string& text_value, RC::Unreal::UObject* standard_component, float desired_font_size, float r, float g, float b, float a, float curve_amount) -> void;
         auto clear_curved_glyphs(RC::Unreal::AActor* actor, const std::string& storage_key) -> void;
 
         auto load_sidecar_json() -> void;
@@ -532,19 +534,32 @@ namespace WindroseTextSigns
         bool m_destroy_signal_log_initialized{false};
         std::chrono::steady_clock::time_point m_destroy_signal_last_poll{};
         uint32_t m_destroy_confirm_ttl_sec{10};
-        // Curved text feature: when m_curve_arc_amount > 0 the apply path renders one
-        // TextRenderComponent per glyph, positioned along an upward parabolic arc on the
-        // plaque surface. 0 = flat (default, original behaviour). 1.0 = strong arc.
+        // Curved text feature: m_curve_arc_amount is the *default* applied to newly-seen
+        // signs. Per-sign values live in LabelRecord::curve_amount (signed, [-1, +1]) and
+        // override this default once the user adjusts them via F6 + PageUp/PageDown. The
+        // apply path picks the per-sign value and renders one TextRenderComponent per glyph
+        // along a parabolic arc when |curve| >= 0.01.
         float m_curve_arc_amount{0.0f};
         // Per-storage-key count of glyph components we currently have spawned, so we can
         // destroy the leftovers when the text shrinks (e.g. "Taverne" -> "Inn").
         std::unordered_map<std::string, uint32_t> m_curve_glyph_count;
-        // Per-storage-key cache of the last text we rendered as curved glyphs. apply_text_to_actor_component
-        // is called by several tick handlers (periodic visual-verify reapply, restore-known-text,
-        // direct user apply) and re-spawning all glyphs on every call produces a visible
-        // "letters flying in" animation plus wasteful component churn. We skip the curved render
-        // if the text hasn't changed since the last successful curve apply.
+        // Per-storage-key cache of "text|curve" signature so the apply path can short-circuit
+        // when neither the text nor the curve has changed (used by periodic reapply ticks).
         std::unordered_map<std::string, std::string> m_curve_last_text;
+
+        // Curve Edit Mode (F6 toggles, PageUp/PageDown step the active sign's curve).
+        float m_curve_step{0.1f};
+        int m_curve_toggle_vk{0x75};       // F6
+        int m_curve_step_up_vk{0x21};      // VK_PRIOR (PageUp)
+        int m_curve_step_down_vk{0x22};    // VK_NEXT  (PageDown)
+        std::atomic<bool> m_curve_toggle_requested{false};
+        std::atomic<bool> m_curve_step_up_requested{false};
+        std::atomic<bool> m_curve_step_down_requested{false};
+        bool m_curve_edit_active{false};
+        std::string m_curve_edit_key{};    // storage_key of the sign currently being edited
+        auto handle_curve_toggle() -> void;
+        auto handle_curve_step(float delta) -> void;
+        auto reapply_sign(const std::string& storage_key) -> void;
         std::chrono::steady_clock::time_point m_definitive_session_reset_last_trigger{};
         std::string m_definitive_session_reset_last_signature{};
         std::string m_definitive_session_reset_last_category{};

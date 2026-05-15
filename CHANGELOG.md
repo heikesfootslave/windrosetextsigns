@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased - Curved text Stage 1 (per-sign + live editor)
+- Per-sign curve amount: each sign now persists its own `curveAmount` value in `SignTexts.json` instead of a single global `WTS_CURVE_ARC_AMOUNT` for all signs.
+- Range expanded from `[0.0, +1.0]` (only convex/bow-up) to `[-1.0, +1.0]` (concave/sag, flat, convex/bow).
+- New hotkey workflow for adjusting curvature live in-game:
+  - `F6` (configurable via `WTS_CURVE_HOTKEY_TOGGLE`) toggles Curve Edit Mode on the currently targeted sign.
+  - `PageUp` / `PageDown` (configurable via `WTS_CURVE_STEP_UP` / `WTS_CURVE_STEP_DOWN`) step the active sign's curve in `WTS_CURVE_STEP` increments (default 0.1).
+  - Edit Mode auto-exits when looking at a different sign or away from any sign.
+  - Each step writes through to the sidecar immediately, so curvature survives restarts.
+- Fit-to-plaque font sizing: the per-glyph render now scales the font to fill the plaque instead of starting from the stored `font_size` and only shrinking. Should resolve the "text microscopic" regression observed with longer strings (e.g. "Zum fliegenden Hollander").
+  - `LETTER_HALF_WIDTH_RATIO` 0.275 -> 0.20
+  - `STRIDE_RATIO` 0.55 -> 0.40
+  - `MIN_FONT_SIZE` 8 -> 14, new `MAX_FONT_SIZE` 48 ceiling
+- Config:
+  - `WTS_CURVE_DEFAULT_FOR_NEW_SIGNS` replaces `WTS_CURVE_ARC_AMOUNT` (legacy key still honored for backwards compatibility).
+- Save format:
+  - JSON sidecar regex extended with an optional 17th capture group for `curveAmount`; signs saved before this version load with `curve_amount = 0` (flat).
+  - Equality comparator now treats `curve_amount` changes as a dirty-write trigger.
+
 ## 0.1.3
 - Added F8 input latency breakdown telemetry (per-press edge->target->construct->open timing) and default-enabled ini control.
 - Improved Phase7 teardown policy to reduce false in-session UI teardown/auto-close during transient readiness churn.

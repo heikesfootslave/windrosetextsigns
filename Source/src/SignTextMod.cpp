@@ -4632,14 +4632,28 @@ namespace WindroseTextSigns
             safe_stoi(config_string_value("WTS_DESTROY_CONFIRM_TTL_SEC", "10"), 10),
             2,
             30));
-        // Curved text feature: arc amount in [0.0, 1.0]. 0 = flat (original render),
-        // 1.0 = a strong upward parabolic arc with the middle character peaking ~25% of
-        // the plaque width above the baseline. Reading this at INI-parse time means
-        // changes take effect after a game restart.
+        // Curved text feature: default curve amount applied to newly-seen signs.
+        // Per-sign values (set via F6 + PageUp/PageDown) override this default and persist
+        // in the JSON sidecar. Range: -1.0 (concave/sag) .. 0.0 (flat) .. +1.0 (convex/bow).
+        // Reading this at INI-parse time means changes take effect after a game restart.
+        // Legacy alias WTS_CURVE_ARC_AMOUNT still honored for backwards compatibility.
+        auto curve_default_raw = config_string_value("WTS_CURVE_DEFAULT_FOR_NEW_SIGNS", "");
+        if (curve_default_raw.empty())
+        {
+            curve_default_raw = config_string_value("WTS_CURVE_ARC_AMOUNT", "0.0");
+        }
         m_curve_arc_amount = std::clamp(
-            safe_stof(config_string_value("WTS_CURVE_ARC_AMOUNT", "0.0"), 0.0f),
-            0.0f,
+            safe_stof(curve_default_raw, 0.0f),
+            -1.0f,
             1.0f);
+        m_curve_toggle_vk = hotkey_vk_from_config(
+            config_string_value("WTS_CURVE_HOTKEY_TOGGLE", "F6"), 0x75);
+        m_curve_step_up_vk = hotkey_vk_from_config(
+            config_string_value("WTS_CURVE_STEP_UP", "PAGEUP"), 0x21);
+        m_curve_step_down_vk = hotkey_vk_from_config(
+            config_string_value("WTS_CURVE_STEP_DOWN", "PAGEDOWN"), 0x22);
+        m_curve_step = std::clamp(
+            safe_stof(config_string_value("WTS_CURVE_STEP", "0.1"), 0.1f), 0.01f, 1.0f);
         const auto upnp_mode_raw = lower_copy_ascii(trim_copy_ascii(config_string_value("WTS_BRIDGE_UPNP_MODE", "")));
         if (upnp_mode_raw == "off" || upnp_mode_raw == "false" || upnp_mode_raw == "0" || upnp_mode_raw == "disabled")
         {
@@ -4765,7 +4779,20 @@ namespace WindroseTextSigns
                 m_phase7_escape_requested.store(true);
             }
         });
-        log_line("[input] Registered hotkeys: " + m_hotkey_name + "=target/open_editor/toggle_close");
+        register_keydown_event(static_cast<Input::Key>(m_curve_toggle_vk), [this]() {
+            m_curve_toggle_requested.store(true);
+        });
+        register_keydown_event(static_cast<Input::Key>(m_curve_step_up_vk), [this]() {
+            m_curve_step_up_requested.store(true);
+        });
+        register_keydown_event(static_cast<Input::Key>(m_curve_step_down_vk), [this]() {
+            m_curve_step_down_requested.store(true);
+        });
+        log_line("[input] Registered hotkeys: " + m_hotkey_name + "=target/open_editor/toggle_close"
+                 " curveToggle=" + display_name_for_vk(m_curve_toggle_vk) +
+                 " curveStepUp=" + display_name_for_vk(m_curve_step_up_vk) +
+                 " curveStepDown=" + display_name_for_vk(m_curve_step_down_vk) +
+                 " curveStep=" + std::to_string(m_curve_step));
     }
 
     auto SignTextMod::install_phase7_keyboard_capture_hook() -> void
@@ -7194,6 +7221,19 @@ namespace WindroseTextSigns
 
     auto SignTextMod::tick_pending_hotkey() -> void
     {
+        if (m_curve_toggle_requested.exchange(false))
+        {
+            handle_curve_toggle();
+        }
+        if (m_curve_step_up_requested.exchange(false))
+        {
+            handle_curve_step(+m_curve_step);
+        }
+        if (m_curve_step_down_requested.exchange(false))
+        {
+            handle_curve_step(-m_curve_step);
+        }
+
         const bool new_request = m_hotkey_requested.exchange(false);
         const auto now = std::chrono::steady_clock::now();
         if (new_request)
@@ -7826,7 +7866,7 @@ namespace WindroseTextSigns
         }
 
         const std::regex row_rx(
-            R"__RX__("([^"]+)"\s*:\s*\{\s*"text"\s*:\s*"((?:\\.|[^"\\])*)"\s*,\s*"asset"\s*:\s*"((?:\\.|[^"\\])*)"(?:\s*,\s*"kind"\s*:\s*"((?:\\.|[^"\\])*)")?(?:\s*,\s*"backingAsset"\s*:\s*"((?:\\.|[^"\\])*)")?(?:\s*,\s*"surfaceAxis"\s*:\s*(-?[0-9]+(?:\.[0-9]+)?))?(?:\s*,\s*"surfaceSign"\s*:\s*(-?1))?(?:\s*,\s*"depthOffset"\s*:\s*(-?[0-9]+(?:\.[0-9]+)?))?(?:\s*,\s*"alignX"\s*:\s*(-?[0-9]+(?:\.[0-9]+)?))?(?:\s*,\s*"alignY"\s*:\s*(-?[0-9]+(?:\.[0-9]+)?))?(?:\s*,\s*"fontSize"\s*:\s*(-?[0-9]+(?:\.[0-9]+)?))?(?:\s*,\s*"colorR"\s*:\s*(-?[0-9]+(?:\.[0-9]+)?))?(?:\s*,\s*"colorG"\s*:\s*(-?[0-9]+(?:\.[0-9]+)?))?(?:\s*,\s*"colorB"\s*:\s*(-?[0-9]+(?:\.[0-9]+)?))?(?:\s*,\s*"colorA"\s*:\s*(-?[0-9]+(?:\.[0-9]+)?))?(?:\s*,\s*"lastSeen"\s*:\s*"((?:\\.|[^"\\])*)")?\s*\})__RX__");
+            R"__RX__("([^"]+)"\s*:\s*\{\s*"text"\s*:\s*"((?:\\.|[^"\\])*)"\s*,\s*"asset"\s*:\s*"((?:\\.|[^"\\])*)"(?:\s*,\s*"kind"\s*:\s*"((?:\\.|[^"\\])*)")?(?:\s*,\s*"backingAsset"\s*:\s*"((?:\\.|[^"\\])*)")?(?:\s*,\s*"surfaceAxis"\s*:\s*(-?[0-9]+(?:\.[0-9]+)?))?(?:\s*,\s*"surfaceSign"\s*:\s*(-?1))?(?:\s*,\s*"depthOffset"\s*:\s*(-?[0-9]+(?:\.[0-9]+)?))?(?:\s*,\s*"alignX"\s*:\s*(-?[0-9]+(?:\.[0-9]+)?))?(?:\s*,\s*"alignY"\s*:\s*(-?[0-9]+(?:\.[0-9]+)?))?(?:\s*,\s*"fontSize"\s*:\s*(-?[0-9]+(?:\.[0-9]+)?))?(?:\s*,\s*"colorR"\s*:\s*(-?[0-9]+(?:\.[0-9]+)?))?(?:\s*,\s*"colorG"\s*:\s*(-?[0-9]+(?:\.[0-9]+)?))?(?:\s*,\s*"colorB"\s*:\s*(-?[0-9]+(?:\.[0-9]+)?))?(?:\s*,\s*"colorA"\s*:\s*(-?[0-9]+(?:\.[0-9]+)?))?(?:\s*,\s*"curveAmount"\s*:\s*(-?[0-9]+(?:\.[0-9]+)?))?(?:\s*,\s*"lastSeen"\s*:\s*"((?:\\.|[^"\\])*)")?\s*\})__RX__");
 
         struct ParsedCandidate
         {
@@ -7894,7 +7934,8 @@ namespace WindroseTextSigns
                     rec.color_g = ((*it)[13].matched) ? std::clamp(safe_stof((*it)[13].str(), 0.393822f), 0.0f, 1.0f) : 0.393822f;
                     rec.color_b = ((*it)[14].matched) ? std::clamp(safe_stof((*it)[14].str(), 0.393822f), 0.0f, 1.0f) : 0.393822f;
                     rec.color_a = ((*it)[15].matched) ? std::clamp(safe_stof((*it)[15].str(), 1.0f), 0.0f, 1.0f) : 1.0f;
-                    rec.last_seen_utc = ((*it)[16].matched) ? unescape_json((*it)[16].str()) : std::string{};
+                    rec.curve_amount = ((*it)[16].matched) ? std::clamp(safe_stof((*it)[16].str(), 0.0f), -1.0f, 1.0f) : 0.0f;
+                    rec.last_seen_utc = ((*it)[17].matched) ? unescape_json((*it)[17].str()) : std::string{};
                     if (m_sidecar_authoritative &&
                         is_hex_world_id(m_world_folder_id) &&
                         rec.world_id != m_world_folder_id)
@@ -8139,6 +8180,7 @@ namespace WindroseTextSigns
                 << ", \"alignX\": " << rec.align_x
                 << ", \"alignY\": " << rec.align_y
                 << ", \"fontSize\": " << rec.font_size
+                << ", \"curveAmount\": " << rec.curve_amount
                 << ", \"colorR\": " << rec.color_r
                 << ", \"colorG\": " << rec.color_g
                 << ", \"colorB\": " << rec.color_b
@@ -8380,6 +8422,7 @@ namespace WindroseTextSigns
                 << ",\"alignX\":" << rec.align_x
                 << ",\"alignY\":" << rec.align_y
                 << ",\"fontSize\":" << rec.font_size
+                << ",\"curveAmount\":" << rec.curve_amount
                 << ",\"colorR\":" << rec.color_r
                 << ",\"colorG\":" << rec.color_g
                 << ",\"colorB\":" << rec.color_b
@@ -8445,6 +8488,7 @@ namespace WindroseTextSigns
                 << ",\"alignX\":" << rec.align_x
                 << ",\"alignY\":" << rec.align_y
                 << ",\"fontSize\":" << rec.font_size
+                << ",\"curveAmount\":" << rec.curve_amount
                 << ",\"colorR\":" << rec.color_r
                 << ",\"colorG\":" << rec.color_g
                 << ",\"colorB\":" << rec.color_b
@@ -8648,6 +8692,7 @@ namespace WindroseTextSigns
         rec.color_g = fields.count("colorG") ? std::clamp(safe_stof(fields.at("colorG"), 0.393822f), 0.0f, 1.0f) : rec.color_g;
         rec.color_b = fields.count("colorB") ? std::clamp(safe_stof(fields.at("colorB"), 0.393822f), 0.0f, 1.0f) : rec.color_b;
         rec.color_a = fields.count("colorA") ? std::clamp(safe_stof(fields.at("colorA"), 1.0f), 0.0f, 1.0f) : rec.color_a;
+        rec.curve_amount = fields.count("curveAmount") ? std::clamp(safe_stof(fields.at("curveAmount"), 0.0f), -1.0f, 1.0f) : rec.curve_amount;
         rec.last_seen_utc = now_utc();
         m_labels[key] = rec;
         save_sidecar_json("bridge_set", key, stable_id, world_id);
@@ -8774,6 +8819,7 @@ namespace WindroseTextSigns
         rec.color_g = fields.count("colorG") ? std::clamp(safe_stof(fields.at("colorG"), 0.393822f), 0.0f, 1.0f) : rec.color_g;
         rec.color_b = fields.count("colorB") ? std::clamp(safe_stof(fields.at("colorB"), 0.393822f), 0.0f, 1.0f) : rec.color_b;
         rec.color_a = fields.count("colorA") ? std::clamp(safe_stof(fields.at("colorA"), 1.0f), 0.0f, 1.0f) : rec.color_a;
+        rec.curve_amount = fields.count("curveAmount") ? std::clamp(safe_stof(fields.at("curveAmount"), 0.0f), -1.0f, 1.0f) : rec.curve_amount;
         rec.last_seen_utc = unescape_json(fields.count("lastSeen") ? fields.at("lastSeen") : now_utc());
 
         const auto same_float = [](const float lhs, const float rhs) {
@@ -8796,7 +8842,8 @@ namespace WindroseTextSigns
             !same_float(existing->second.color_r, rec.color_r) ||
             !same_float(existing->second.color_g, rec.color_g) ||
             !same_float(existing->second.color_b, rec.color_b) ||
-            !same_float(existing->second.color_a, rec.color_a);
+            !same_float(existing->second.color_a, rec.color_a) ||
+            !same_float(existing->second.curve_amount, rec.curve_amount);
 
         m_labels[key] = rec;
         if (fields.count("revision"))
@@ -8993,6 +9040,7 @@ namespace WindroseTextSigns
                 << ", \"alignX\": " << rec.align_x
                 << ", \"alignY\": " << rec.align_y
                 << ", \"fontSize\": " << rec.font_size
+                << ", \"curveAmount\": " << rec.curve_amount
                 << ", \"colorR\": " << rec.color_r
                 << ", \"colorG\": " << rec.color_g
                 << ", \"colorB\": " << rec.color_b
@@ -10653,9 +10701,10 @@ namespace WindroseTextSigns
                                           const std::string& text_value,
                                           UObject* standard_component,
                                           float desired_font_size,
-                                          float r, float g, float b, float a) -> void
+                                          float r, float g, float b, float a,
+                                          float curve_amount) -> void
     {
-        if (!actor || text_value.empty() || m_curve_arc_amount <= 0.0f)
+        if (!actor || text_value.empty() || std::abs(curve_amount) < 0.01f)
         {
             return;
         }
@@ -10663,8 +10712,11 @@ namespace WindroseTextSigns
         // (periodic visual-verify reapply, restore-known-text, direct user apply). Without
         // this guard we destroy + respawn every glyph on each tick, which produced the
         // user-visible "letters flying in one by one" animation plus expensive component churn.
+        // We key the cache on text+curve so live curve adjustments via PageUp/PageDown
+        // correctly re-render even when the text itself is unchanged.
+        const std::string cache_signature = text_value + "\x01" + std::to_string(curve_amount);
         const auto last_text_it = m_curve_last_text.find(storage_key);
-        if (last_text_it != m_curve_last_text.end() && last_text_it->second == text_value)
+        if (last_text_it != m_curve_last_text.end() && last_text_it->second == cache_signature)
         {
             return;
         }
@@ -10764,34 +10816,31 @@ namespace WindroseTextSigns
 
         const float plaque_half_width = 11.0f;
         const float plaque_full_width = 2.0f * plaque_half_width;
-        // Empirical letter half-width: glyph extends about font * 0.275 from its center on
+        // Empirical letter half-width: glyph extends about font * 0.20 from its center on
         // each side at the default text material. Used to inset the layout so edge glyphs
         // stay fully on the plaque instead of half-clipped off the side.
-        constexpr float LETTER_HALF_WIDTH_RATIO = 0.275f;
-        // Comfortable per-glyph stride relative to font: how far between glyph centers.
-        // 0.55 looks like classic mediaeval signage spacing - not too cramped, not too loose.
-        constexpr float STRIDE_RATIO = 0.55f;
-        constexpr float MIN_FONT_SIZE = 8.0f;
+        constexpr float LETTER_HALF_WIDTH_RATIO = 0.20f;
+        // Per-glyph stride relative to font: how far between glyph centers.
+        // 0.40 keeps the chain compact so the font can grow without overflowing.
+        constexpr float STRIDE_RATIO = 0.40f;
+        constexpr float MIN_FONT_SIZE = 14.0f;
+        constexpr float MAX_FONT_SIZE = 48.0f;
 
-        // Compute final font size + stride so all glyphs fit on the plaque without going
-        // off the edges, AND so the per-letter spacing scales with the font size.
+        // Fit-to-plaque sizing: grow font as large as possible while keeping all glyphs
+        // on the plaque with comfortable stride. The user-supplied desired_font_size acts
+        // as a soft upper bound only when smaller than the fit value (rarely the case).
         //
-        // Layout invariant: leftmost glyph center sits at -(plaque_half_width - font*LETTER_RATIO)
-        // and rightmost at +(plaque_half_width - font*LETTER_RATIO). Stride = total chain / (n-1).
-        // We start at the requested font_size and shrink only if comfortable-stride exceeds
-        // the available chain length on the plaque.
-        if (n > 1)
+        // Layout invariant: leftmost glyph center sits at -(plaque_half_width - font*LETTER_RATIO),
+        // rightmost at +(plaque_half_width - font*LETTER_RATIO). Stride between centers
+        // scales linearly with font, so total chain width = font * STRIDE * (n - 1) + 2 * font * LETTER_RATIO.
+        // Solve font * (STRIDE_RATIO * (n - 1) + 2 * LETTER_RATIO) = plaque_full_width for font.
+        if (n > 0)
         {
-            // Required total chain width if we keep desired_font_size and comfortable stride:
-            // chain_width = font * STRIDE_RATIO * (n - 1)
-            // Available chain width with proper inset: plaque_full_width - 2 * font * LETTER_RATIO
-            // Solve for font: font * (STRIDE_RATIO * (n - 1) + 2 * LETTER_RATIO) <= plaque_full_width
-            const float fit_font = plaque_full_width /
-                (STRIDE_RATIO * static_cast<float>(n - 1) + 2.0f * LETTER_HALF_WIDTH_RATIO);
-            if (fit_font < desired_font_size)
-            {
-                desired_font_size = std::max(MIN_FONT_SIZE, fit_font);
-            }
+            const size_t span_glyphs = (n > 1) ? (n - 1) : 1;
+            const float denom = STRIDE_RATIO * static_cast<float>(span_glyphs)
+                                + 2.0f * LETTER_HALF_WIDTH_RATIO;
+            const float fit_font = plaque_full_width / std::max(0.0001f, denom);
+            desired_font_size = std::clamp(fit_font, MIN_FONT_SIZE, MAX_FONT_SIZE);
         }
         // For very long text the MIN_FONT_SIZE clamp can leave glyphs slightly off the edges,
         // which is acceptable - the alternative is unreadably small text.
@@ -10803,7 +10852,7 @@ namespace WindroseTextSigns
         // Curve height scales WITH font size so the visual bow looks consistent regardless
         // of how the text was sized to fit. Previously a fixed 1.8-unit lift was barely
         // visible on tall 16-unit letters but huge on 8-unit letters - inconsistent.
-        const float curve_height = desired_font_size * m_curve_arc_amount * 0.4f;
+        const float curve_height = desired_font_size * curve_amount * 0.4f;
 
         uint32_t glyph_index = 0;
         uint32_t spawned = 0;
@@ -10869,16 +10918,116 @@ namespace WindroseTextSigns
         // destroy is needed here. Also remember the rendered text so future apply calls
         // can short-circuit when the text hasn't changed (the change-detect at the top).
         m_curve_glyph_count[storage_key] = glyph_index;
-        m_curve_last_text[storage_key] = text_value;
+        m_curve_last_text[storage_key] = cache_signature;
 
         log_line("[curve] applied key=" + storage_key +
                  " spawned=" + std::to_string(spawned) +
                  " totalGlyphs=" + std::to_string(glyph_index) +
                  " fontSize=" + std::to_string(desired_font_size) +
-                 " curveAmount=" + std::to_string(m_curve_arc_amount) +
+                 " curveAmount=" + std::to_string(curve_amount) +
                  " curveHeight=" + std::to_string(curve_height) +
                  " textLen=" + std::to_string(single_line.size()) +
                  " firstApplyThisSession=" + std::string{first_apply_this_session ? "true" : "false"});
+    }
+
+    auto SignTextMod::handle_curve_toggle() -> void
+    {
+        if (m_curve_edit_active)
+        {
+            log_line("[curve_edit] exit prior_key=" + m_curve_edit_key);
+            m_curve_edit_active = false;
+            m_curve_edit_key.clear();
+            return;
+        }
+        if (!m_selected.has_value() || !m_selected->actor)
+        {
+            log_line("[curve_edit] enter_ignored reason=no_target_sign");
+            return;
+        }
+        const auto actor_world_id = m_selected->world_id.empty()
+            ? build_world_id_for_actor(m_selected->actor)
+            : m_selected->world_id;
+        const auto world_id = active_storage_world_id(actor_world_id);
+        const auto key = build_storage_key(world_id, m_selected->stable_id);
+
+        m_curve_edit_active = true;
+        m_curve_edit_key = key;
+
+        const auto it = m_labels.find(key);
+        const float cur = (it != m_labels.end()) ? it->second.curve_amount : m_curve_arc_amount;
+        log_line("[curve_edit] enter key=" + key +
+                 " curve=" + std::to_string(cur) +
+                 " step=" + std::to_string(m_curve_step) +
+                 " hint=PageUp/PageDown_adjusts_curve_F6_exits");
+    }
+
+    auto SignTextMod::handle_curve_step(float delta) -> void
+    {
+        if (!m_curve_edit_active || m_curve_edit_key.empty())
+        {
+            return;
+        }
+        // Auto-exit if the user has looked away from the sign being edited - this also
+        // avoids silently editing a different sign by walking up to it.
+        if (!m_selected.has_value() || !m_selected->actor)
+        {
+            log_line("[curve_edit] step ignored reason=no_target_now");
+            return;
+        }
+        const auto actor_world_id = m_selected->world_id.empty()
+            ? build_world_id_for_actor(m_selected->actor)
+            : m_selected->world_id;
+        const auto current_key = build_storage_key(
+            active_storage_world_id(actor_world_id), m_selected->stable_id);
+        if (current_key != m_curve_edit_key)
+        {
+            log_line("[curve_edit] step ignored reason=target_changed prevKey=" + m_curve_edit_key +
+                     " currentKey=" + current_key);
+            return;
+        }
+        auto it = m_labels.find(m_curve_edit_key);
+        if (it == m_labels.end())
+        {
+            log_line("[curve_edit] step lost_record key=" + m_curve_edit_key);
+            m_curve_edit_active = false;
+            m_curve_edit_key.clear();
+            return;
+        }
+        const float old_value = it->second.curve_amount;
+        const float new_value = std::clamp(old_value + delta, -1.0f, 1.0f);
+        if (std::abs(new_value - old_value) < 0.001f)
+        {
+            log_line("[curve_edit] step clamped key=" + m_curve_edit_key +
+                     " from=" + std::to_string(old_value) +
+                     " to=" + std::to_string(new_value));
+            return;
+        }
+        it->second.curve_amount = new_value;
+        log_line("[curve_edit] step key=" + m_curve_edit_key +
+                 " from=" + std::to_string(old_value) +
+                 " to=" + std::to_string(new_value));
+        reapply_sign(m_curve_edit_key);
+        save_sidecar_json("curve_edit_step", m_curve_edit_key,
+                          it->second.stable_id, it->second.world_id);
+    }
+
+    auto SignTextMod::reapply_sign(const std::string& storage_key) -> void
+    {
+        if (!m_selected.has_value() || !m_selected->actor)
+        {
+            log_line("[curve_edit] reapply no_target key=" + storage_key);
+            return;
+        }
+        const auto rec_it = m_labels.find(storage_key);
+        if (rec_it == m_labels.end())
+        {
+            log_line("[curve_edit] reapply no_record key=" + storage_key);
+            return;
+        }
+        // Drop the change-detect cache so apply_curved_glyphs is forced to re-spawn glyphs
+        // (the cache key includes curve_amount, so this is belt-and-braces).
+        m_curve_last_text.erase(storage_key);
+        (void)apply_text_to_actor_component(m_selected->actor, rec_it->second.text);
     }
 
     auto SignTextMod::apply_text_to_actor_component(AActor* actor, const std::string& text_value) -> bool
@@ -11081,17 +11230,22 @@ namespace WindroseTextSigns
                  " fontSize=" + std::to_string(desired_font_size) +
                  " alignYCenter=" + std::to_string((m_labels.find(key) != m_labels.end()) ? m_labels.at(key).align_y : 1.5f));
 
-        // Curved-text feature: when WTS_CURVE_ARC_AMOUNT is set, replace the standard
-        // single-component render with one TextRenderComponent per glyph on a parabolic
-        // arc. The standard component is left in place but hidden, so toggling the
-        // feature off (INI=0 + game restart) restores it on the next apply without us
-        // needing to recreate it. If the feature was previously on for this key, destroy
-        // the leftover glyph components after the flat render so the sign doesn't show
-        // the curved chain on top of the flat text.
-        if (m_curve_arc_amount > 0.0f)
+        // Curved-text feature: when the sign's per-record curve_amount is non-zero,
+        // replace the standard single-component render with one TextRenderComponent per
+        // glyph on a parabolic arc. The standard component is left in place but hidden,
+        // so toggling curve back to 0 on this sign restores it on the next apply. If the
+        // feature was previously on for this key, destroy the leftover glyph components
+        // after the flat render so the sign doesn't show the curved chain on top of the
+        // flat text.
+        const auto rec_it_for_curve = m_labels.find(key);
+        const float sign_curve = (rec_it_for_curve != m_labels.end())
+            ? rec_it_for_curve->second.curve_amount
+            : 0.0f;
+        if (std::abs(sign_curve) >= 0.01f)
         {
             apply_curved_glyphs(actor, key, text_value, text_component,
-                                desired_font_size, desired_r, desired_g, desired_b, desired_a);
+                                desired_font_size, desired_r, desired_g, desired_b, desired_a,
+                                sign_curve);
         }
         else if (m_curve_glyph_count.find(key) != m_curve_glyph_count.end())
         {
@@ -11123,6 +11277,11 @@ namespace WindroseTextSigns
         {
             rec = existing->second;
             has_existing_record = true;
+        }
+        else
+        {
+            // Brand-new sign: seed curve with the INI default so the user can later tune it.
+            rec.curve_amount = m_curve_arc_amount;
         }
         rec.stable_id = m_selected->stable_id;
         rec.world_id = world_id;
