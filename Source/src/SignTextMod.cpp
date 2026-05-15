@@ -103,12 +103,25 @@ namespace
     extern "C" __declspec(dllimport) int __stdcall TranslateMessage(const WtsMsg* lpMsg);
     extern "C" __declspec(dllimport) WtsLresult __stdcall DispatchMessageW(const WtsMsg* lpMsg);
     extern "C" __declspec(dllimport) int __stdcall PostThreadMessageW(unsigned long idThread, unsigned int msg, WtsWparam wParam, WtsLparam lParam);
+    extern "C" __declspec(dllimport) int __stdcall GetModuleHandleExW(unsigned long dwFlags, const wchar_t* lpModuleName, void** phModule);
+    extern "C" __declspec(dllimport) unsigned long long __stdcall GetTickCount64();
     constexpr int k_wh_keyboard_ll = 13;
+    constexpr int k_wh_mouse_ll = 14;
     constexpr unsigned int k_wm_keydown = 0x0100;
     constexpr unsigned int k_wm_keyup = 0x0101;
     constexpr unsigned int k_wm_syskeydown = 0x0104;
     constexpr unsigned int k_wm_syskeyup = 0x0105;
+    constexpr unsigned int k_wm_lbuttondown = 0x0201;
+    constexpr unsigned int k_wm_lbuttonup = 0x0202;
+    constexpr unsigned int k_wm_rbuttondown = 0x0204;
+    constexpr unsigned int k_wm_rbuttonup = 0x0205;
+    constexpr unsigned int k_wm_mbuttondown = 0x0207;
+    constexpr unsigned int k_wm_mbuttonup = 0x0208;
+    constexpr unsigned int k_wm_mousewheel = 0x020A;
+    constexpr unsigned int k_wm_mousehwheel = 0x020E;
     constexpr unsigned int k_wm_quit = 0x0012;
+    constexpr unsigned long k_get_module_handle_ex_flag_from_address = 0x00000004;
+    constexpr unsigned long k_get_module_handle_ex_flag_unchanged_refcount = 0x00000002;
     constexpr unsigned long k_th32cs_snapprocess = 0x00000002;
     constexpr int k_default_hotkey_vk = 0x77;
     constexpr int k_vk_return = 0x0D;
@@ -117,6 +130,9 @@ namespace
     std::atomic<bool>* g_phase7_keyboard_capture_active{};
     std::atomic<bool>* g_phase7_enter_requested{};
     std::atomic<bool>* g_phase7_escape_requested{};
+    std::atomic<uint64_t>* g_phase7_mouse_capture_arm_until_ms{};
+    std::atomic<bool>* g_phase7_mouse_first_down_consumed{};
+    std::atomic<bool>* g_phase7_force_full_mouse_consume{};
 
     struct Viewpoint
     {
@@ -178,6 +194,56 @@ namespace
                         }
                         return 1;
                     }
+                }
+            }
+        }
+        return CallNextHookEx(nullptr, code, w_param, l_param);
+    }
+
+    extern "C" WtsLresult __stdcall phase7_mouse_capture_proc(int code, WtsWparam w_param, WtsLparam l_param)
+    {
+        if (code >= 0 &&
+            g_phase7_keyboard_capture_active &&
+            g_phase7_keyboard_capture_active->load(std::memory_order_relaxed) &&
+            l_param != 0)
+        {
+            const bool mouse_down =
+                (w_param == k_wm_lbuttondown) ||
+                (w_param == k_wm_rbuttondown) ||
+                (w_param == k_wm_mbuttondown);
+            const bool consume_mouse_event =
+                mouse_down ||
+                (w_param == k_wm_lbuttonup) ||
+                (w_param == k_wm_rbuttonup) ||
+                (w_param == k_wm_mbuttonup) ||
+                (w_param == k_wm_mousewheel) ||
+                (w_param == k_wm_mousehwheel);
+
+            if (consume_mouse_event)
+            {
+                const bool force_full_mouse_consume =
+                    g_phase7_force_full_mouse_consume &&
+                    g_phase7_force_full_mouse_consume->load(std::memory_order_relaxed);
+                if (mouse_down && g_phase7_mouse_capture_arm_until_ms && g_phase7_mouse_first_down_consumed)
+                {
+                    const auto arm_until_ms = g_phase7_mouse_capture_arm_until_ms->load(std::memory_order_relaxed);
+                    const auto now_ms = static_cast<uint64_t>(GetTickCount64());
+                    if (arm_until_ms > 0 && now_ms <= arm_until_ms)
+                    {
+                        bool expected = false;
+                        if (g_phase7_mouse_first_down_consumed->compare_exchange_strong(
+                                expected,
+                                true,
+                                std::memory_order_relaxed,
+                                std::memory_order_relaxed))
+                        {
+                            return 1;
+                        }
+                    }
+                }
+                if (force_full_mouse_consume)
+                {
+                    return 1;
                 }
             }
         }
@@ -5209,16 +5275,97 @@ namespace WindroseTextSigns
 
     auto SignTextMod::install_phase7_keyboard_capture_hook() -> void
     {
-        m_phase7_keyboard_capture_active.store(false);
+        g_phase7_keyboard_capture_active = &m_phase7_keyboard_capture_active;
+        g_phase7_enter_requested = &m_phase7_enter_requested;
+        g_phase7_escape_requested = &m_phase7_escape_requested;
+        g_phase7_mouse_capture_arm_until_ms = &m_phase7_mouse_capture_arm_until_ms;
+        g_phase7_mouse_first_down_consumed = &m_phase7_mouse_first_down_consumed;
+        g_phase7_force_full_mouse_consume = &m_phase7_force_full_mouse_consume;
+
+        if (m_phase7_keyboard_hook_thread.joinable())
+        {
+            return;
+        }
+
+        m_phase7_keyboard_hook_stop.store(false);
         m_phase7_keyboard_hook_installed.store(false);
+        m_phase7_keyboard_hook_thread_id.store(0);
+        m_phase7_keyboard_hook_thread = std::thread([this]() {
+            const auto thread_id = GetCurrentThreadId();
+            m_phase7_keyboard_hook_thread_id.store(thread_id);
+
+            void* hook_module = nullptr;
+            const unsigned long hook_module_flags =
+                k_get_module_handle_ex_flag_from_address |
+                k_get_module_handle_ex_flag_unchanged_refcount;
+            GetModuleHandleExW(
+                hook_module_flags,
+                reinterpret_cast<const wchar_t*>(reinterpret_cast<uintptr_t>(&phase7_keyboard_capture_proc)),
+                &hook_module);
+
+            WtsHhook keyboard_hook = SetWindowsHookExW(k_wh_keyboard_ll, phase7_keyboard_capture_proc, hook_module, 0);
+            WtsHhook mouse_hook = SetWindowsHookExW(k_wh_mouse_ll, phase7_mouse_capture_proc, hook_module, 0);
+            if (!keyboard_hook || !mouse_hook)
+            {
+                if (keyboard_hook)
+                {
+                    UnhookWindowsHookEx(keyboard_hook);
+                }
+                if (mouse_hook)
+                {
+                    UnhookWindowsHookEx(mouse_hook);
+                }
+                m_phase7_keyboard_hook_installed.store(false);
+                m_phase7_keyboard_hook_thread_id.store(0);
+                return;
+            }
+
+            m_phase7_keyboard_hook_installed.store(true);
+
+            WtsMsg msg{};
+            while (!m_phase7_keyboard_hook_stop.load(std::memory_order_relaxed))
+            {
+                const int rc = GetMessageW(&msg, nullptr, 0, 0);
+                if (rc <= 0)
+                {
+                    break;
+                }
+                TranslateMessage(&msg);
+                DispatchMessageW(&msg);
+            }
+
+            UnhookWindowsHookEx(mouse_hook);
+            UnhookWindowsHookEx(keyboard_hook);
+            m_phase7_keyboard_hook_installed.store(false);
+            m_phase7_keyboard_hook_thread_id.store(0);
+        });
     }
 
     auto SignTextMod::uninstall_phase7_keyboard_capture_hook() -> void
     {
         m_phase7_keyboard_capture_active.store(false);
+        m_phase7_mouse_capture_arm_until_ms.store(0);
+        m_phase7_mouse_first_down_consumed.store(false);
+        m_phase7_force_full_mouse_consume.store(false);
+        m_phase7_keyboard_hook_stop.store(true);
+        const auto hook_thread_id = m_phase7_keyboard_hook_thread_id.load(std::memory_order_relaxed);
+        if (hook_thread_id != 0)
+        {
+            PostThreadMessageW(hook_thread_id, k_wm_quit, 0, 0);
+        }
+        if (m_phase7_keyboard_hook_thread.joinable())
+        {
+            m_phase7_keyboard_hook_thread.join();
+        }
         m_phase7_keyboard_hook_stop.store(false);
         m_phase7_keyboard_hook_installed.store(false);
         m_phase7_keyboard_hook_thread_id.store(0);
+        g_phase7_keyboard_capture_active = nullptr;
+        g_phase7_enter_requested = nullptr;
+        g_phase7_escape_requested = nullptr;
+        g_phase7_mouse_capture_arm_until_ms = nullptr;
+        g_phase7_mouse_first_down_consumed = nullptr;
+        g_phase7_force_full_mouse_consume = nullptr;
     }
 
     auto SignTextMod::probe_phase7_native_ui_capabilities() -> void
@@ -5290,6 +5437,18 @@ namespace WindroseTextSigns
     {
         if (m_phase7_ui_input_mode_active == enable_ui_mode)
         {
+            if (enable_ui_mode)
+            {
+                install_phase7_keyboard_capture_hook();
+                m_phase7_keyboard_capture_active.store(true);
+            }
+            else
+            {
+                m_phase7_keyboard_capture_active.store(false);
+                m_phase7_mouse_capture_arm_until_ms.store(0);
+                m_phase7_mouse_first_down_consumed.store(false);
+                m_phase7_force_full_mouse_consume.store(false);
+            }
             return true;
         }
         auto* controller = try_get_primary_player_controller();
@@ -5339,14 +5498,33 @@ namespace WindroseTextSigns
         const bool cursor_set = set_bool_property_if_present(controller, "bshowmousecursor", enable_ui_mode);
         const bool look_ignored = invoke_with_bool_param(controller, STR("SetIgnoreLookInput"), STR("/Script/Engine.Controller:SetIgnoreLookInput"), enable_ui_mode);
         const bool move_ignored = invoke_with_bool_param(controller, STR("SetIgnoreMoveInput"), STR("/Script/Engine.Controller:SetIgnoreMoveInput"), enable_ui_mode);
-        m_phase7_keyboard_capture_active.store(false);
+
+        if (enable_ui_mode)
+        {
+            install_phase7_keyboard_capture_hook();
+            m_phase7_keyboard_capture_active.store(true);
+            m_phase7_force_full_mouse_consume.store(!input_mode_applied);
+        }
+        else
+        {
+            m_phase7_keyboard_capture_active.store(false);
+            m_phase7_mouse_capture_arm_until_ms.store(0);
+            m_phase7_mouse_first_down_consumed.store(false);
+            m_phase7_force_full_mouse_consume.store(false);
+        }
+
+        const bool ll_hook_installed = m_phase7_keyboard_hook_installed.load(std::memory_order_relaxed);
+        const bool ll_hook_active = enable_ui_mode && ll_hook_installed;
+        const bool ll_force_mouse = enable_ui_mode && m_phase7_force_full_mouse_consume.load(std::memory_order_relaxed);
         log_line("[phase7-umg] input_capture enable=" + std::string{enable_ui_mode ? "true" : "false"} +
                  " inputMode=" + std::string{input_mode_applied ? "true" : "false"} +
                  " appliedMode=" + applied_mode_name +
                  " cursor=" + std::string{cursor_set ? "true" : "false"} +
                  " ignoreLook=" + std::string{look_ignored ? "true" : "false"} +
                  " ignoreMove=" + std::string{move_ignored ? "true" : "false"} +
-                 " llHook=disabled");
+                 " llHookInstalled=" + std::string{ll_hook_installed ? "true" : "false"} +
+                 " llHookActive=" + std::string{ll_hook_active ? "true" : "false"} +
+                 " llForceMouseConsume=" + std::string{ll_force_mouse ? "true" : "false"});
         const bool applied = input_mode_applied || cursor_set || look_ignored || move_ignored;
         if (applied)
         {
@@ -5398,6 +5576,9 @@ namespace WindroseTextSigns
 
         const bool added = invoke_add_to_viewport(widget, 1000);
         const bool input_mode = set_phase7_game_and_ui_input_mode(true);
+        const uint64_t now_ms = static_cast<uint64_t>(GetTickCount64());
+        m_phase7_mouse_first_down_consumed.store(false);
+        m_phase7_mouse_capture_arm_until_ms.store(now_ms + 180);
         if (!added)
         {
             log_line("[phase7] open_native_editor failed reason=AddToViewportReturnedFalse inputModeApplied=" +
@@ -5416,6 +5597,9 @@ namespace WindroseTextSigns
     auto SignTextMod::close_phase7_native_editor(bool restore_game_input) -> void
     {
         m_phase7_keyboard_capture_active.store(false);
+        m_phase7_mouse_capture_arm_until_ms.store(0);
+        m_phase7_mouse_first_down_consumed.store(false);
+        m_phase7_force_full_mouse_consume.store(false);
         if (m_phase7_native_widget)
         {
             const bool removed = invoke_no_param(
@@ -5877,6 +6061,10 @@ namespace WindroseTextSigns
             m_phase7_umg_in_viewport = added;
         }
         const bool input_mode_post = input_mode_pre ? true : set_phase7_game_and_ui_input_mode(true);
+        // Swallow the very first post-open mouse down even if input mode settles a frame late.
+        const uint64_t now_ms = static_cast<uint64_t>(GetTickCount64());
+        m_phase7_mouse_first_down_consumed.store(false);
+        m_phase7_mouse_capture_arm_until_ms.store(now_ms + 180);
         const bool focus_keyboard = invoke_no_param_cached(m_phase7_umg_text_box, m_phase7_fn_set_keyboard_focus) ||
                                     invoke_no_param(m_phase7_umg_text_box, STR("SetKeyboardFocus"), STR("/Script/UMG.Widget:SetKeyboardFocus"));
         const bool focus_widget = invoke_no_param_cached(m_phase7_umg_text_box, m_phase7_fn_set_focus) ||
@@ -5891,6 +6079,7 @@ namespace WindroseTextSigns
                  " inputText=" + std::string{input_text ? "true" : "false"} +
                  " focusKeyboard=" + std::string{focus_keyboard ? "true" : "false"} +
                  " focusWidget=" + std::string{focus_widget ? "true" : "false"} +
+                 " firstClickArmMs=180" +
                  " key=" + key);
         if (m_f8_latency_breakdown_enabled && m_f8_latency_trace.active)
         {
@@ -5945,6 +6134,9 @@ namespace WindroseTextSigns
     auto SignTextMod::close_phase7_umg_editor(bool restore_game_input) -> void
     {
         m_phase7_keyboard_capture_active.store(false);
+        m_phase7_mouse_capture_arm_until_ms.store(0);
+        m_phase7_mouse_first_down_consumed.store(false);
+        m_phase7_force_full_mouse_consume.store(false);
         m_phase7_last_close_removed = false;
         if (m_phase7_umg_widget)
         {
@@ -5977,6 +6169,9 @@ namespace WindroseTextSigns
     auto SignTextMod::reset_phase7_runtime_state() -> void
     {
         m_phase7_keyboard_capture_active.store(false);
+        m_phase7_mouse_capture_arm_until_ms.store(0);
+        m_phase7_mouse_first_down_consumed.store(false);
+        m_phase7_force_full_mouse_consume.store(false);
         m_phase7_enter_requested.store(false);
         m_phase7_escape_requested.store(false);
         m_phase7_enter_was_down = false;
@@ -9650,11 +9845,30 @@ namespace WindroseTextSigns
                          << rec.color_r << '\x1f' << rec.color_g << '\x1f'
                          << rec.color_b << '\x1f' << rec.color_a;
         const uint64_t content_hash = std::hash<std::string>{}(dedupe_signature.str());
+        const auto prior_delta_it = m_remote_delta_applied_state.find(key);
+        const bool has_prior_delta_state = prior_delta_it != m_remote_delta_applied_state.end();
+        const uint64_t prior_delta_revision = has_prior_delta_state ? prior_delta_it->second.revision : 0;
+        const uint64_t prior_delta_hash = has_prior_delta_state ? prior_delta_it->second.content_hash : 0;
+        const bool stale_authoritative_delta =
+            has_prior_delta_state &&
+            incoming_revision < prior_delta_revision;
+        if (stale_authoritative_delta)
+        {
+            log_line("[bridge] delta_skip_stale key=" + key +
+                     " stableId=" + stable_id +
+                     " incomingRevision=" + std::to_string(incoming_revision) +
+                     " priorRevision=" + std::to_string(prior_delta_revision));
+            return;
+        }
         const bool duplicate_authoritative_delta =
+            has_prior_delta_state &&
+            incoming_revision == prior_delta_revision &&
+            content_hash == prior_delta_hash;
+        const bool nochange_authoritative_delta =
             !changed &&
-            m_remote_delta_applied_state.count(key) > 0 &&
-            m_remote_delta_applied_state.at(key).revision == incoming_revision &&
-            m_remote_delta_applied_state.at(key).content_hash == content_hash;
+            has_prior_delta_state &&
+            incoming_revision > prior_delta_revision &&
+            content_hash == prior_delta_hash;
 
         m_labels[key] = rec;
         m_remote_delta_applied_state[key] = RemoteDeltaApplyState{incoming_revision, content_hash};
@@ -9672,9 +9886,16 @@ namespace WindroseTextSigns
         {
             if (duplicate_authoritative_delta)
             {
-                log_line("[bridge] client_upsert_ignored reason=idempotent_duplicate key=" + key +
+                log_line("[bridge] delta_skip_duplicate key=" + key +
                          " stableId=" + stable_id +
                          " revision=" + std::to_string(incoming_revision));
+            }
+            else if (nochange_authoritative_delta)
+            {
+                log_line("[bridge] delta_skip_nochange key=" + key +
+                         " stableId=" + stable_id +
+                         " incomingRevision=" + std::to_string(incoming_revision) +
+                         " priorRevision=" + std::to_string(prior_delta_revision));
             }
             else
             {
@@ -9700,11 +9921,15 @@ namespace WindroseTextSigns
                  " localWorldId=" + local_world_id +
                  " changed=" + std::string{changed ? "true" : "false"} +
                  " duplicate=" + std::string{duplicate_authoritative_delta ? "true" : "false"} +
+                 " nochange=" + std::string{nochange_authoritative_delta ? "true" : "false"} +
                  " ackedPending=" + std::string{acked_pending ? "true" : "false"} +
                  " renderSuppressed=" + std::string{render_suppressed_by_rebuild_guard ? "true" : "false"} +
                  " pending=" + std::to_string(m_bridge_pending_request_keys.size()) +
                  " textChars=" + std::to_string(rec.text.size()));
-        if (!m_sidecar_authoritative && writer == "HostedClientAuthority" && !duplicate_authoritative_delta)
+        if (!m_sidecar_authoritative &&
+            writer == "HostedClientAuthority" &&
+            !duplicate_authoritative_delta &&
+            !nochange_authoritative_delta)
         {
             log_line("[bridge-hosted] hosted_remote_applied_authoritative_delta type=upsert key=" + key +
                      " stableId=" + stable_id +
@@ -10141,7 +10366,16 @@ namespace WindroseTextSigns
                 ? static_cast<uint64_t>(safe_stoi(fields.at("requesterRevision"), 0))
                 : 0;
             const auto requester_session = unescape_json(fields.count("session") ? fields.at("session") : "");
+            const std::string requester_key = requester_session.empty() ? std::string{"unknown-session"} : requester_session;
             const auto now_tp = std::chrono::steady_clock::now();
+            auto& requester_state = m_snapshot_requester_state_by_session[requester_key];
+            requester_state.last_request_at = now_tp;
+            const uint64_t requester_prev_revision = requester_state.last_requester_revision_seen;
+            const bool requester_revision_regressed = requester_revision < requester_prev_revision;
+            if (requester_revision > requester_prev_revision)
+            {
+                requester_state.last_requester_revision_seen = requester_revision;
+            }
             log_line("[bridge] snapshot_request_received fromSession=" + unescape_json(fields.count("session") ? fields.at("session") : "") +
                      " requesterRevision=" + std::to_string(requester_revision));
             if (is_hosted_server_relay_context() && !m_hosted_server_cache_initialized)
@@ -10189,6 +10423,34 @@ namespace WindroseTextSigns
                 }
                 return;
             }
+
+            const uint64_t authoritative_revision = is_hosted_server_relay_context()
+                ? m_hosted_server_cache_revision
+                : m_revision;
+            constexpr auto k_snapshot_repeat_cooldown = std::chrono::seconds(20);
+            const bool recently_served_same_revision =
+                requester_state.last_snapshot_served_at.time_since_epoch().count() != 0 &&
+                (now_tp - requester_state.last_snapshot_served_at) < k_snapshot_repeat_cooldown &&
+                requester_state.last_snapshot_served_revision == authoritative_revision &&
+                authoritative_revision > 0;
+            if (requester_revision == 0 && recently_served_same_revision)
+            {
+                log_line("[bridge] snapshot_suppressed_cooldown reason=requester_zero_after_sync requesterSession=" +
+                         requester_key +
+                         " requesterRevision=0 servedRevision=" + std::to_string(requester_state.last_snapshot_served_revision) +
+                         " authoritativeRevision=" + std::to_string(authoritative_revision));
+                return;
+            }
+            if (requester_revision_regressed && recently_served_same_revision)
+            {
+                log_line("[bridge] snapshot_suppressed_cooldown reason=requester_revision_regressed requesterSession=" +
+                         requester_key +
+                         " requesterRevision=" + std::to_string(requester_revision) +
+                         " requesterPrevRevision=" + std::to_string(requester_prev_revision) +
+                         " servedRevision=" + std::to_string(requester_state.last_snapshot_served_revision));
+                return;
+            }
+
             if (is_hosted_server_relay_context() &&
                 m_hosted_server_cache_initialized &&
                 requester_revision >= m_hosted_server_cache_revision)
@@ -10197,6 +10459,8 @@ namespace WindroseTextSigns
                          std::to_string(requester_revision) +
                          " cacheRevision=" + std::to_string(m_hosted_server_cache_revision) +
                          " epoch=" + std::to_string(m_session_epoch));
+                requester_state.last_requester_revision_seen =
+                    std::max<uint64_t>(requester_state.last_requester_revision_seen, requester_revision);
                 return;
             }
             if (!is_hosted_server_relay_context() &&
@@ -10206,15 +10470,27 @@ namespace WindroseTextSigns
                 log_line("[bridge] snapshot_skip reason=requester_fresh requesterRevision=" +
                          std::to_string(requester_revision) +
                          " localRevision=" + std::to_string(m_revision));
+                requester_state.last_requester_revision_seen =
+                    std::max<uint64_t>(requester_state.last_requester_revision_seen, requester_revision);
                 return;
             }
             broadcast_bridge_snapshot("snapshot_request");
+            requester_state.last_snapshot_served_revision = authoritative_revision;
+            requester_state.last_snapshot_served_at = now_tp;
             if (is_hosted_server_relay_context())
             {
                 log_line("[bridge-hosted] hosted_server_snapshot_served_from_cache revision=" +
                          std::to_string(m_hosted_server_cache_revision) +
                          " records=" + std::to_string(m_labels.size()) +
+                         " requesterSession=" + requester_key +
+                         " requesterRevision=" + std::to_string(requester_revision) +
                          " epoch=" + std::to_string(m_session_epoch));
+            }
+            else
+            {
+                log_line("[bridge] snapshot_served requesterSession=" + requester_key +
+                         " requesterRevision=" + std::to_string(requester_revision) +
+                         " authoritativeRevision=" + std::to_string(authoritative_revision));
             }
             return;
         }
@@ -10675,6 +10951,7 @@ namespace WindroseTextSigns
         m_hosted_server_last_resync_request_sent = {};
         m_hosted_server_resync_in_flight = false;
         m_hosted_server_snapshot_unavailable_last_by_session.clear();
+        m_snapshot_requester_state_by_session.clear();
         m_remote_snapshot_no_cache_backoff_until = {};
     }
 

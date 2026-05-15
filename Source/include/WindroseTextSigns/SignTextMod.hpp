@@ -429,6 +429,14 @@ namespace WindroseTextSigns
             uint64_t content_hash{0};
         };
         std::unordered_map<std::string, RemoteDeltaApplyState> m_remote_delta_applied_state{};
+        struct SnapshotRequesterState
+        {
+            uint64_t last_requester_revision_seen{0};
+            uint64_t last_snapshot_served_revision{0};
+            std::chrono::steady_clock::time_point last_snapshot_served_at{};
+            std::chrono::steady_clock::time_point last_request_at{};
+        };
+        std::unordered_map<std::string, SnapshotRequesterState> m_snapshot_requester_state_by_session{};
         std::chrono::steady_clock::time_point m_hosted_server_next_hello{};
         std::chrono::steady_clock::time_point m_hosted_server_next_resync_request{};
         std::chrono::steady_clock::time_point m_hosted_server_last_resync_request_sent{};
@@ -469,6 +477,9 @@ namespace WindroseTextSigns
         bool m_phase7_shift_was_down{false};
         bool m_phase7_ui_input_mode_active{false};
         std::atomic<bool> m_phase7_keyboard_capture_active{false};
+        std::atomic<uint64_t> m_phase7_mouse_capture_arm_until_ms{0};
+        std::atomic<bool> m_phase7_mouse_first_down_consumed{false};
+        std::atomic<bool> m_phase7_force_full_mouse_consume{false};
         std::atomic<bool> m_phase7_keyboard_hook_stop{false};
         std::atomic<bool> m_phase7_keyboard_hook_installed{false};
         std::atomic<uint32_t> m_phase7_keyboard_hook_thread_id{0};
