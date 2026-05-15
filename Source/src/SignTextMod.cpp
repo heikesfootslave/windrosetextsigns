@@ -10948,12 +10948,16 @@ namespace WindroseTextSigns
         const auto now = std::chrono::steady_clock::now();
         const auto runtime_role_lower = lower_ascii(m_runtime_role);
         BridgeRole desired = BridgeRole::Unknown;
-        const bool server_process_shape = is_dedicated_server_process(std::filesystem::current_path(), m_mod_root);
         const bool server_pending_classification =
-            server_process_shape &&
             (runtime_role_lower == "serverrolepending" ||
              lower_ascii(m_authority_mode) == "serverroleclassificationpending");
-        if (server_process_shape && !server_pending_classification)
+        // Resolve bridge role from resolved runtime role first. This avoids
+        // process-shape forcing HostedServer into DedicatedServer.
+        if (runtime_role_lower == "hostedserver")
+        {
+            desired = BridgeRole::ListenHost;
+        }
+        else if (runtime_role_lower == "dedicatedserver")
         {
             desired = BridgeRole::DedicatedServer;
         }
