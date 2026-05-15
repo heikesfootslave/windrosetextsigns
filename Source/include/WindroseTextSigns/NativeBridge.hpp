@@ -48,6 +48,9 @@ namespace WindroseTextSigns
         auto send_to_server(const std::string& payload) -> bool;
         auto broadcast_to_clients(const std::string& payload) -> bool;
         auto poll_incoming() -> std::vector<std::string>;
+        [[nodiscard]] auto server_bound_port() const -> uint16_t;
+        [[nodiscard]] auto server_socket_open() const -> bool;
+        [[nodiscard]] auto server_last_bind_error() const -> int;
 
         [[nodiscard]] auto counters() const -> BridgeCounters;
         [[nodiscard]] auto known_client_count() const -> size_t;
@@ -99,6 +102,8 @@ namespace WindroseTextSigns
         bool m_winsock_ready{false};
         uintptr_t m_server_socket{static_cast<uintptr_t>(~0ull)};
         uintptr_t m_client_socket{static_cast<uintptr_t>(~0ull)};
+        uint16_t m_server_bound_port{0};
+        int m_server_last_bind_error{0};
         std::string m_remote_server_host{"127.0.0.1"};
         uint16_t m_udp_server_port{k_default_udp_server_port};
         uint16_t m_remote_server_port{k_default_udp_server_port};

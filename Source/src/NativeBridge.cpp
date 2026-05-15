@@ -98,6 +98,8 @@ namespace WindroseTextSigns
             else if (role == BridgeRole::RemoteClient)
             {
                 close_socket_if_valid(m_server_socket);
+                m_server_bound_port = 0;
+                m_server_last_bind_error = 0;
                 m_known_clients.clear();
                 m_rx_server.clear();
             }
@@ -105,6 +107,8 @@ namespace WindroseTextSigns
             {
                 close_socket_if_valid(m_server_socket);
                 close_socket_if_valid(m_client_socket);
+                m_server_bound_port = 0;
+                m_server_last_bind_error = 0;
                 m_known_clients.clear();
                 m_rx_server.clear();
                 m_rx_client.clear();
@@ -188,10 +192,12 @@ namespace WindroseTextSigns
         {
             return true;
         }
+        m_server_last_bind_error = 0;
 
         const SOCKET sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
         if (sock == INVALID_SOCKET)
         {
+            m_server_last_bind_error = WSAGetLastError();
             return false;
         }
 
@@ -204,10 +210,21 @@ namespace WindroseTextSigns
         addr.sin_addr.s_addr = htonl(INADDR_ANY);
         if (bind(sock, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == SOCKET_ERROR)
         {
+            m_server_last_bind_error = WSAGetLastError();
             closesocket(sock);
             return false;
         }
 
+        sockaddr_in bound_addr{};
+        int bound_len = sizeof(bound_addr);
+        if (getsockname(sock, reinterpret_cast<sockaddr*>(&bound_addr), &bound_len) == 0)
+        {
+            m_server_bound_port = ntohs(bound_addr.sin_port);
+        }
+        else
+        {
+            m_server_bound_port = m_udp_server_port;
+        }
         m_server_socket = to_raw_socket(sock);
         return true;
     }
@@ -572,6 +589,9 @@ namespace WindroseTextSigns
         out << ",\"udp_server_port\":" << m_udp_server_port;
         out << ",\"remote_server_host\":\"" << m_remote_server_host << "\"";
         out << ",\"remote_server_port\":" << m_remote_server_port;
+        out << ",\"server_bound_port\":" << m_server_bound_port;
+        out << ",\"server_socket_open\":" << (is_valid_socket(m_server_socket) ? "true" : "false");
+        out << ",\"server_last_bind_error\":" << m_server_last_bind_error;
         out << ",\"remote_server_resolved\":" << (m_remote_server_resolved ? "true" : "false");
         out << ",\"send_to_server_calls\":" << c.send_to_server_calls;
         out << ",\"broadcast_to_clients_calls\":" << c.broadcast_to_clients_calls;
@@ -580,5 +600,23 @@ namespace WindroseTextSigns
         out << ",\"dropped_payload_too_large\":" << c.dropped_payload_too_large;
         out << "}";
         return out.str();
+    }
+
+    auto NativeBridge::server_bound_port() const -> uint16_t
+    {
+        std::scoped_lock lock(m_mutex);
+        return m_server_bound_port;
+    }
+
+    auto NativeBridge::server_socket_open() const -> bool
+    {
+        std::scoped_lock lock(m_mutex);
+        return is_valid_socket(m_server_socket);
+    }
+
+    auto NativeBridge::server_last_bind_error() const -> int
+    {
+        std::scoped_lock lock(m_mutex);
+        return m_server_last_bind_error;
     }
 }

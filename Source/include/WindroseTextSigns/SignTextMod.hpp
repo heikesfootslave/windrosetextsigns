@@ -296,6 +296,11 @@ namespace WindroseTextSigns
             const std::string& reason) -> bool;
         auto ensure_hosted_server_authority_route(const std::string& reason) -> bool;
         auto send_hosted_server_control_message(const std::string& type, const std::string& reason) -> bool;
+        auto resolve_hosted_server_advertise_host() const -> std::string;
+        auto resolve_hosted_server_endpoint_path() const -> std::filesystem::path;
+        auto publish_hosted_server_endpoint(const std::string& reason) -> bool;
+        auto consume_hosted_server_endpoint(const std::string& reason) -> bool;
+        auto apply_bridge_remote_endpoint(const std::string& host, uint16_t port, const std::string& reason) -> bool;
         auto relay_payload_to_hosted_authority(
             const std::string& payload,
             const std::string& type,
@@ -425,6 +430,12 @@ namespace WindroseTextSigns
         bool m_hosted_server_authority_route_configured{false};
         bool m_hosted_server_cache_initialized{false};
         uint64_t m_hosted_server_cache_revision{0};
+        bool m_hosted_server_endpoint_advertised{false};
+        std::string m_hosted_server_endpoint_host{};
+        uint16_t m_hosted_server_endpoint_port{0};
+        std::chrono::steady_clock::time_point m_hosted_server_endpoint_last_read{};
+        bool m_bridge_bind_success_logged{false};
+        bool m_bridge_bind_failed_logged{false};
         struct RemoteDeltaApplyState
         {
             uint64_t revision{0};

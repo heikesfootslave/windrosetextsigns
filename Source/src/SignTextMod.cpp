@@ -94,6 +94,7 @@ namespace
     extern "C" __declspec(dllimport) short __stdcall GetAsyncKeyState(int vKey);
     extern "C" __declspec(dllimport) unsigned long __stdcall GetModuleFileNameA(void* hModule, char* lpFilename, unsigned long nSize);
     extern "C" __declspec(dllimport) unsigned long __stdcall GetCurrentThreadId();
+    extern "C" __declspec(dllimport) unsigned long __stdcall GetCurrentProcessId();
     extern "C" __declspec(dllimport) void* __stdcall CreateToolhelp32Snapshot(unsigned long dwFlags, unsigned long th32ProcessID);
     extern "C" __declspec(dllimport) int __stdcall Process32FirstW(void* hSnapshot, WtsProcessentry32w* lppe);
     extern "C" __declspec(dllimport) int __stdcall Process32NextW(void* hSnapshot, WtsProcessentry32w* lppe);
@@ -289,10 +290,10 @@ namespace
     auto parse_bridge_message(const std::string& payload) -> std::unordered_map<std::string, std::string>
     {
         std::unordered_map<std::string, std::string> fields{};
-        const std::array<std::string, 15> string_fields = {
+        const std::array<std::string, 16> string_fields = {
             "mod", "type", "session", "key", "stableId", "worldId",
             "text", "asset", "kind", "backingAsset", "lastSeen", "reason", "schema", "writer",
-            "snapshotId"};
+            "snapshotId", "relayHost"};
         for (const auto& name : string_fields)
         {
             if (auto value = bridge_message_field(payload, name); value.has_value())
@@ -300,9 +301,10 @@ namespace
                 fields[name] = *value;
             }
         }
-        const std::array<std::string, 12> number_fields = {
+        const std::array<std::string, 16> number_fields = {
             "revision", "surfaceAxis", "surfaceSign", "depthOffset", "alignX",
-            "alignY", "fontSize", "colorR", "colorG", "colorB", "colorA", "snapshotCount"};
+            "alignY", "fontSize", "colorR", "colorG", "colorB", "colorA", "snapshotCount",
+            "requesterRevision", "relayPort", "relayPid", "relayEpoch"};
         for (const auto& name : number_fields)
         {
             if (auto value = bridge_message_number(payload, name); value.has_value())
@@ -9344,7 +9346,7 @@ namespace WindroseTextSigns
 
     auto SignTextMod::is_hosted_client_authority_context() const -> bool
     {
-        return m_bridge_role == BridgeRole::ListenHost &&
+        return m_bridge_role == BridgeRole::RemoteClient &&
             m_sidecar_authoritative &&
             lower_ascii(m_runtime_role) == "localclient" &&
             is_local_hosted_runtime();
@@ -9357,18 +9359,184 @@ namespace WindroseTextSigns
             is_dedicated_runtime_process();
     }
 
-    auto SignTextMod::ensure_hosted_client_authority_route(const std::string& reason) -> bool
+    auto SignTextMod::resolve_hosted_server_advertise_host() const -> std::string
+    {
+        std::string host = "127.0.0.1";
+        const auto endpoint =
+            try_latest_remoteaddr_host_from_log_window(
+                m_server_role_log_path.empty() ? m_session_window_log_path : m_server_role_log_path,
+                m_session_window_open ? m_session_window_start_offset : static_cast<uintmax_t>(0));
+        if (endpoint.has_value() && !endpoint->empty())
+        {
+            host = *endpoint;
+        }
+        return host;
+    }
+
+    auto SignTextMod::resolve_hosted_server_endpoint_path() const -> std::filesystem::path
+    {
+        const auto local_app_data = get_env_var("LOCALAPPDATA");
+        if (local_app_data.empty())
+        {
+            return {};
+        }
+        return std::filesystem::path{local_app_data} / "R5" / "Saved" / "WindroseTextSigns" / "HostedServerBridgeEndpoint.json";
+    }
+
+    auto SignTextMod::publish_hosted_server_endpoint(const std::string& reason) -> bool
+    {
+        if (!is_hosted_server_relay_context())
+        {
+            return false;
+        }
+
+        const auto path = resolve_hosted_server_endpoint_path();
+        if (path.empty())
+        {
+            return false;
+        }
+        std::error_code ec{};
+        std::filesystem::create_directories(path.parent_path(), ec);
+        const auto port = NativeBridge::instance().server_bound_port();
+        const auto host = resolve_hosted_server_advertise_host();
+        const auto pid = static_cast<unsigned long long>(GetCurrentProcessId());
+        std::ostringstream payload{};
+        payload << "{\n"
+                << "  \"epoch\": " << m_session_epoch << ",\n"
+                << "  \"pid\": " << pid << ",\n"
+                << "  \"worldId\": \"" << escape_json(m_world_folder_id) << "\",\n"
+                << "  \"host\": \"" << escape_json(host) << "\",\n"
+                << "  \"port\": " << static_cast<unsigned int>(port == 0 ? m_bridge_udp_port : port) << "\n"
+                << "}\n";
+        std::ofstream out(path, std::ios::out | std::ios::binary | std::ios::trunc);
+        if (!out.is_open())
+        {
+            return false;
+        }
+        out << payload.str();
+        out.close();
+        const auto effective_port = static_cast<uint16_t>(port == 0 ? m_bridge_udp_port : port);
+        const bool changed =
+            !m_hosted_server_endpoint_advertised ||
+            m_hosted_server_endpoint_host != host ||
+            m_hosted_server_endpoint_port != effective_port;
+        m_hosted_server_endpoint_advertised = true;
+        m_hosted_server_endpoint_host = host;
+        m_hosted_server_endpoint_port = effective_port;
+        if (changed)
+        {
+            log_line("[bridge-hosted] hosted_server_endpoint_published epoch=" + std::to_string(m_session_epoch) +
+                     " host=" + host +
+                     " port=" + std::to_string(static_cast<unsigned int>(effective_port)) +
+                     " pid=" + std::to_string(pid) +
+                     " path=" + path.string() +
+                     " reason=" + reason);
+        }
+        return true;
+    }
+
+    auto SignTextMod::apply_bridge_remote_endpoint(
+        const std::string& host,
+        const uint16_t port,
+        const std::string& reason) -> bool
+    {
+        const auto trimmed_host = trim_copy_ascii(host);
+        if (trimmed_host.empty() || port == 0)
+        {
+            return false;
+        }
+        if (m_bridge_remote_server_host == trimmed_host &&
+            m_bridge_udp_port == static_cast<int>(port) &&
+            m_bridge_route_lock_acquired &&
+            m_bridge_route_locked_host == trimmed_host)
+        {
+            return false;
+        }
+
+        m_bridge_remote_server_host = trimmed_host;
+        m_bridge_udp_port = static_cast<int>(port);
+        NativeBridge::instance().set_remote_server(m_bridge_remote_server_host, port);
+        m_bridge_route_lock_acquired = true;
+        m_bridge_route_locked_host = m_bridge_remote_server_host;
+        m_bridge_route_loopback_same_machine_ok = (m_bridge_remote_server_host == "127.0.0.1");
+        m_bridge_route_force_non_loopback = false;
+        m_bridge_route_recovery_logged = false;
+        m_bridge_route_wait_last_log = {};
+        m_bridge_route_wait_last_reason.clear();
+        m_bridge_next_snapshot_request = std::chrono::steady_clock::now();
+        m_bridge_snapshot_received = false;
+        m_bridge_snapshot_retry_attempts = 0;
+        m_bridge_sync_wait_started = std::chrono::steady_clock::now();
+        log_line("[bridge-route] advertised_endpoint_applied host=" + m_bridge_remote_server_host +
+                 " port=" + std::to_string(static_cast<unsigned int>(port)) +
+                 " reason=" + reason);
+        return true;
+    }
+
+    auto SignTextMod::consume_hosted_server_endpoint(const std::string& reason) -> bool
     {
         if (!is_hosted_client_authority_context())
         {
             return false;
         }
 
-        const std::string desired_host = "127.0.0.1";
-        if (!m_hosted_authority_route_active || m_bridge_remote_server_host != desired_host)
+        const auto now = std::chrono::steady_clock::now();
+        if (m_hosted_server_endpoint_last_read.time_since_epoch().count() != 0 &&
+            (now - m_hosted_server_endpoint_last_read) < std::chrono::milliseconds(500))
         {
-            m_bridge_remote_server_host = desired_host;
-            NativeBridge::instance().set_remote_server(m_bridge_remote_server_host, static_cast<uint16_t>(m_bridge_udp_port));
+            return false;
+        }
+        m_hosted_server_endpoint_last_read = now;
+
+        const auto path = resolve_hosted_server_endpoint_path();
+        if (path.empty())
+        {
+            return false;
+        }
+        std::string content{};
+        if (!read_text_file(path, content))
+        {
+            return false;
+        }
+
+        auto host_value = bridge_message_field(content, "host");
+        auto port_value = bridge_message_number(content, "port");
+        if (!host_value.has_value() || !port_value.has_value())
+        {
+            return false;
+        }
+        const auto parsed_port = static_cast<uint16_t>(std::clamp(safe_stoi(*port_value, m_bridge_udp_port), 1, 65535));
+        const std::string parsed_host = unescape_json(*host_value);
+        const bool changed = apply_bridge_remote_endpoint(
+            parsed_host,
+            parsed_port,
+            "hosted_server_endpoint_file:" + reason);
+        if (changed)
+        {
+            m_hosted_server_endpoint_advertised = true;
+            m_hosted_server_endpoint_host = parsed_host;
+            m_hosted_server_endpoint_port = parsed_port;
+            log_line("[bridge-hosted] hosted_server_endpoint_consumed source=file epoch=" + std::to_string(m_session_epoch) +
+                     " host=" + parsed_host +
+                     " port=" + std::to_string(static_cast<unsigned int>(parsed_port)) +
+                     " path=" + path.string());
+        }
+        return changed;
+    }
+
+    auto SignTextMod::ensure_hosted_client_authority_route(const std::string& reason) -> bool
+    {
+        if (!is_hosted_client_authority_context())
+        {
+            return false;
+        }
+        bool route_changed = consume_hosted_server_endpoint(reason);
+        if (!m_hosted_authority_route_active || !m_bridge_route_lock_acquired || m_bridge_route_locked_host.empty())
+        {
+            route_changed = apply_bridge_remote_endpoint("127.0.0.1", static_cast<uint16_t>(m_bridge_udp_port), "hosted_server_fallback_loopback") || route_changed;
+        }
+        if (route_changed || !m_hosted_authority_route_active)
+        {
             m_hosted_authority_route_active = true;
             log_line("[bridge-hosted] hosted_authority_route_activated epoch=" + std::to_string(m_session_epoch) +
                      " worldId=" + m_world_folder_id +
@@ -9413,17 +9581,16 @@ namespace WindroseTextSigns
         {
             return false;
         }
-
-        const std::string desired_host = "127.0.0.1";
-        if (!m_hosted_server_authority_route_configured || m_bridge_remote_server_host != desired_host)
+        const auto bound_port = NativeBridge::instance().server_bound_port();
+        if (!m_hosted_server_authority_route_configured)
         {
-            m_bridge_remote_server_host = desired_host;
-            NativeBridge::instance().set_remote_server(m_bridge_remote_server_host, static_cast<uint16_t>(m_bridge_udp_port));
             m_hosted_server_authority_route_configured = true;
             log_line("[bridge-hosted] hosted_server_authority_route_set reason=" + reason +
-                     " host=" + m_bridge_remote_server_host +
-                     " port=" + std::to_string(m_bridge_udp_port));
+                     " host=dynamic_known_client" +
+                     " port=" + std::to_string(bound_port == 0 ? static_cast<unsigned int>(m_bridge_udp_port)
+                                                               : static_cast<unsigned int>(bound_port)));
         }
+        (void)publish_hosted_server_endpoint("route_set:" + reason);
         return true;
     }
 
@@ -9435,22 +9602,39 @@ namespace WindroseTextSigns
         }
 
         std::ostringstream payload{};
+        const auto relay_host = resolve_hosted_server_advertise_host();
+        const auto relay_port = NativeBridge::instance().server_bound_port() == 0
+            ? static_cast<uint16_t>(m_bridge_udp_port)
+            : NativeBridge::instance().server_bound_port();
+        const auto relay_pid = static_cast<unsigned long long>(GetCurrentProcessId());
         payload << "{\"mod\":\"WindroseTextSigns\",\"schema\":\"bridge.v1\",\"type\":\"" << escape_json(type) << "\""
                 << ",\"session\":\"" << escape_json(m_session_id) << "\""
                 << ",\"worldId\":\"" << escape_json(m_world_folder_id) << "\""
                 << ",\"writer\":\"HostedServerRelay\""
+                << ",\"relayHost\":\"" << escape_json(relay_host) << "\""
+                << ",\"relayPort\":" << static_cast<unsigned int>(relay_port)
+                << ",\"relayPid\":" << relay_pid
+                << ",\"relayEpoch\":" << m_session_epoch
                 << ",\"relayCacheInitialized\":" << (m_hosted_server_cache_initialized ? "true" : "false")
                 << ",\"relayCacheRevision\":" << m_hosted_server_cache_revision
                 << ",\"reason\":\"" << escape_json(reason) << "\""
                 << ",\"epoch\":" << m_session_epoch
                 << "}";
-        const bool sent = NativeBridge::instance().send_to_server(payload.str());
+        const auto payload_text = payload.str();
+        const bool sent = NativeBridge::instance().broadcast_to_clients(payload_text);
+        (void)publish_hosted_server_endpoint("control_message:" + type);
+        m_hosted_server_endpoint_advertised = true;
+        m_hosted_server_endpoint_host = relay_host;
+        m_hosted_server_endpoint_port = relay_port;
         log_line("[bridge-hosted] hosted_server_relay_forward type=" + type +
                  " reason=" + reason +
                  " sent=" + std::string{sent ? "true" : "false"} +
                  " role=" + bridge_role_name(m_bridge_role) +
                  " authority=" + std::string{m_sidecar_authoritative ? "true" : "false"} +
-                 " worldId=" + m_world_folder_id);
+                 " worldId=" + m_world_folder_id +
+                 " host=" + relay_host +
+                 " port=" + std::to_string(static_cast<unsigned int>(relay_port)) +
+                 " pid=" + std::to_string(relay_pid));
         return sent;
     }
 
@@ -9472,7 +9656,7 @@ namespace WindroseTextSigns
         {
             return false;
         }
-        const bool sent = NativeBridge::instance().send_to_server(payload);
+        const bool sent = NativeBridge::instance().broadcast_to_clients(payload);
         log_line("[bridge-hosted] hosted_edit_request_relayed_to_authority type=" + type +
                  " stableId=" + (stable_id.empty() ? "none" : stable_id) +
                  " worldId=" + (world_id.empty() ? "none" : world_id) +
@@ -9541,7 +9725,9 @@ namespace WindroseTextSigns
         const std::string& snapshot_id,
         const int snapshot_count) -> void
     {
-        if (m_bridge_role != BridgeRole::DedicatedServer && m_bridge_role != BridgeRole::ListenHost)
+        if (m_bridge_role != BridgeRole::DedicatedServer &&
+            m_bridge_role != BridgeRole::ListenHost &&
+            !is_hosted_client_authority_context())
         {
             return;
         }
@@ -9592,7 +9778,11 @@ namespace WindroseTextSigns
                 << ",\"reason\":\"" << escape_json(reason) << "\""
                 << "}";
         const auto payload_text = payload.str();
-        const bool sent_clients = NativeBridge::instance().broadcast_to_clients(payload_text);
+        const bool can_direct_broadcast =
+            (m_bridge_role == BridgeRole::DedicatedServer || m_bridge_role == BridgeRole::ListenHost);
+        const bool sent_clients = can_direct_broadcast
+            ? NativeBridge::instance().broadcast_to_clients(payload_text)
+            : false;
         bool sent_hosted_server = false;
         if (is_hosted_client_authority_context())
         {
@@ -9614,7 +9804,9 @@ namespace WindroseTextSigns
 
     auto SignTextMod::broadcast_bridge_clear(const std::string& stable_id, const std::string& world_id, const std::string& reason) -> void
     {
-        if (m_bridge_role != BridgeRole::DedicatedServer && m_bridge_role != BridgeRole::ListenHost)
+        if (m_bridge_role != BridgeRole::DedicatedServer &&
+            m_bridge_role != BridgeRole::ListenHost &&
+            !is_hosted_client_authority_context())
         {
             return;
         }
@@ -9634,7 +9826,11 @@ namespace WindroseTextSigns
                 << ",\"reason\":\"" << escape_json(reason) << "\""
                 << "}";
         const auto payload_text = payload.str();
-        const bool sent_clients = NativeBridge::instance().broadcast_to_clients(payload_text);
+        const bool can_direct_broadcast =
+            (m_bridge_role == BridgeRole::DedicatedServer || m_bridge_role == BridgeRole::ListenHost);
+        const bool sent_clients = can_direct_broadcast
+            ? NativeBridge::instance().broadcast_to_clients(payload_text)
+            : false;
         bool sent_hosted_server = false;
         if (is_hosted_client_authority_context())
         {
@@ -9656,7 +9852,9 @@ namespace WindroseTextSigns
 
     auto SignTextMod::broadcast_bridge_snapshot(const std::string& reason) -> void
     {
-        if (m_bridge_role != BridgeRole::DedicatedServer && m_bridge_role != BridgeRole::ListenHost)
+        if (m_bridge_role != BridgeRole::DedicatedServer &&
+            m_bridge_role != BridgeRole::ListenHost &&
+            !is_hosted_client_authority_context())
         {
             return;
         }
@@ -9694,7 +9892,11 @@ namespace WindroseTextSigns
                 << ",\"reason\":\"" << escape_json(reason) << "\""
                 << "}";
         const auto payload_text = payload.str();
-        const bool sent_clients = NativeBridge::instance().broadcast_to_clients(payload_text);
+        const bool can_direct_broadcast =
+            (m_bridge_role == BridgeRole::DedicatedServer || m_bridge_role == BridgeRole::ListenHost);
+        const bool sent_clients = can_direct_broadcast
+            ? NativeBridge::instance().broadcast_to_clients(payload_text)
+            : false;
         bool sent_hosted_server = false;
         if (is_hosted_client_authority_context())
         {
@@ -10605,6 +10807,22 @@ namespace WindroseTextSigns
         }
         if (type == "hosted_server_hello")
         {
+            const auto relay_host = unescape_json(fields.count("relayHost") ? fields.at("relayHost") : "");
+            const auto relay_port = static_cast<uint16_t>(std::clamp(
+                safe_stoi(fields.count("relayPort") ? fields.at("relayPort") : "0", 0),
+                0,
+                65535));
+            if (!relay_host.empty() && relay_port > 0)
+            {
+                if (m_bridge_role == BridgeRole::RemoteClient && !m_sidecar_authoritative)
+                {
+                    (void)apply_bridge_remote_endpoint(relay_host, relay_port, "hosted_server_hello_remote");
+                }
+                else if (is_hosted_client_authority_context())
+                {
+                    (void)apply_bridge_remote_endpoint(relay_host, relay_port, "hosted_server_hello_authority");
+                }
+            }
             if (is_hosted_client_authority_context())
             {
                 (void)ensure_hosted_client_authority_route("hosted_server_hello");
@@ -10639,6 +10857,22 @@ namespace WindroseTextSigns
         }
         if (type == "hosted_server_resync_request")
         {
+            const auto relay_host = unescape_json(fields.count("relayHost") ? fields.at("relayHost") : "");
+            const auto relay_port = static_cast<uint16_t>(std::clamp(
+                safe_stoi(fields.count("relayPort") ? fields.at("relayPort") : "0", 0),
+                0,
+                65535));
+            if (!relay_host.empty() && relay_port > 0)
+            {
+                if (m_bridge_role == BridgeRole::RemoteClient && !m_sidecar_authoritative)
+                {
+                    (void)apply_bridge_remote_endpoint(relay_host, relay_port, "hosted_server_resync_remote");
+                }
+                else if (is_hosted_client_authority_context())
+                {
+                    (void)apply_bridge_remote_endpoint(relay_host, relay_port, "hosted_server_resync_authority");
+                }
+            }
             if (is_hosted_client_authority_context())
             {
                 (void)ensure_hosted_client_authority_route("hosted_server_resync_request");
@@ -10973,6 +11207,10 @@ namespace WindroseTextSigns
         {
             return;
         }
+        if (is_hosted_client_authority_context())
+        {
+            return;
+        }
 
         if (m_bridge_route_lock_acquired && !m_bridge_route_force_non_loopback)
         {
@@ -11304,6 +11542,10 @@ namespace WindroseTextSigns
         m_hosted_server_snapshot_unavailable_last_by_session.clear();
         m_snapshot_requester_state_by_session.clear();
         m_remote_snapshot_no_cache_backoff_until = {};
+        m_hosted_server_endpoint_advertised = false;
+        m_hosted_server_endpoint_host.clear();
+        m_hosted_server_endpoint_port = 0;
+        m_hosted_server_endpoint_last_read = {};
     }
 
     auto SignTextMod::reset_server_role_classification_state(const std::string& reason) -> void
@@ -11603,11 +11845,10 @@ namespace WindroseTextSigns
         const bool server_pending_classification =
             (runtime_role_lower == "serverrolepending" ||
              lower_ascii(m_authority_mode) == "serverroleclassificationpending");
-        // Resolve bridge role from resolved runtime role first. This avoids
-        // process-shape forcing HostedServer into DedicatedServer.
+        // Resolve bridge role from resolved runtime role first.
         if (runtime_role_lower == "hostedserver")
         {
-            desired = BridgeRole::ListenHost;
+            desired = BridgeRole::DedicatedServer;
         }
         else if (runtime_role_lower == "dedicatedserver")
         {
@@ -11632,7 +11873,7 @@ namespace WindroseTextSigns
         }
         else if (m_sidecar_authoritative && runtime_role_lower == "localclient")
         {
-            desired = BridgeRole::ListenHost;
+            desired = is_local_hosted_runtime() ? BridgeRole::RemoteClient : BridgeRole::ListenHost;
         }
         else if (runtime_role_lower == "remoteclient" || runtime_role_lower.find("remote") != std::string::npos)
         {
@@ -11695,6 +11936,11 @@ namespace WindroseTextSigns
         {
             m_bridge_upnp_last_policy.clear();
         }
+        if (desired != BridgeRole::DedicatedServer)
+        {
+            m_bridge_bind_success_logged = false;
+            m_bridge_bind_failed_logged = false;
+        }
         m_bridge_next_snapshot_request = std::chrono::steady_clock::now();
         log_line("[bridge] role_set reason=" + reason +
                  " role=" + bridge_role_name(m_bridge_role) +
@@ -11702,6 +11948,33 @@ namespace WindroseTextSigns
                  " authorityMode=" + m_authority_mode +
                  " sidecarKind=" + m_sidecar_kind +
                  " authoritative=" + std::string{m_sidecar_authoritative ? "true" : "false"});
+        if (m_bridge_role == BridgeRole::DedicatedServer)
+        {
+            const auto exe_name = current_executable_path().filename().string();
+            const auto pid = static_cast<unsigned long long>(GetCurrentProcessId());
+            const auto bound_port = NativeBridge::instance().server_bound_port();
+            const auto bind_ok = NativeBridge::instance().server_socket_open();
+            if (bind_ok && !m_bridge_bind_success_logged)
+            {
+                m_bridge_bind_success_logged = true;
+                m_bridge_bind_failed_logged = false;
+                log_line("[bridge] bridge_bind_success process=" + (exe_name.empty() ? "unknown" : exe_name) +
+                         " pid=" + std::to_string(pid) +
+                         " port=" + std::to_string(static_cast<unsigned int>(bound_port == 0 ? m_bridge_udp_port : bound_port)) +
+                         " role=" + bridge_role_name(m_bridge_role) +
+                         " runtimeRole=" + m_runtime_role);
+            }
+            else if (!bind_ok && !m_bridge_bind_failed_logged)
+            {
+                m_bridge_bind_failed_logged = true;
+                log_line("[bridge] bridge_bind_failed process=" + (exe_name.empty() ? "unknown" : exe_name) +
+                         " pid=" + std::to_string(pid) +
+                         " port=" + std::to_string(static_cast<unsigned int>(m_bridge_udp_port)) +
+                         " error=" + std::to_string(NativeBridge::instance().server_last_bind_error()) +
+                         " role=" + bridge_role_name(m_bridge_role) +
+                         " runtimeRole=" + m_runtime_role);
+            }
+        }
         maybe_acquire_role_lock(now, "role_set_" + reason);
     }
 
@@ -11939,6 +12212,8 @@ namespace WindroseTextSigns
         m_bridge_route_force_non_loopback = false;
         m_bridge_route_recovery_logged = false;
         m_bridge_route_retry_consumed = false;
+        m_bridge_bind_success_logged = false;
+        m_bridge_bind_failed_logged = false;
         reset_localclient_role_lock_restore_pass_state();
         if (m_bridge_route_auto_enabled)
         {
@@ -11971,7 +12246,8 @@ namespace WindroseTextSigns
         const bool runtime_stable =
             runtime_role_lower == "localclient" ||
             runtime_role_lower == "remoteclient" ||
-            runtime_role_lower == "dedicatedserver";
+            runtime_role_lower == "dedicatedserver" ||
+            runtime_role_lower == "hostedserver";
         const bool bridge_stable =
             m_bridge_role == BridgeRole::DedicatedServer ||
             m_bridge_role == BridgeRole::ListenHost ||
@@ -11999,7 +12275,7 @@ namespace WindroseTextSigns
 
     auto SignTextMod::update_bridge_health(const std::chrono::steady_clock::time_point now) -> void
     {
-        if (m_bridge_role != BridgeRole::RemoteClient)
+        if (m_bridge_role != BridgeRole::RemoteClient || m_sidecar_authoritative)
         {
             m_bridge_health_unhealthy = false;
             m_bridge_health_warning_logged = false;
@@ -12094,6 +12370,10 @@ namespace WindroseTextSigns
     auto SignTextMod::tick_bridge() -> void
     {
         configure_bridge_role("tick");
+        if (is_hosted_client_authority_context())
+        {
+            (void)consume_hosted_server_endpoint("tick");
+        }
         tick_bridge_upnp();
         tick_bridge_route_discovery();
         const auto now = std::chrono::steady_clock::now();
@@ -12136,7 +12416,7 @@ namespace WindroseTextSigns
         }
 
         update_bridge_health(now);
-        if (m_bridge_role == BridgeRole::RemoteClient && now >= m_bridge_next_snapshot_request)
+        if (m_bridge_role == BridgeRole::RemoteClient && !m_sidecar_authoritative && now >= m_bridge_next_snapshot_request)
         {
             if (m_remote_snapshot_no_cache_backoff_until.time_since_epoch().count() != 0 &&
                 now < m_remote_snapshot_no_cache_backoff_until)
