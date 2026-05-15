@@ -236,7 +236,9 @@ namespace WindroseTextSigns
         auto has_world_text_font_override_pak() -> bool;
         auto apply_autosize_defaults_for_font_profile(bool has_override_pak, const std::string& reason) -> void;
         auto refresh_world_text_font_profile(const std::string& reason, bool force_recheck) -> void;
-        auto replay_cached_label_text_after_ready(const std::string& reason) -> void;
+        auto replay_cached_label_text_after_ready(const std::string& reason) -> std::pair<size_t, size_t>;
+        auto queue_first_authoritative_render_pass(const std::string& source, const std::string& world_id) -> void;
+        auto maybe_run_first_authoritative_render_pass(const std::string& trigger) -> void;
         auto resolve_world_text_font_size_limits() -> std::pair<float, float>;
         auto make_managed_component_name(const std::string& storage_key) const -> std::string;
         auto make_managed_row_storage_key(const std::string& storage_key, int row_index) const -> std::string;
@@ -676,6 +678,14 @@ namespace WindroseTextSigns
         bool m_def_ready_server_waiting_client_ready_seen{false};
         bool m_hosted_post_ready_reconcile_done{false};
         bool m_remote_cached_replay_pending_after_ready{false};
+        bool m_first_authoritative_render_pending{false};
+        bool m_first_authoritative_render_completed{false};
+        uint64_t m_first_authoritative_render_epoch{0};
+        std::string m_first_authoritative_render_world_id{};
+        std::string m_first_authoritative_render_source{};
+        uint32_t m_first_authoritative_render_attempts{0};
+        std::chrono::steady_clock::time_point m_first_authoritative_render_last_log{};
+        std::string m_first_authoritative_render_last_reason{};
         uint32_t m_consecutive_empty_label_scans{0};
         bool m_restore_scan_has_seen_live_labels{false};
         bool m_restore_scan_wait_logged{false};
