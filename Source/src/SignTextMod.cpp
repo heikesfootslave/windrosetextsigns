@@ -5503,7 +5503,9 @@ namespace WindroseTextSigns
         {
             install_phase7_keyboard_capture_hook();
             m_phase7_keyboard_capture_active.store(true);
-            m_phase7_force_full_mouse_consume.store(!input_mode_applied);
+            // Do not hard-consume all mouse input; that blocks text box interaction.
+            // Keep first-click arm swallow as the passthrough guard.
+            m_phase7_force_full_mouse_consume.store(false);
         }
         else
         {
@@ -10759,7 +10761,37 @@ namespace WindroseTextSigns
         }
 
         const auto local_hosts = parse_comma_separated_ips(discovered.local_host_summary);
-        // Fallback order: private LAN first, then loopback with explicit local process evidence.
+        const bool public_fallback_window_valid =
+            m_session_window_open ||
+            authority_window_start > 0;
+
+        // Fallback order:
+        // 1) public endpoint candidates (srflx/public) in current epoch/window
+        // 2) private LAN same-subnet candidates
+        // 3) loopback with explicit local process evidence
+        for (const auto& candidate : discovered_candidates)
+        {
+            if (candidate == "127.0.0.1")
+            {
+                continue;
+            }
+            if (!is_public_ipv4(candidate))
+            {
+                continue;
+            }
+            if (!public_fallback_window_valid)
+            {
+                const std::string reject_key = candidate + ":public_fallback_window_closed";
+                if (m_bridge_route_rejected_candidates_logged.insert(reject_key).second)
+                {
+                    log_line("[bridge-route] candidate_rejected host=" + candidate +
+                             " reason=public_fallback_window_closed");
+                }
+                continue;
+            }
+            append_unique_ip(viable_candidates, candidate);
+        }
+
         for (const auto& candidate : discovered_candidates)
         {
             if (candidate == "127.0.0.1")
@@ -10889,8 +10921,25 @@ namespace WindroseTextSigns
             (selected_host == "127.0.0.1" && discovered.same_machine_evidence);
         m_bridge_route_wait_last_reason.clear();
         m_bridge_route_wait_last_log = {};
+        std::string selection_reason = "fallback_unknown";
+        if (authoritative_host.has_value() && selected_host == *authoritative_host)
+        {
+            selection_reason = "authoritative_remoteaddr_endpoint";
+        }
+        else if (selected_host == "127.0.0.1")
+        {
+            selection_reason = "loopback_local_evidence";
+        }
+        else if (is_public_ipv4(selected_host))
+        {
+            selection_reason = "public_fallback";
+        }
+        else if (is_private_ipv4(selected_host))
+        {
+            selection_reason = "private_same_subnet";
+        }
         log_line("[bridge-route] discovered host=" + m_bridge_remote_server_host +
-                 " reason=" + (authoritative_host.has_value() ? std::string{"authoritative_remoteaddr_endpoint"} : discovered.reason) +
+                 " reason=" + selection_reason +
                  " port=" + std::to_string(m_bridge_udp_port) +
                  " logPath=" + (discovered.log_path.empty() ? "unknown" : discovered.log_path.string()) +
                  " remoteHostCandidate=" + (discovered.remote_host_candidate.empty() ? "none" : discovered.remote_host_candidate) +
