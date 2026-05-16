@@ -2033,6 +2033,9 @@ namespace
 
         const auto input_lines = split_lines_preserve_breaks(input_text);
         const bool has_explicit_line_breaks = (input_lines.size() > 1);
+        const bool single_line_single_word_input =
+            input_lines.size() == 1 &&
+            split_words(input_lines.front()).size() == 1;
         const int explicit_rows = static_cast<int>(input_lines.size());
         int input_total_chars = 0;
         for (const auto& line : input_lines)
@@ -2085,13 +2088,17 @@ namespace
                 }
 
                 auto line_words = split_words(raw_line);
-                // For explicit multi-line input, preserve a single typed word per line
-                // whenever possible. If a single word does not fit the current width,
-                // force a smaller font first instead of splitting the word across rows.
-                // Only allow intra-word splitting at the absolute minimum font as a
-                // last-resort fallback when there is no smaller font left to try.
-                if (has_explicit_line_breaks &&
-                    line_words.size() == 1 &&
+                // Preserve single words on one line whenever possible.
+                // If a line contains exactly one word and it does not fit the current
+                // width, force a smaller font first instead of splitting that word.
+                // This applies both to explicit multi-line input and single-line single-word
+                // input (e.g., "Hardwood"). Intra-word splitting is only allowed at the
+                // absolute minimum font as a last-resort fallback.
+                const bool single_word_line = line_words.size() == 1;
+                const bool preserve_single_word_line =
+                    single_word_line &&
+                    (has_explicit_line_breaks || single_line_single_word_input);
+                if (preserve_single_word_line &&
                     static_cast<int>(line_words.front().size()) > char_limit &&
                     font > (k_font_min + 0.001f))
                 {
