@@ -407,6 +407,9 @@ namespace WindroseTextSigns
         std::string m_bridge_route_probe_token{};
         std::string m_bridge_route_probe_host{};
         std::string m_bridge_route_probe_source{};
+        bool m_bridge_route_staged_active{false};
+        std::string m_bridge_route_staged_host{};
+        std::string m_bridge_route_staged_source{};
         std::chrono::steady_clock::time_point m_bridge_route_probe_deadline{};
         std::unordered_set<std::string> m_bridge_route_rejected_candidates_logged{};
         std::unordered_set<std::string> m_bridge_route_fallback_candidates_logged{};

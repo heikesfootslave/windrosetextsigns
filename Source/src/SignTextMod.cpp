@@ -9449,6 +9449,14 @@ namespace WindroseTextSigns
         {
             return;
         }
+        if (!has_viable_remote_route_for_snapshot())
+        {
+            log_line("[bridge-route] send_blocked type=snapshot_request reason=no_valid_committed_route" +
+                     std::string(" role=") + bridge_role_name(m_bridge_role) +
+                     " routeHost=" + (m_bridge_remote_server_host.empty() ? "none" : m_bridge_remote_server_host) +
+                     " routeLocked=" + std::string{m_bridge_route_lock_acquired ? "true" : "false"});
+            return;
+        }
         const auto now = std::chrono::steady_clock::now();
         if (!m_bridge_snapshot_received)
         {
@@ -9615,24 +9623,24 @@ namespace WindroseTextSigns
             return false;
         }
 
+        const bool staged_changed =
+            !m_bridge_route_staged_active ||
+            m_bridge_route_staged_host != trimmed_host ||
+            m_bridge_udp_port != static_cast<int>(port) ||
+            m_bridge_route_staged_source != reason;
         m_bridge_remote_server_host = trimmed_host;
         m_bridge_udp_port = static_cast<int>(port);
         NativeBridge::instance().set_remote_server(m_bridge_remote_server_host, port);
-        m_bridge_route_lock_acquired = true;
-        m_bridge_route_locked_host = m_bridge_remote_server_host;
-        m_bridge_route_loopback_same_machine_ok = (m_bridge_remote_server_host == "127.0.0.1");
-        m_bridge_route_force_non_loopback = false;
-        m_bridge_route_recovery_logged = false;
-        m_bridge_route_wait_last_log = {};
-        m_bridge_route_wait_last_reason.clear();
-        m_bridge_next_snapshot_request = std::chrono::steady_clock::now();
-        m_bridge_snapshot_received = false;
-        m_bridge_snapshot_retry_attempts = 0;
-        m_bridge_sync_wait_started = std::chrono::steady_clock::now();
-        log_line("[bridge-route] advertised_endpoint_applied host=" + m_bridge_remote_server_host +
-                 " port=" + std::to_string(static_cast<unsigned int>(port)) +
-                 " reason=" + reason);
-        return true;
+        m_bridge_route_staged_active = true;
+        m_bridge_route_staged_host = m_bridge_remote_server_host;
+        m_bridge_route_staged_source = reason;
+        if (staged_changed)
+        {
+            log_line("[bridge-route] route_endpoint_staged host=" + m_bridge_remote_server_host +
+                     " port=" + std::to_string(static_cast<unsigned int>(port)) +
+                     " reason=" + reason);
+        }
+        return staged_changed;
     }
 
     auto SignTextMod::consume_hosted_server_endpoint(const std::string& reason) -> bool
@@ -9725,6 +9733,15 @@ namespace WindroseTextSigns
 
         if (!ensure_hosted_client_authority_route(reason))
         {
+            return false;
+        }
+        if (!has_viable_remote_route_for_snapshot())
+        {
+            log_line("[bridge-route] send_blocked type=" + type +
+                     " reason=no_valid_committed_route role=" + bridge_role_name(m_bridge_role) +
+                     " routeHost=" + (m_bridge_remote_server_host.empty() ? "none" : m_bridge_remote_server_host) +
+                     " routeLocked=" + std::string{m_bridge_route_lock_acquired ? "true" : "false"} +
+                     " context=hosted_authority_to_server");
             return false;
         }
         const bool sent = NativeBridge::instance().send_to_server(payload);
@@ -9833,6 +9850,16 @@ namespace WindroseTextSigns
     {
         if (m_bridge_role != BridgeRole::RemoteClient)
         {
+            return false;
+        }
+        if (!has_viable_remote_route_for_snapshot())
+        {
+            log_line("[bridge-route] send_blocked type=" + request_type +
+                     " reason=no_valid_committed_route role=" + bridge_role_name(m_bridge_role) +
+                     " routeHost=" + (m_bridge_remote_server_host.empty() ? "none" : m_bridge_remote_server_host) +
+                     " routeLocked=" + std::string{m_bridge_route_lock_acquired ? "true" : "false"} +
+                     " stableId=" + rec.stable_id +
+                     " worldId=" + rec.world_id);
             return false;
         }
 
@@ -11479,10 +11506,6 @@ namespace WindroseTextSigns
         {
             return;
         }
-        if (is_hosted_client_authority_context())
-        {
-            return;
-        }
 
         const auto now = std::chrono::steady_clock::now();
         if (m_bridge_route_lock_acquired)
@@ -11799,17 +11822,12 @@ namespace WindroseTextSigns
             selected_host == m_bridge_route_last_discovered_host &&
             selected_host == m_bridge_remote_server_host)
         {
-            // Keep low-noise route handling deterministic: lock to the first viable route.
-            m_bridge_route_lock_acquired = true;
-            m_bridge_route_locked_host = selected_host;
-            m_bridge_route_loopback_same_machine_ok =
-                (selected_host == "127.0.0.1" && discovered.same_machine_evidence);
-            m_bridge_route_wait_last_reason.clear();
-            m_bridge_route_wait_last_log = {};
-            log_line("[bridge-route] lock_acquired host=" + m_bridge_route_locked_host +
-                     " reason=first_viable_candidate");
-            trace_behavior_sm("route_lock_acquired",
-                              "host=" + m_bridge_route_locked_host + " reason=first_viable_candidate");
+            (void)apply_bridge_remote_endpoint(
+                selected_host,
+                static_cast<uint16_t>(m_bridge_udp_port),
+                "legacy_discovery_first_viable_candidate");
+            log_line("[bridge-route] route_lock_pending reason=probe_required_for_legacy_discovery host=" +
+                     selected_host + ":" + std::to_string(m_bridge_udp_port));
             return;
         }
 
@@ -11828,12 +11846,10 @@ namespace WindroseTextSigns
             m_bridge_health_warning_logged = false;
         }
 
-        m_bridge_route_lock_acquired = true;
-        m_bridge_route_locked_host = selected_host;
-        m_bridge_route_loopback_same_machine_ok =
-            (selected_host == "127.0.0.1" && discovered.same_machine_evidence);
-        m_bridge_route_wait_last_reason.clear();
-        m_bridge_route_wait_last_log = {};
+        (void)apply_bridge_remote_endpoint(
+            selected_host,
+            static_cast<uint16_t>(m_bridge_udp_port),
+            "legacy_discovery_selected_host");
         std::string selection_reason = "fallback_unknown";
         if (authoritative_host.has_value() && selected_host == *authoritative_host)
         {
@@ -11860,10 +11876,8 @@ namespace WindroseTextSigns
                  " localHosts=" + discovered.local_host_summary +
                  " authoritativeRemoteAddr=" + (authoritative_host.has_value() ? *authoritative_host : std::string{"none"}) +
                  " candidates=" + summarize_ips(viable_candidates));
-        log_line("[bridge-route] lock_acquired host=" + m_bridge_route_locked_host +
-                 " reason=first_viable_candidate");
-        trace_behavior_sm("route_lock_acquired",
-                          "host=" + m_bridge_route_locked_host + " reason=first_viable_candidate");
+        log_line("[bridge-route] route_lock_pending reason=probe_required_for_legacy_discovery host=" +
+                 selected_host + ":" + std::to_string(m_bridge_udp_port));
     }
 
     auto SignTextMod::build_route_probe_candidates() -> std::vector<std::pair<std::string, std::string>>
@@ -11898,6 +11912,13 @@ namespace WindroseTextSigns
             }
             candidates.emplace_back(host, source);
         };
+
+        // Any externally provided endpoint (hosted endpoint file, hello/resync relay, definitive endpoint)
+        // is staged first and must still pass route probe before lock commit.
+        if (m_bridge_route_staged_active && !m_bridge_route_staged_host.empty())
+        {
+            add_candidate(m_bridge_route_staged_host, "staged:" + m_bridge_route_staged_source);
+        }
 
         // Same-machine loopback first only with explicit evidence.
         if (discovered.same_machine_evidence && has_local_windrose_and_server_process_evidence())
@@ -11995,6 +12016,9 @@ namespace WindroseTextSigns
             static_cast<uint16_t>(m_bridge_udp_port));
         m_bridge_route_lock_acquired = true;
         m_bridge_route_locked_host = host;
+        m_bridge_route_staged_active = false;
+        m_bridge_route_staged_host.clear();
+        m_bridge_route_staged_source.clear();
         m_bridge_route_loopback_same_machine_ok = (host == "127.0.0.1");
         m_bridge_route_force_non_loopback = false;
         m_bridge_route_recovery_logged = false;
@@ -12086,6 +12110,9 @@ namespace WindroseTextSigns
         m_bridge_route_probe_token.clear();
         m_bridge_route_probe_host.clear();
         m_bridge_route_probe_source.clear();
+        m_bridge_route_staged_active = false;
+        m_bridge_route_staged_host.clear();
+        m_bridge_route_staged_source.clear();
         m_bridge_route_probe_deadline = {};
     }
 
@@ -12210,6 +12237,10 @@ namespace WindroseTextSigns
             profile_root = std::filesystem::path{m_save_profile_root};
         }
         std::string world_id = is_hex_world_id(m_world_folder_id) ? m_world_folder_id : std::string{"unknown-world"};
+        if (!is_hex_world_id(world_id) && is_hex_world_id(m_worldid_latched_id))
+        {
+            world_id = m_worldid_latched_id;
+        }
         if (!is_hex_world_id(world_id) && !profile_root.empty())
         {
             if (auto chosen = choose_world_id_for_profile(profile_root); chosen.has_value())
@@ -12978,6 +13009,20 @@ namespace WindroseTextSigns
             }
             if (!has_viable_remote_route_for_snapshot())
             {
+                const bool should_log_blocked =
+                    m_bridge_route_wait_last_reason != "no_valid_committed_route_for_snapshot_send" ||
+                    m_bridge_route_wait_last_log.time_since_epoch().count() == 0 ||
+                    (now - m_bridge_route_wait_last_log) >= std::chrono::seconds(5);
+                if (should_log_blocked)
+                {
+                    log_line("[bridge-route] send_blocked type=snapshot_request reason=no_valid_committed_route" +
+                             std::string(" role=") + bridge_role_name(m_bridge_role) +
+                             " routeHost=" + (m_bridge_remote_server_host.empty() ? "none" : m_bridge_remote_server_host) +
+                             " routeLocked=" + std::string{m_bridge_route_lock_acquired ? "true" : "false"} +
+                             " nextRetrySec=5");
+                    m_bridge_route_wait_last_reason = "no_valid_committed_route_for_snapshot_send";
+                    m_bridge_route_wait_last_log = now;
+                }
                 m_bridge_next_snapshot_request = now + std::chrono::seconds(5);
             }
             else
@@ -15357,27 +15402,6 @@ namespace WindroseTextSigns
         {
             return;
         }
-        const auto chunk_start_offset = m_destroy_signal_log_offset;
-        input.seekg(static_cast<std::streamoff>(m_destroy_signal_log_offset), std::ios::beg);
-        const auto bytes_to_read = std::min<uintmax_t>(size - m_destroy_signal_log_offset, 262144);
-        std::string chunk{};
-        chunk.resize(static_cast<size_t>(bytes_to_read));
-        input.read(chunk.data(), static_cast<std::streamsize>(chunk.size()));
-        chunk.resize(static_cast<size_t>(std::max<std::streamsize>(0, input.gcount())));
-        m_destroy_signal_log_offset = size;
-        if (chunk.empty())
-        {
-            if (server_runtime_process)
-            {
-                maybe_commit_server_role_classification(now, "r5log_empty_chunk");
-            }
-            return;
-        }
-        if (server_runtime_process)
-        {
-            maybe_begin_server_role_classification(m_destroy_signal_log_path, chunk_start_offset);
-        }
-
         static const std::regex slot_token_rx{R"((BuildingBlock)\|([A-Fa-f0-9]{16,32})\|([0-9]+))", std::regex::icase};
         static const std::regex guid_key_value_rx{R"((?:BuildingGuid|Guid|ActorGuid)\s*[:=]\s*([A-Fa-f0-9]{16,32}))", std::regex::icase};
         static const std::regex guid_any_rx{R"(\b([A-Fa-f0-9]{32})\b)"};
@@ -15385,9 +15409,10 @@ namespace WindroseTextSigns
         static const std::regex construct_block_rx{
             R"(Construct\s+BuildingBlock\s+([0-9]+)\s+from\s+building\s+([A-Fa-f0-9]{16,32}))",
             std::regex::icase};
-        std::istringstream lines{chunk};
-        std::string line{};
-        uintmax_t line_offset = chunk_start_offset;
+        constexpr uintmax_t k_r5_read_chunk_bytes = 262144;
+        constexpr int k_r5_max_chunks_per_tick = 8;
+        bool backlog_logged_this_tick = false;
+        int chunks_processed = 0;
         const auto try_begin_definitive_reset = [&](const std::string& category,
                                                     const std::string& signal,
                                                     const std::string& world_hint) -> bool {
@@ -15411,123 +15436,160 @@ namespace WindroseTextSigns
             m_definitive_session_reset_last_signature = signature;
             return true;
         };
-        while (std::getline(lines, line))
+
+        while (m_destroy_signal_log_offset < size && chunks_processed < k_r5_max_chunks_per_tick)
         {
-            const auto line_lower = lower_ascii(line);
-            const auto line_start = line_offset;
-            const auto line_end = line_start + static_cast<uintmax_t>(line.size()) + 1;
-            line_offset = line_end;
+            const auto chunk_start_offset = m_destroy_signal_log_offset;
+            const auto remaining_bytes = size - chunk_start_offset;
+            if (!backlog_logged_this_tick && remaining_bytes > k_r5_read_chunk_bytes)
+            {
+                const auto chunk_count_estimate =
+                    static_cast<unsigned long long>((remaining_bytes + k_r5_read_chunk_bytes - 1) / k_r5_read_chunk_bytes);
+                log_line("[save] r5log_backlog_detected bytes=" +
+                         std::to_string(static_cast<unsigned long long>(remaining_bytes)) +
+                         " chunkBytes=" + std::to_string(static_cast<unsigned long long>(k_r5_read_chunk_bytes)) +
+                         " estimatedChunks=" + std::to_string(chunk_count_estimate) +
+                         " maxChunksThisTick=" + std::to_string(k_r5_max_chunks_per_tick));
+                backlog_logged_this_tick = true;
+            }
+            input.clear();
+            input.seekg(static_cast<std::streamoff>(chunk_start_offset), std::ios::beg);
+            const auto bytes_to_read = std::min<uintmax_t>(remaining_bytes, k_r5_read_chunk_bytes);
+            std::string chunk{};
+            chunk.resize(static_cast<size_t>(bytes_to_read));
+            input.read(chunk.data(), static_cast<std::streamsize>(chunk.size()));
+            chunk.resize(static_cast<size_t>(std::max<std::streamsize>(0, input.gcount())));
+            if (chunk.empty())
+            {
+                break;
+            }
+            m_destroy_signal_log_offset = chunk_start_offset + static_cast<uintmax_t>(chunk.size());
+            ++chunks_processed;
             if (server_runtime_process)
             {
-                maybe_observe_server_role_signal(line_lower, line_start, line_end);
+                maybe_begin_server_role_classification(m_destroy_signal_log_path, chunk_start_offset);
             }
 
-            const auto commit_client_role_from_start_signal = [&](const std::string& start_signal) {
-                std::filesystem::path profile_root{};
-                if (!m_save_profile_root.empty() && std::filesystem::exists(m_save_profile_root))
+            std::istringstream lines{chunk};
+            std::string line{};
+            uintmax_t line_offset = chunk_start_offset;
+            while (std::getline(lines, line))
+            {
+                const auto line_lower = lower_ascii(line);
+                const auto line_start = line_offset;
+                const auto line_end = line_start + static_cast<uintmax_t>(line.size()) + 1;
+                line_offset = line_end;
+                if (server_runtime_process)
                 {
-                    profile_root = std::filesystem::path{m_save_profile_root};
+                    maybe_observe_server_role_signal(line_lower, line_start, line_end);
                 }
-                else
-                {
-                    const auto profile_roots = collect_local_client_save_profile_roots();
-                    if (!profile_roots.empty())
+
+                const auto commit_client_role_from_start_signal = [&](const std::string& start_signal) {
+                    std::filesystem::path profile_root{};
+                    if (!m_save_profile_root.empty() && std::filesystem::exists(m_save_profile_root))
                     {
-                        profile_root = profile_roots.front();
+                        profile_root = std::filesystem::path{m_save_profile_root};
+                    }
+                    else
+                    {
+                        const auto profile_roots = collect_local_client_save_profile_roots();
+                        if (!profile_roots.empty())
+                        {
+                            profile_root = profile_roots.front();
+                        }
+                    }
+
+                    const std::string pending_world_id = "pending-world";
+                    std::filesystem::path startup_root{};
+                    if (!profile_root.empty())
+                    {
+                        startup_root = profile_root / "WindroseTextSigns" / "StartupCache";
+                    }
+                    else
+                    {
+                        startup_root = m_mod_root / "Cache" / "StartupCache";
+                    }
+
+                    if (start_signal == "client_readytoplay_to_verifyingcoopconnection")
+                    {
+                        set_sidecar_route(
+                            startup_root / "RemoteClient",
+                            "RemoteClient",
+                            "RemoteClientStartupCache",
+                            "ServerAuthoritativePendingBridge",
+                            "startup-cache",
+                            false,
+                            profile_root,
+                            pending_world_id,
+                            "definitive_start_signal");
+                    }
+                    else
+                    {
+                        set_sidecar_route(
+                            startup_root / "LocalClient",
+                            "LocalClient",
+                            "LocalClientAuthoritativeStartupCache",
+                            "LocalClientSoloOrHostedAuthoritative",
+                            "authoritative-startup-cache",
+                            true,
+                            profile_root,
+                            pending_world_id,
+                            "definitive_start_signal");
+                    }
+                    configure_bridge_role("definitive_start_signal");
+                    maybe_acquire_role_lock(now, "definitive_start_signal");
+                    log_line("[role] definitive_start_role_lock signal=" + start_signal +
+                             " runtimeRole=" + m_runtime_role +
+                             " bridgeRole=" + bridge_role_name(m_bridge_role) +
+                             " authoritative=" + std::string{m_sidecar_authoritative ? "true" : "false"} +
+                             " worldId=" + pending_world_id);
+                };
+
+                std::string definitive_start_signal{};
+                if (!server_runtime_process)
+                {
+                    if (line_lower.find("startcoopofflinegameonselectedworld") != std::string::npos)
+                    {
+                        definitive_start_signal = "startcoopofflinegameonselectedworld";
+                    }
+                    else if (line_lower.find("client. change state readytoplay => verifyingcoopconnection") != std::string::npos)
+                    {
+                        const bool hosted_client_already_locked =
+                            m_role_lock_acquired &&
+                            lower_ascii(m_runtime_role) == "localclient" &&
+                            lower_ascii(m_definitive_session_start_signal) == "client_readytoplay_to_startcoophostserver";
+                        if (!hosted_client_already_locked)
+                        {
+                            definitive_start_signal = "client_readytoplay_to_verifyingcoopconnection";
+                        }
+                    }
+                    else if (line_lower.find("client. change state readytoplay => startcoophostserver") != std::string::npos)
+                    {
+                        definitive_start_signal = "client_readytoplay_to_startcoophostserver";
                     }
                 }
+                if (!definitive_start_signal.empty() &&
+                    try_begin_definitive_reset("start", definitive_start_signal, "none"))
+                {
+                    log_line("[session] definitive_start_detected signal=" + definitive_start_signal + " worldHint=none");
+                    reset_session_state("definitive_session_start");
+                    // Anchor at the definitive-start line itself so all immediately-following
+                    // lines are guaranteed in-window for this epoch.
+                    open_session_window(definitive_start_signal, m_destroy_signal_log_path, line_start);
+                    log_line("[session] definitive_start_anchor epoch=" + std::to_string(m_session_epoch) +
+                             " signal=" + definitive_start_signal +
+                             " startOffset=" + std::to_string(static_cast<unsigned long long>(line_start)));
+                    commit_client_role_from_start_signal(definitive_start_signal);
+                    log_line("[session] reset_extended_clears applied=true");
+                }
 
-                const std::string pending_world_id = "pending-world";
-                std::filesystem::path startup_root{};
-                if (!profile_root.empty())
+                const bool line_in_active_session_window =
+                    m_session_window_open &&
+                    line_start >= m_session_window_start_offset;
+                if (line_in_active_session_window)
                 {
-                    startup_root = profile_root / "WindroseTextSigns" / "StartupCache";
+                    m_session_window_end_offset = line_end;
                 }
-                else
-                {
-                    startup_root = m_mod_root / "Cache" / "StartupCache";
-                }
-
-                if (start_signal == "client_readytoplay_to_verifyingcoopconnection")
-                {
-                    set_sidecar_route(
-                        startup_root / "RemoteClient",
-                        "RemoteClient",
-                        "RemoteClientStartupCache",
-                        "ServerAuthoritativePendingBridge",
-                        "startup-cache",
-                        false,
-                        profile_root,
-                        pending_world_id,
-                        "definitive_start_signal");
-                }
-                else
-                {
-                    set_sidecar_route(
-                        startup_root / "LocalClient",
-                        "LocalClient",
-                        "LocalClientAuthoritativeStartupCache",
-                        "LocalClientSoloOrHostedAuthoritative",
-                        "authoritative-startup-cache",
-                        true,
-                        profile_root,
-                        pending_world_id,
-                        "definitive_start_signal");
-                }
-                configure_bridge_role("definitive_start_signal");
-                maybe_acquire_role_lock(now, "definitive_start_signal");
-                log_line("[role] definitive_start_role_lock signal=" + start_signal +
-                         " runtimeRole=" + m_runtime_role +
-                         " bridgeRole=" + bridge_role_name(m_bridge_role) +
-                         " authoritative=" + std::string{m_sidecar_authoritative ? "true" : "false"} +
-                         " worldId=" + pending_world_id);
-            };
-
-            std::string definitive_start_signal{};
-            if (!server_runtime_process)
-            {
-                if (line_lower.find("startcoopofflinegameonselectedworld") != std::string::npos)
-                {
-                    definitive_start_signal = "startcoopofflinegameonselectedworld";
-                }
-                else if (line_lower.find("client. change state readytoplay => verifyingcoopconnection") != std::string::npos)
-                {
-                    const bool hosted_client_already_locked =
-                        m_role_lock_acquired &&
-                        lower_ascii(m_runtime_role) == "localclient" &&
-                        lower_ascii(m_definitive_session_start_signal) == "client_readytoplay_to_startcoophostserver";
-                    if (!hosted_client_already_locked)
-                    {
-                        definitive_start_signal = "client_readytoplay_to_verifyingcoopconnection";
-                    }
-                }
-                else if (line_lower.find("client. change state readytoplay => startcoophostserver") != std::string::npos)
-                {
-                    definitive_start_signal = "client_readytoplay_to_startcoophostserver";
-                }
-            }
-            if (!definitive_start_signal.empty() &&
-                try_begin_definitive_reset("start", definitive_start_signal, "none"))
-            {
-                log_line("[session] definitive_start_detected signal=" + definitive_start_signal + " worldHint=none");
-                reset_session_state("definitive_session_start");
-                // Anchor at the definitive-start line itself so all immediately-following
-                // lines are guaranteed in-window for this epoch.
-                open_session_window(definitive_start_signal, m_destroy_signal_log_path, line_start);
-                log_line("[session] definitive_start_anchor epoch=" + std::to_string(m_session_epoch) +
-                         " signal=" + definitive_start_signal +
-                         " startOffset=" + std::to_string(static_cast<unsigned long long>(line_start)));
-                commit_client_role_from_start_signal(definitive_start_signal);
-                log_line("[session] reset_extended_clears applied=true");
-            }
-
-            const bool line_in_active_session_window =
-                m_session_window_open &&
-                line_start >= m_session_window_start_offset;
-            if (line_in_active_session_window)
-            {
-                m_session_window_end_offset = line_end;
-            }
 
             if (!server_runtime_process)
             {
@@ -15663,10 +15725,10 @@ namespace WindroseTextSigns
                 }
             }
 
-            if (!parse_destroy_construct_signals)
-            {
-                continue;
-            }
+                if (!parse_destroy_construct_signals)
+                {
+                    continue;
+                }
 
             const bool destroy_rule = line_lower.find("destroyrule::do_impl") != std::string::npos;
             const bool construct_rule = line_lower.find("constructrule::do_impl") != std::string::npos;
@@ -15753,6 +15815,15 @@ namespace WindroseTextSigns
                     }
                 }
             }
+            }
+        }
+        if (m_destroy_signal_log_offset < size && chunks_processed >= k_r5_max_chunks_per_tick)
+        {
+            const auto remaining = size - m_destroy_signal_log_offset;
+            log_line("[save] r5log_backlog_catchup_deferred remainingBytes=" +
+                     std::to_string(static_cast<unsigned long long>(remaining)) +
+                     " chunksProcessed=" + std::to_string(chunks_processed) +
+                     " maxChunksThisTick=" + std::to_string(k_r5_max_chunks_per_tick));
         }
         if (server_runtime_process)
         {
@@ -17623,6 +17694,94 @@ namespace WindroseTextSigns
                     }
                 }
                 maybe_prewarm_phase7_umg_editor();
+            }
+        }
+        else
+        {
+            if (!m_session_ready_latched)
+            {
+                std::string definitive_signal{};
+                std::string definitive_reason{};
+                const bool definitive_ready = is_definitive_ready_signal_observed(&definitive_signal, &definitive_reason);
+                const std::string candidate_sig =
+                    "server_candidate|" + m_runtime_role + "|" + (definitive_ready ? std::string{"definitive"} : definitive_reason);
+                const bool candidate_changed = m_ready_latch_blocked_last_signature != candidate_sig;
+                const bool candidate_heartbeat =
+                    m_ready_latch_blocked_last_log.time_since_epoch().count() == 0 ||
+                    (now - m_ready_latch_blocked_last_log) >= std::chrono::seconds(20);
+                if (candidate_changed || candidate_heartbeat)
+                {
+                    m_ready_latch_blocked_last_signature = candidate_sig;
+                    m_ready_latch_blocked_last_log = now;
+                    log_line("[session] server_ready_latch_candidate epoch=" + std::to_string(m_session_epoch) +
+                             " role=" + m_runtime_role +
+                             " definitive=" + std::string{definitive_ready ? "true" : "false"} +
+                             " reason=" + definitive_reason +
+                             (candidate_heartbeat && !candidate_changed ? " heartbeat=true" : ""));
+                }
+                if (definitive_ready)
+                {
+                    std::string ready_reason{};
+                    if (is_session_ready_for_role_resolution(&ready_reason))
+                    {
+                        m_session_ready_latched = true;
+                        m_ready_latch_blocked_last_signature.clear();
+                        m_ready_latch_blocked_last_log = {};
+                        m_ready_latch_blocked_first_seen = {};
+                        m_ready_latch_blocked_count = 0;
+                        refresh_world_text_font_profile("server_ready_latch", true);
+                        m_world_text_font_profile_ready_latched = true;
+                        m_phase7_teardown_skip_logged = false;
+                        m_ready_baseline_live_keys.clear();
+                        m_ready_baseline_capture_remaining_scans = 2;
+                        m_session_ready_world_id = is_hex_world_id(m_world_folder_id) ? m_world_folder_id : std::string{};
+                        log_line("[session] ready_latched epoch=" + std::to_string(m_session_epoch) +
+                                 " world=" + (m_session_ready_world_id.empty() ? "unknown" : m_session_ready_world_id) +
+                                 " role=" + m_runtime_role +
+                                 " signal=" + definitive_signal +
+                                 " reason=" + (ready_reason.empty() ? "unknown" : ready_reason));
+
+                        const bool world_bound = bind_worldid_for_epoch_if_ready("server_ready_latch");
+                        if (world_bound)
+                        {
+                            const bool hosted_server = lower_ascii(m_runtime_role) == "hostedserver";
+                            apply_server_role_classification(
+                                hosted_server,
+                                hosted_server ? "server_ready_worldid_bind_hosted" : "server_ready_worldid_bind_dedicated");
+                            configure_bridge_role("server_ready_worldid_bind");
+                            log_line("[session] server_worldid_bound epoch=" + std::to_string(m_session_epoch) +
+                                     " role=" + m_runtime_role +
+                                     " worldId=" + m_worldid_latched_id);
+                            if (hosted_server)
+                            {
+                                m_hosted_server_next_hello = now;
+                                m_hosted_server_next_resync_request = now;
+                                log_line("[bridge-hosted] hosted_server_post_ready_relay_bootstrap epoch=" +
+                                         std::to_string(m_session_epoch) +
+                                         " worldId=" + m_world_folder_id);
+                            }
+                        }
+                        else
+                        {
+                            log_line("[session] server_worldid_bind_pending epoch=" + std::to_string(m_session_epoch) +
+                                     " role=" + m_runtime_role);
+                        }
+                    }
+                }
+            }
+            else if (bind_worldid_for_epoch_if_ready("server_ready_latch_followup"))
+            {
+                const bool hosted_server = lower_ascii(m_runtime_role) == "hostedserver";
+                if (!is_hex_world_id(m_world_folder_id) || lower_ascii(m_world_folder_id) != lower_ascii(m_worldid_latched_id))
+                {
+                    apply_server_role_classification(
+                        hosted_server,
+                        hosted_server ? "server_ready_worldid_followup_hosted" : "server_ready_worldid_followup_dedicated");
+                    configure_bridge_role("server_ready_worldid_followup");
+                    log_line("[session] server_worldid_bound_followup epoch=" + std::to_string(m_session_epoch) +
+                             " role=" + m_runtime_role +
+                             " worldId=" + m_worldid_latched_id);
+                }
             }
         }
         tick_bridge();
