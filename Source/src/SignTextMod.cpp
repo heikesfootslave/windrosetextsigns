@@ -5166,7 +5166,6 @@ namespace WindroseTextSigns
             safe_stof(config_string_value("WTS_LOCALCLIENT_CONTROLLER_PROBE_INTERVAL_SEC", "0.2"), 0.2f),
             0.1f,
             1.0f);
-        m_world_text_font_enabled = config_bool_value("WTS_WORLD_TEXT_FONT_ENABLED", false);
         const auto hotkey_config_value = config_string_value("WTS_HOTKEY", "F8");
         m_hotkey_vk = hotkey_vk_from_config(hotkey_config_value, k_default_hotkey_vk);
         m_hotkey_name = display_name_for_vk(m_hotkey_vk);
@@ -5233,8 +5232,7 @@ namespace WindroseTextSigns
                  std::string{m_hide_native_label_icon_enabled ? "true" : "false"} +
                  " diagnostics=" +
                  std::string{m_label_text_visual_diagnostics_enabled ? "true" : "false"});
-        log_line("[phase4-font] config enabled=" + std::string{m_world_text_font_enabled ? "true" : "false"} +
-                 " asset=" + config_string_value("WTS_WORLD_TEXT_FONT_ASSET", "none") +
+        log_line("[phase4-font] config asset=" + config_string_value("WTS_WORLD_TEXT_FONT_ASSET", "none") +
                  " hint=" + config_string_value("WTS_WORLD_TEXT_FONT_NAME_HINT", "") +
                  " nativeFallback=" + std::string{config_bool_value("WTS_WORLD_TEXT_FONT_NATIVE_FALLBACK", false) ? "true" : "false"});
         log_line("[native-transport-probe] config enabled=" +
@@ -7580,7 +7578,16 @@ namespace WindroseTextSigns
             m_restore_scan_cycle_counter = 0;
             reset_localclient_role_lock_restore_pass_state();
             reset_visual_verify_debug_state();
-            reset_bridge_snapshot_state("sidecar_route_change");
+            // Route path migration inside the same epoch (for example pending-world -> real world id)
+            // must not clear route probe/gate/lock state. Reset only snapshot/cache payload state.
+            if (m_role_lock_acquired && reason.rfind("session_reset_", 0) != 0)
+            {
+                reset_bridge_snapshot_payload_state("sidecar_route_change_locked_session");
+            }
+            else
+            {
+                reset_bridge_snapshot_payload_state("sidecar_route_change");
+            }
             m_bridge_next_snapshot_request = std::chrono::steady_clock::now();
             load_sidecar_json();
         }
@@ -11802,7 +11809,7 @@ namespace WindroseTextSigns
         }
     }
 
-    auto SignTextMod::reset_bridge_snapshot_state(const std::string& reason) -> void
+    auto SignTextMod::reset_bridge_snapshot_payload_state(const std::string& reason) -> void
     {
         (void)reason;
         m_bridge_snapshot_received = false;
@@ -11836,6 +11843,11 @@ namespace WindroseTextSigns
         m_hosted_server_endpoint_host.clear();
         m_hosted_server_endpoint_port = 0;
         m_hosted_server_endpoint_last_read = {};
+    }
+
+    auto SignTextMod::reset_bridge_snapshot_state(const std::string& reason) -> void
+    {
+        reset_bridge_snapshot_payload_state(reason);
         reset_route_probe_state("reset_bridge_snapshot_state");
     }
 
@@ -12961,11 +12973,16 @@ namespace WindroseTextSigns
         {
             blocked_reason = "role_not_locked";
         }
-        else if (!is_world_bound_operation_allowed("first_authoritative_render_pass", &blocked_reason))
+        else
         {
-            // blocked_reason populated by world-bound guard.
+            std::string world_bound_reason{};
+            if (!is_world_bound_operation_allowed("first_authoritative_render_pass", &world_bound_reason))
+            {
+                blocked_reason = world_bound_reason.empty() ? "world_bound_blocked" : world_bound_reason;
+            }
         }
-        else if (is_hex_world_id(m_first_authoritative_render_world_id) &&
+        if (blocked_reason.empty() &&
+            is_hex_world_id(m_first_authoritative_render_world_id) &&
                  is_hex_world_id(m_world_folder_id) &&
                  lower_ascii(m_first_authoritative_render_world_id) != lower_ascii(m_world_folder_id))
         {
@@ -12994,6 +13011,32 @@ namespace WindroseTextSigns
         const auto result = replay_cached_label_text_after_ready(
             "first_authoritative_render_pass:" + m_first_authoritative_render_source +
             ":" + (trigger.empty() ? "unknown" : trigger));
+
+        // If authoritative records exist but no live label actor was render-applied yet,
+        // keep the first-pass pending and retry. This handles spawn/stream timing where
+        // data arrives before actors are visible in-world.
+        if (result.first > 0 && result.second == 0)
+        {
+            const auto now = std::chrono::steady_clock::now();
+            const std::string retry_reason = "awaiting_live_label_actors";
+            if (m_first_authoritative_render_last_reason != retry_reason ||
+                m_first_authoritative_render_last_log.time_since_epoch().count() == 0 ||
+                (now - m_first_authoritative_render_last_log) >= std::chrono::seconds(2))
+            {
+                log_line("[render-init] first_render_pass_deferred source=" + m_first_authoritative_render_source +
+                         " trigger=" + (trigger.empty() ? "unknown" : trigger) +
+                         " epoch=" + std::to_string(m_session_epoch) +
+                         " worldId=" + (m_first_authoritative_render_world_id.empty() ? "unknown" : m_first_authoritative_render_world_id) +
+                         " reason=" + retry_reason +
+                         " attempts=" + std::to_string(m_first_authoritative_render_attempts) +
+                         " candidates=" + std::to_string(result.first) +
+                         " rendered=" + std::to_string(result.second));
+                m_first_authoritative_render_last_reason = retry_reason;
+                m_first_authoritative_render_last_log = now;
+            }
+            return;
+        }
+
         m_first_authoritative_render_pending = false;
         m_first_authoritative_render_completed = true;
         log_line("[render-init] first_render_pass_completed source=" + m_first_authoritative_render_source +
@@ -13088,7 +13131,8 @@ namespace WindroseTextSigns
 
     auto SignTextMod::resolve_world_text_font_size_limits() -> std::pair<float, float>
     {
-        if (has_world_text_font_override_pak())
+        const bool has_override_pak = m_autosize_profile_initialized && m_autosize_profile_has_override_pak;
+        if (has_override_pak)
         {
             return {12.0f, 24.0f};
         }
@@ -13196,13 +13240,8 @@ namespace WindroseTextSigns
         }
 
         m_world_text_font_resolved = true;
-        if (!m_world_text_font_enabled)
+        if (!m_autosize_profile_initialized || !m_autosize_profile_has_override_pak)
         {
-            if (!m_world_text_font_missing_logged)
-            {
-                m_world_text_font_missing_logged = true;
-                log_line("[phase4-font] disabled usingEngineDefault=true");
-            }
             return nullptr;
         }
 
@@ -13714,6 +13753,11 @@ namespace WindroseTextSigns
         configure_sidecar_for_actor(actor, actor_world_id);
         const auto world_id = active_storage_world_id(actor_world_id);
         const auto key = build_storage_key(world_id, stable_id);
+        if (m_session_ready_latched && !m_world_text_font_profile_ready_latched)
+        {
+            refresh_world_text_font_profile("apply_text_to_actor_component_ready_guard", true);
+            m_world_text_font_profile_ready_latched = true;
+        }
 
         if (text_value.empty())
         {
@@ -13828,10 +13872,12 @@ namespace WindroseTextSigns
 
         std::vector<float> row_offsets{};
         row_offsets.reserve(static_cast<size_t>(row_count));
+        const bool fonted = m_autosize_profile_initialized && m_autosize_profile_has_override_pak;
         bool moved = false;
         bool sized = true;
         bool vcentered = true;
-        bool fonted = true;
+        bool ufont_applied_all_rows = true;
+        bool ufont_apply_attempted = false;
         bool colored = true;
         bool text_applied = true;
         bool any_reused_existing = false;
@@ -14165,7 +14211,12 @@ namespace WindroseTextSigns
                 STR("SetVerticalAlignment"),
                 STR("/Script/Engine.TextRenderComponent:SetVerticalAlignment"),
                 1);
-            const bool row_fonted = apply_world_text_font(text_component);
+            bool row_font_applied = true;
+            if (fonted)
+            {
+                ufont_apply_attempted = true;
+                row_font_applied = apply_world_text_font(text_component);
+            }
             const bool row_colored = invoke_set_text_render_color(text_component, desired_r, desired_g, desired_b, desired_a);
             const bool row_text_applied = invoke_set_text(text_component, rows[static_cast<size_t>(row_index)]);
             if (row_text_applied)
@@ -14175,7 +14226,7 @@ namespace WindroseTextSigns
 
             sized = sized && row_sized;
             vcentered = vcentered && row_hcentered && row_vcentered;
-            fonted = fonted && row_fonted;
+            ufont_applied_all_rows = ufont_applied_all_rows && row_font_applied;
             colored = colored && row_colored;
             text_applied = text_applied && row_text_applied;
         }
@@ -14228,6 +14279,8 @@ namespace WindroseTextSigns
                  " sized=" + std::string{sized ? "true" : "false"} +
                  " vcentered=" + std::string{vcentered ? "true" : "false"} +
                  " fonted=" + std::string{fonted ? "true" : "false"} +
+                 " ufontApplyAttempted=" + std::string{ufont_apply_attempted ? "true" : "false"} +
+                 " ufontAppliedAllRows=" + std::string{ufont_applied_all_rows ? "true" : "false"} +
                  " colored=" + std::string{colored ? "true" : "false"} +
                  " relLoc=" + loc.str() +
                  " textChars=" + std::to_string(text_value.size()));
@@ -14257,6 +14310,11 @@ namespace WindroseTextSigns
         configure_sidecar_for_actor(actor, actor_world_id);
         const auto world_id = active_storage_world_id(actor_world_id);
         const auto key = build_storage_key(world_id, m_selected->stable_id);
+        if (m_session_ready_latched && !m_world_text_font_profile_ready_latched)
+        {
+            refresh_world_text_font_profile("apply_text_to_selected_label_ready_guard", true);
+            m_world_text_font_profile_ready_latched = true;
+        }
 
         LabelRecord rec{};
         bool has_existing_record = false;
@@ -16190,6 +16248,14 @@ namespace WindroseTextSigns
         m_first_authoritative_render_attempts = 0;
         m_first_authoritative_render_last_log = {};
         m_first_authoritative_render_last_reason.clear();
+        m_world_text_font_profile_ready_latched = false;
+        m_world_text_font_override_pak_checked = false;
+        m_world_text_font_override_pak_detected = false;
+        m_autosize_profile_initialized = false;
+        m_autosize_profile_has_override_pak = false;
+        m_world_text_font_asset = nullptr;
+        m_world_text_font_resolved = false;
+        m_world_text_font_missing_logged = false;
         const bool definitive_teardown =
             m_phase7_definitive_teardown_armed ||
             reason.rfind("definitive_", 0) == 0;
@@ -17112,6 +17178,7 @@ namespace WindroseTextSigns
                     {
                         m_session_ready_latched = true;
                         refresh_world_text_font_profile("ready_latch", true);
+                        m_world_text_font_profile_ready_latched = true;
                         m_phase7_teardown_skip_logged = false;
                         m_ready_baseline_live_keys.clear();
                         m_ready_baseline_capture_remaining_scans = 2;

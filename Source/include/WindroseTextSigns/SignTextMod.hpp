@@ -264,6 +264,7 @@ namespace WindroseTextSigns
         auto maybe_start_bridge_upnp_attempt(const std::string& reason) -> void;
         auto tick_bridge_upnp() -> void;
         auto tick_bridge_route_discovery() -> void;
+        auto reset_bridge_snapshot_payload_state(const std::string& reason) -> void;
         auto reset_bridge_snapshot_state(const std::string& reason) -> void;
         auto mark_bridge_healthy(const std::string& reason) -> void;
         auto has_viable_remote_route_for_snapshot() const -> bool;
@@ -698,11 +699,11 @@ namespace WindroseTextSigns
         std::string m_last_backup_signature{};
         bool m_runtime_text_label_patch_applied{false};
         RC::Unreal::UObject* m_world_text_font_asset{};
-        bool m_world_text_font_enabled{false};
         bool m_world_text_font_resolved{false};
         bool m_world_text_font_missing_logged{false};
         bool m_world_text_font_override_pak_detected{false};
         bool m_world_text_font_override_pak_checked{false};
+        bool m_world_text_font_profile_ready_latched{false};
         bool m_autosize_profile_initialized{false};
         bool m_autosize_profile_has_override_pak{false};
         float m_autosize_char_width_factor{0.85f};

@@ -238,18 +238,15 @@ Remote clients keep a cache for display/reconnect help, but the server is the so
 
 ## Font Notes
 
-Custom world text fonts are disabled by default because Windrose native font assets showed inconsistent runtime behavior in this mod path.
+World text layout now auto-selects by runtime detection of:
 
-Default font settings:
-
-```ini
-WTS_WORLD_TEXT_FONT_ENABLED=false
-WTS_WORLD_TEXT_FONT_ASSET=none
-WTS_WORLD_TEXT_FONT_NAME_HINT=
-WTS_WORLD_TEXT_FONT_NATIVE_FALLBACK=false
+```text
+0_WindroseTextSigns_RDFOverride_P.pak
+0_WindroseTextSigns_RDFOverride_P.utoc
+0_WindroseTextSigns_RDFOverride_P.ucas
 ```
 
-Raw font files alone are not enough for `TextRenderComponent`. A custom font needs a cooked Unreal `UFont` asset before it can be used reliably.
+No manual enable toggle is required. Raw font files alone are not enough for `TextRenderComponent`; a cooked Unreal `UFont` asset is still required for explicit font assignment.
 
 ## Known Limitations
 
