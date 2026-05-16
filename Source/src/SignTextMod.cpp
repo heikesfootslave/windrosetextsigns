@@ -15776,6 +15776,28 @@ namespace WindroseTextSigns
                     m_definitive_session_last_end_seen.time_since_epoch().count() != 0 &&
                     m_definitive_session_last_end_log_path == m_destroy_signal_log_path)
                 {
+                    // Hard stale-offset guard: never allow a new session start to reopen from
+                    // log lines at/behind the last definitive lobby-exit offset.
+                    // This prevents post-exit churn where backlog replay re-matches old
+                    // "ReadyToPlay => VerifyingCoopConnection" lines.
+                    // Truncation-safe: if file size is now below the remembered end offset,
+                    // treat it as a new/rotated log and skip this stale-offset suppression.
+                    if (size >= m_definitive_session_last_end_offset &&
+                        line_start <= m_definitive_session_last_end_offset)
+                    {
+                        suppress_post_exit_start = true;
+                        const auto offset_delta =
+                            m_definitive_session_last_end_offset - line_start;
+                        log_line("[session] definitive_start_suppressed reason=post_exit_stale_offset signal=" +
+                                 definitive_start_signal +
+                                 " lineOffset=" +
+                                 std::to_string(static_cast<unsigned long long>(line_start)) +
+                                 " lastExitOffset=" +
+                                 std::to_string(static_cast<unsigned long long>(m_definitive_session_last_end_offset)) +
+                                 " delta=" +
+                                 std::to_string(static_cast<unsigned long long>(offset_delta)));
+                    }
+
                     constexpr auto k_post_exit_start_guard = std::chrono::seconds(4);
                     constexpr uintmax_t k_post_exit_start_guard_offset_bytes = 16384;
                     const auto end_age = now - m_definitive_session_last_end_seen;
@@ -15783,7 +15805,8 @@ namespace WindroseTextSigns
                         line_start >= m_definitive_session_last_end_offset
                             ? (line_start - m_definitive_session_last_end_offset)
                             : 0;
-                    if (end_age < k_post_exit_start_guard &&
+                    if (!suppress_post_exit_start &&
+                        end_age < k_post_exit_start_guard &&
                         offset_delta <= k_post_exit_start_guard_offset_bytes)
                     {
                         suppress_post_exit_start = true;
