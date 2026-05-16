@@ -287,13 +287,84 @@ namespace
         return std::nullopt;
     }
 
+    auto trim_ascii_copy(std::string value) -> std::string
+    {
+        const auto is_ws = [](unsigned char ch) {
+            return std::isspace(ch) != 0;
+        };
+        while (!value.empty() && is_ws(static_cast<unsigned char>(value.front())))
+        {
+            value.erase(value.begin());
+        }
+        while (!value.empty() && is_ws(static_cast<unsigned char>(value.back())))
+        {
+            value.pop_back();
+        }
+        return value;
+    }
+
+    auto parse_semicolon_kv_message(const std::string& payload) -> std::unordered_map<std::string, std::string>
+    {
+        std::unordered_map<std::string, std::string> fields{};
+        std::string_view remaining{payload};
+        while (!remaining.empty())
+        {
+            const auto sep = remaining.find(';');
+            std::string_view token = (sep == std::string_view::npos) ? remaining : remaining.substr(0, sep);
+            remaining = (sep == std::string_view::npos) ? std::string_view{} : remaining.substr(sep + 1);
+            token = token.substr(0, token.find_first_of("\r\n"));
+            if (token.empty())
+            {
+                continue;
+            }
+            const auto eq = token.find('=');
+            if (eq == std::string_view::npos || eq == 0 || eq + 1 >= token.size())
+            {
+                continue;
+            }
+            auto key = trim_ascii_copy(std::string{token.substr(0, eq)});
+            auto value = trim_ascii_copy(std::string{token.substr(eq + 1)});
+            if (key.empty() || value.empty())
+            {
+                continue;
+            }
+            if (value.size() >= 2 &&
+                ((value.front() == '"' && value.back() == '"') ||
+                 (value.front() == '\'' && value.back() == '\'')))
+            {
+                value = value.substr(1, value.size() - 2);
+            }
+            fields[key] = value;
+        }
+        return fields;
+    }
+
+    auto field_with_alias(
+        const std::unordered_map<std::string, std::string>& fields,
+        const std::initializer_list<const char*> aliases) -> std::string
+    {
+        for (const auto* alias : aliases)
+        {
+            if (!alias)
+            {
+                continue;
+            }
+            if (const auto it = fields.find(alias); it != fields.end())
+            {
+                return it->second;
+            }
+        }
+        return {};
+    }
+
     auto parse_bridge_message(const std::string& payload) -> std::unordered_map<std::string, std::string>
     {
         std::unordered_map<std::string, std::string> fields{};
-        const std::array<std::string, 19> string_fields = {
+        const std::vector<std::string> string_fields = {
             "mod", "type", "session", "key", "stableId", "worldId",
             "text", "asset", "kind", "backingAsset", "lastSeen", "reason", "schema", "writer",
-            "snapshotId", "relayHost", "token", "probeHost", "probeSource"};
+            "snapshotId", "relayHost", "token", "probeHost", "probeSource",
+            "runtimeRole", "runtime_role", "role", "bridgeRole", "bridge_role", "authoritative", "isAuthoritative"};
         for (const auto& name : string_fields)
         {
             if (auto value = bridge_message_field(payload, name); value.has_value())
@@ -301,10 +372,10 @@ namespace
                 fields[name] = *value;
             }
         }
-        const std::array<std::string, 16> number_fields = {
+        const std::vector<std::string> number_fields = {
             "revision", "surfaceAxis", "surfaceSign", "depthOffset", "alignX",
             "alignY", "fontSize", "colorR", "colorG", "colorB", "colorA", "snapshotCount",
-            "requesterRevision", "relayPort", "relayPid", "relayEpoch"};
+            "requesterRevision", "relayPort", "relayPid", "relayEpoch", "epoch"};
         for (const auto& name : number_fields)
         {
             if (auto value = bridge_message_number(payload, name); value.has_value())
@@ -10969,11 +11040,24 @@ namespace WindroseTextSigns
 
     auto SignTextMod::handle_bridge_payload(const std::string& payload) -> void
     {
-        if (payload.find("\"mod\":\"WindroseTextSigns\"") == std::string::npos)
+        const auto looks_like_json_mod = payload.find("\"mod\":\"WindroseTextSigns\"") != std::string::npos;
+        const auto looks_like_kv_mod = payload.find("mod=WindroseTextSigns") != std::string::npos;
+        if (!looks_like_json_mod && !looks_like_kv_mod)
         {
             return;
         }
-        const auto fields = parse_bridge_message(payload);
+        auto fields = parse_bridge_message(payload);
+        if (fields.find("type") == fields.end())
+        {
+            const auto kv_fields = parse_semicolon_kv_message(payload);
+            for (const auto& [k, v] : kv_fields)
+            {
+                if (fields.find(k) == fields.end())
+                {
+                    fields.emplace(k, v);
+                }
+            }
+        }
         const auto type_it = fields.find("type");
         if (type_it == fields.end())
         {
@@ -11031,18 +11115,19 @@ namespace WindroseTextSigns
                 const auto probe_host = unescape_json(fields.count("probeHost") ? fields.at("probeHost") : "");
                 const auto probe_source = unescape_json(fields.count("probeSource") ? fields.at("probeSource") : "");
                 std::ostringstream ack{};
-                ack << "{\"mod\":\"WindroseTextSigns\",\"schema\":\"bridge.v1\",\"type\":\"route_probe_ack\""
-                    << ",\"session\":\"" << escape_json(m_session_id) << "\""
-                    << ",\"worldId\":\"" << escape_json(m_world_folder_id) << "\""
-                    << ",\"token\":\"" << escape_json(token) << "\""
-                    << ",\"probeHost\":\"" << escape_json(probe_host) << "\""
-                    << ",\"probeSource\":\"" << escape_json(probe_source) << "\""
-                    << ",\"runtimeRole\":\"" << escape_json(m_runtime_role) << "\""
-                    << ",\"bridgeRole\":\"" << escape_json(bridge_role_name(m_bridge_role)) << "\""
-                    << ",\"authoritative\":\"" << (m_sidecar_authoritative ? "true" : "false") << "\""
-                    << ",\"writer\":\"BridgeRouteProbeResponder\""
-                    << ",\"epoch\":" << m_session_epoch
-                    << "}";
+                ack << "mod=WindroseTextSigns"
+                    << ";schema=bridge.v1"
+                    << ";type=route_probe_ack"
+                    << ";session=" << m_session_id
+                    << ";worldId=" << m_world_folder_id
+                    << ";token=" << token
+                    << ";probeHost=" << probe_host
+                    << ";probeSource=" << probe_source
+                    << ";runtimeRole=" << m_runtime_role
+                    << ";bridgeRole=" << bridge_role_name(m_bridge_role)
+                    << ";authoritative=" << (m_sidecar_authoritative ? "true" : "false")
+                    << ";writer=BridgeRouteProbeResponder"
+                    << ";epoch=" << m_session_epoch;
                 const bool sent = NativeBridge::instance().broadcast_to_clients(ack.str());
                 log_line("[bridge-route] route_probe_ack_emit token=" + token +
                          " probeHost=" + (probe_host.empty() ? "none" : probe_host) +
@@ -11053,20 +11138,58 @@ namespace WindroseTextSigns
         }
         if (type == "route_probe_ack")
         {
-            const auto token = unescape_json(fields.count("token") ? fields.at("token") : "");
-            const auto ack_runtime_role = lower_ascii(unescape_json(fields.count("runtimeRole") ? fields.at("runtimeRole") : ""));
-            const auto ack_bridge_role = lower_ascii(unescape_json(fields.count("bridgeRole") ? fields.at("bridgeRole") : ""));
+            const auto token = unescape_json(field_with_alias(fields, {"token"}));
+            const auto ack_session = unescape_json(field_with_alias(fields, {"session"}));
+            const auto ack_probe_host = unescape_json(field_with_alias(fields, {"probeHost", "probe_host"}));
+            const auto ack_runtime_role = lower_ascii(unescape_json(field_with_alias(fields, {"runtimeRole", "runtime_role", "role"})));
+            const auto ack_bridge_role = lower_ascii(unescape_json(field_with_alias(fields, {"bridgeRole", "bridge_role"})));
+            const auto ack_authoritative = lower_ascii(unescape_json(field_with_alias(fields, {"authoritative", "isAuthoritative"})));
+            const auto ack_epoch = parse_u64_field("epoch", 0);
             const bool ack_from_server_role =
                 ack_runtime_role == "dedicatedserver" ||
                 ack_runtime_role == "hostedserver" ||
                 ack_bridge_role == "dedicatedserver";
+            const bool ack_from_authority = (ack_authoritative == "true" || ack_authoritative == "1");
+            const bool ack_identity_match =
+                m_bridge_route_probe_active &&
+                m_bridge_route_probe_waiting_ack &&
+                !m_bridge_route_probe_token.empty() &&
+                token == m_bridge_route_probe_token &&
+                !m_bridge_route_probe_host.empty() &&
+                (ack_probe_host.empty() || lower_ascii(ack_probe_host) == lower_ascii(m_bridge_route_probe_host)) &&
+                (ack_session.empty() || ack_session == m_session_id) &&
+                (ack_epoch == 0 || ack_epoch == static_cast<uint64_t>(m_session_epoch));
             if (m_bridge_route_probe_active &&
                 m_bridge_route_probe_waiting_ack &&
                 !m_bridge_route_probe_token.empty() &&
                 token == m_bridge_route_probe_token &&
                 !m_bridge_route_lock_acquired)
             {
-                if (!ack_from_server_role)
+                const auto keys_runtime = field_with_alias(fields, {"runtimeRole", "runtime_role", "role"});
+                const auto keys_bridge = field_with_alias(fields, {"bridgeRole", "bridge_role"});
+                if (keys_runtime.empty() && keys_bridge.empty() && ack_authoritative.empty())
+                {
+                    log_line("[bridge-route] route_probe_ack_parse_missing_fields token=" + (token.empty() ? "none" : token) +
+                             " keys=none");
+                }
+                log_line("[bridge-route] route_probe_ack_parse_ok token=" + (token.empty() ? "none" : token) +
+                         " epoch=" + std::to_string(ack_epoch) +
+                         " session=" + (ack_session.empty() ? "none" : ack_session) +
+                         " probeHost=" + (ack_probe_host.empty() ? "none" : ack_probe_host) +
+                         " runtimeRole=" + (keys_runtime.empty() ? "missing" : keys_runtime) +
+                         " bridgeRole=" + (keys_bridge.empty() ? "missing" : keys_bridge) +
+                         " authoritative=" + (ack_authoritative.empty() ? "missing" : ack_authoritative));
+                if (!ack_identity_match)
+                {
+                    log_line("[bridge-route] route_probe_result candidate=" + m_bridge_route_probe_host +
+                             ":" + std::to_string(m_bridge_udp_port) +
+                             " result=rejected_identity_mismatch token=" + (token.empty() ? "none" : token) +
+                             " epoch=" + std::to_string(ack_epoch) +
+                             " session=" + (ack_session.empty() ? "none" : ack_session) +
+                             " probeHost=" + (ack_probe_host.empty() ? "none" : ack_probe_host));
+                    return;
+                }
+                if (!ack_from_server_role && !ack_from_authority)
                 {
                     log_line("[bridge-route] route_probe_result candidate=" + m_bridge_route_probe_host +
                              ":" + std::to_string(m_bridge_udp_port) +
@@ -11074,6 +11197,13 @@ namespace WindroseTextSigns
                              (ack_runtime_role.empty() ? "none" : ack_runtime_role) +
                              " bridgeRole=" + (ack_bridge_role.empty() ? "none" : ack_bridge_role));
                     return;
+                }
+                if (!ack_from_server_role && ack_from_authority)
+                {
+                    log_line("[bridge-route] route_probe_ack_accepted_legacy_parse candidate=" + m_bridge_route_probe_host +
+                             ":" + std::to_string(m_bridge_udp_port) +
+                             " authoritative=true runtimeRole=" + (ack_runtime_role.empty() ? "none" : ack_runtime_role) +
+                             " bridgeRole=" + (ack_bridge_role.empty() ? "none" : ack_bridge_role));
                 }
                 log_line("[bridge-route] route_probe_result candidate=" + m_bridge_route_probe_host +
                          ":" + std::to_string(m_bridge_udp_port) +
@@ -16532,6 +16662,12 @@ namespace WindroseTextSigns
         m_worldid_bound_for_epoch = false;
         m_worldid_bound_epoch = 0;
         m_worldid_bound_source.clear();
+        m_session_action_defer_connecting_bl = false;
+        m_deferred_definitive_start_pending = false;
+        m_deferred_definitive_start_signal.clear();
+        m_deferred_definitive_start_offset = 0;
+        m_deferred_definitive_end_pending = false;
+        m_deferred_definitive_end_offset = 0;
         m_world_bound_defer_logs_by_op.clear();
         m_world_bound_resumed_ops.clear();
         m_definitive_session_start_candidate_active = false;

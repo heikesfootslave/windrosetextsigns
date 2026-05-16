@@ -371,6 +371,12 @@ namespace WindroseTextSigns
         bool m_worldid_bound_for_epoch{false};
         uint64_t m_worldid_bound_epoch{0};
         std::string m_worldid_bound_source{};
+        bool m_session_action_defer_connecting_bl{false};
+        bool m_deferred_definitive_start_pending{false};
+        std::string m_deferred_definitive_start_signal{};
+        uintmax_t m_deferred_definitive_start_offset{0};
+        bool m_deferred_definitive_end_pending{false};
+        uintmax_t m_deferred_definitive_end_offset{0};
         struct WorldBoundDeferLogState
         {
             std::string reason{};
