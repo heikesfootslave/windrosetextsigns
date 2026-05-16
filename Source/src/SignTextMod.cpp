@@ -9709,7 +9709,6 @@ namespace WindroseTextSigns
                 << ",\"depthOffset\":" << rec.depth_offset
                 << ",\"alignX\":" << rec.align_x
                 << ",\"alignY\":" << rec.align_y
-                << ",\"fontSize\":" << rec.font_size
                 << ",\"colorR\":" << rec.color_r
                 << ",\"colorG\":" << rec.color_g
                 << ",\"colorB\":" << rec.color_b
@@ -9783,7 +9782,6 @@ namespace WindroseTextSigns
                 << ",\"depthOffset\":" << rec.depth_offset
                 << ",\"alignX\":" << rec.align_x
                 << ",\"alignY\":" << rec.align_y
-                << ",\"fontSize\":" << rec.font_size
                 << ",\"colorR\":" << rec.color_r
                 << ",\"colorG\":" << rec.color_g
                 << ",\"colorB\":" << rec.color_b
@@ -10068,7 +10066,8 @@ namespace WindroseTextSigns
         rec.depth_offset = fields.count("depthOffset") ? safe_stof(fields.at("depthOffset"), 12.0f) : rec.depth_offset;
         rec.align_x = fields.count("alignX") ? safe_stof(fields.at("alignX"), 0.0f) : rec.align_x;
         rec.align_y = fields.count("alignY") ? safe_stof(fields.at("alignY"), 1.5f) : rec.align_y;
-        rec.font_size = fields.count("fontSize") ? std::max(1.0f, safe_stof(fields.at("fontSize"), 18.0f)) : rec.font_size;
+        // fontSize from bridge payloads is ignored intentionally.
+        // Runtime render size is recomputed per-client from text + local profile.
         rec.color_r = fields.count("colorR") ? std::clamp(safe_stof(fields.at("colorR"), 0.393822f), 0.0f, 1.0f) : rec.color_r;
         rec.color_g = fields.count("colorG") ? std::clamp(safe_stof(fields.at("colorG"), 0.393822f), 0.0f, 1.0f) : rec.color_g;
         rec.color_b = fields.count("colorB") ? std::clamp(safe_stof(fields.at("colorB"), 0.393822f), 0.0f, 1.0f) : rec.color_b;
@@ -10090,7 +10089,6 @@ namespace WindroseTextSigns
             !same_float(rec.depth_offset, existing_record.depth_offset) ||
             !same_float(rec.align_x, existing_record.align_x) ||
             !same_float(rec.align_y, existing_record.align_y) ||
-            !same_float(rec.font_size, existing_record.font_size) ||
             !same_float(rec.color_r, existing_record.color_r) ||
             !same_float(rec.color_g, existing_record.color_g) ||
             !same_float(rec.color_b, existing_record.color_b) ||
@@ -10325,7 +10323,8 @@ namespace WindroseTextSigns
         rec.depth_offset = fields.count("depthOffset") ? safe_stof(fields.at("depthOffset"), 12.0f) : rec.depth_offset;
         rec.align_x = fields.count("alignX") ? safe_stof(fields.at("alignX"), 0.0f) : rec.align_x;
         rec.align_y = fields.count("alignY") ? safe_stof(fields.at("alignY"), 1.5f) : rec.align_y;
-        rec.font_size = fields.count("fontSize") ? std::max(1.0f, safe_stof(fields.at("fontSize"), 18.0f)) : rec.font_size;
+        // fontSize from bridge payloads is ignored intentionally.
+        // Runtime render size is recomputed per-client from text + local profile.
         rec.color_r = fields.count("colorR") ? std::clamp(safe_stof(fields.at("colorR"), 0.393822f), 0.0f, 1.0f) : rec.color_r;
         rec.color_g = fields.count("colorG") ? std::clamp(safe_stof(fields.at("colorG"), 0.393822f), 0.0f, 1.0f) : rec.color_g;
         rec.color_b = fields.count("colorB") ? std::clamp(safe_stof(fields.at("colorB"), 0.393822f), 0.0f, 1.0f) : rec.color_b;
@@ -10348,7 +10347,6 @@ namespace WindroseTextSigns
             !same_float(existing->second.depth_offset, rec.depth_offset) ||
             !same_float(existing->second.align_x, rec.align_x) ||
             !same_float(existing->second.align_y, rec.align_y) ||
-            !same_float(existing->second.font_size, rec.font_size) ||
             !same_float(existing->second.color_r, rec.color_r) ||
             !same_float(existing->second.color_g, rec.color_g) ||
             !same_float(existing->second.color_b, rec.color_b) ||
@@ -10361,7 +10359,6 @@ namespace WindroseTextSigns
                          << std::fixed << std::setprecision(4)
                          << rec.surface_axis << '\x1f' << rec.surface_sign << '\x1f'
                          << rec.depth_offset << '\x1f' << rec.align_x << '\x1f' << rec.align_y << '\x1f'
-                         << rec.font_size << '\x1f'
                          << rec.color_r << '\x1f' << rec.color_g << '\x1f'
                          << rec.color_b << '\x1f' << rec.color_a;
         const uint64_t content_hash = std::hash<std::string>{}(dedupe_signature.str());
@@ -13801,12 +13798,23 @@ namespace WindroseTextSigns
             const float y = (normal_y * depth) + (tangent_y * on_surface_x);
             relative_location = FVector(static_cast<double>(x), static_cast<double>(y), static_cast<double>(on_surface_y));
 
-            desired_font_size = std::max(1.0f, rec.font_size);
             desired_r = std::clamp(rec.color_r, 0.0f, 1.0f);
             desired_g = std::clamp(rec.color_g, 0.0f, 1.0f);
             desired_b = std::clamp(rec.color_b, 0.0f, 1.0f);
             desired_a = std::clamp(rec.color_a, 0.0f, 1.0f);
         }
+
+        // Runtime font size is intentionally recomputed per-client from local
+        // font profile/layout settings. Stored/synced fontSize remains legacy
+        // compatibility data and is not used for rendering.
+        const auto normalized_for_fit = strip_terminal_line_breaks(text_value);
+        const auto [font_min, font_max] = resolve_world_text_font_size_limits();
+        const auto runtime_fit = fit_text_for_plaque(
+            normalized_for_fit,
+            m_autosize_char_width_factor,
+            font_min,
+            font_max);
+        desired_font_size = std::clamp(runtime_fit.font_size, font_min, font_max);
 
         auto rows = split_rows(text_value);
         if (rows.empty())
