@@ -661,6 +661,9 @@ namespace WindroseTextSigns
         std::chrono::steady_clock::time_point m_definitive_session_reset_last_trigger{};
         std::string m_definitive_session_reset_last_signature{};
         std::string m_definitive_session_reset_last_category{};
+        std::chrono::steady_clock::time_point m_definitive_session_last_end_seen{};
+        std::filesystem::path m_definitive_session_last_end_log_path{};
+        uintmax_t m_definitive_session_last_end_offset{0};
         bool m_definitive_session_start_candidate_active{false};
         std::string m_definitive_session_start_candidate_signal{};
         std::string m_definitive_session_start_candidate_world_hint{};
@@ -672,6 +675,7 @@ namespace WindroseTextSigns
         uintmax_t m_session_window_start_offset{0};
         uintmax_t m_session_window_end_offset{0};
         std::chrono::steady_clock::time_point m_session_window_blocked_last_log{};
+        std::string m_session_window_blocked_last_signature{};
         std::chrono::steady_clock::time_point m_ready_latch_blocked_last_log{};
         std::string m_ready_latch_blocked_last_signature{};
         std::chrono::steady_clock::time_point m_ready_latch_blocked_first_seen{};

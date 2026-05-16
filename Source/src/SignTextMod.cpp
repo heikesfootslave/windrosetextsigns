@@ -5088,6 +5088,7 @@ namespace WindroseTextSigns
         m_session_window_start_offset = 0;
         m_session_window_end_offset = 0;
         m_session_window_blocked_last_log = {};
+        m_session_window_blocked_last_signature.clear();
         reset_server_role_classification_state("bootstrap_open_log");
         log_line("[session] bootstrap_begin stage=startup");
         log_line("[startup] WindroseTextSigns initialized");
@@ -15762,11 +15763,41 @@ namespace WindroseTextSigns
                         definitive_start_signal = "client_readytoplay_to_startcoophostserver";
                     }
                 }
+                bool suppress_post_exit_start = false;
                 if (!definitive_start_signal.empty() &&
+                    !server_runtime_process &&
+                    m_definitive_session_last_end_seen.time_since_epoch().count() != 0 &&
+                    m_definitive_session_last_end_log_path == m_destroy_signal_log_path)
+                {
+                    constexpr auto k_post_exit_start_guard = std::chrono::seconds(4);
+                    constexpr uintmax_t k_post_exit_start_guard_offset_bytes = 16384;
+                    const auto end_age = now - m_definitive_session_last_end_seen;
+                    const auto offset_delta =
+                        line_start >= m_definitive_session_last_end_offset
+                            ? (line_start - m_definitive_session_last_end_offset)
+                            : 0;
+                    if (end_age < k_post_exit_start_guard &&
+                        offset_delta <= k_post_exit_start_guard_offset_bytes)
+                    {
+                        suppress_post_exit_start = true;
+                        const auto age_ms =
+                            std::chrono::duration_cast<std::chrono::milliseconds>(end_age).count();
+                        log_line("[session] definitive_start_suppressed reason=post_exit_guard signal=" +
+                                 definitive_start_signal +
+                                 " ageMs=" + std::to_string(age_ms) +
+                                 " offsetDelta=" +
+                                 std::to_string(static_cast<unsigned long long>(offset_delta)));
+                    }
+                }
+                if (!definitive_start_signal.empty() &&
+                    !suppress_post_exit_start &&
                     try_begin_definitive_reset("start", definitive_start_signal, "none"))
                 {
                     log_line("[session] definitive_start_detected signal=" + definitive_start_signal + " worldHint=none");
                     reset_session_state("definitive_session_start");
+                    m_definitive_session_last_end_seen = {};
+                    m_definitive_session_last_end_log_path.clear();
+                    m_definitive_session_last_end_offset = 0;
                     // Anchor at the definitive-start line itself so all immediately-following
                     // lines are guaranteed in-window for this epoch.
                     open_session_window(definitive_start_signal, m_destroy_signal_log_path, line_start);
@@ -15904,6 +15935,9 @@ namespace WindroseTextSigns
                     if (try_begin_definitive_reset("end", "start_transition_to_lobby", "none"))
                     {
                         close_session_window("start_transition_to_lobby", m_destroy_signal_log_path, line_end);
+                        m_definitive_session_last_end_seen = now;
+                        m_definitive_session_last_end_log_path = m_destroy_signal_log_path;
+                        m_definitive_session_last_end_offset = line_end;
                         log_line("[session] definitive_end_detected signal=start_transition_to_lobby");
                         arm_phase7_definitive_teardown("start_transition_to_lobby");
                         reset_session_state("definitive_session_end_lobby_transition");
@@ -16655,6 +16689,7 @@ namespace WindroseTextSigns
         m_session_window_start_offset = offset;
         m_session_window_end_offset = offset;
         m_session_window_blocked_last_log = {};
+        m_session_window_blocked_last_signature.clear();
         m_ready_latch_blocked_last_log = {};
         m_ready_latch_blocked_last_signature.clear();
         m_ready_latch_blocked_first_seen = {};
@@ -16677,6 +16712,7 @@ namespace WindroseTextSigns
         m_session_window_log_path = log_path;
         m_session_window_end_offset = offset;
         m_session_window_blocked_last_log = {};
+        m_session_window_blocked_last_signature.clear();
         m_ready_latch_blocked_last_log = {};
         m_ready_latch_blocked_last_signature.clear();
         m_ready_latch_blocked_first_seen = {};
@@ -16745,6 +16781,7 @@ namespace WindroseTextSigns
         m_session_window_start_offset = 0;
         m_session_window_end_offset = 0;
         m_session_window_blocked_last_log = {};
+        m_session_window_blocked_last_signature.clear();
         m_ready_latch_blocked_last_log = {};
         m_ready_latch_blocked_last_signature.clear();
         m_ready_latch_blocked_first_seen = {};
@@ -17752,7 +17789,14 @@ namespace WindroseTextSigns
                             m_ready_latch_blocked_last_log = now;
                         }
                     };
-                if (!m_role_lock_acquired)
+                if (!m_definitive_session_start_seen)
+                {
+                    const std::string sig = "awaiting_definitive_start|" + m_runtime_role;
+                    note_ready_latch_blocked(
+                        sig,
+                        "[session] ready_latch_blocked reason=awaiting_definitive_start role=" + m_runtime_role);
+                }
+                else if (!m_role_lock_acquired)
                 {
                     const std::string sig = "role_not_locked|" + m_runtime_role;
                     note_ready_latch_blocked(
@@ -18009,8 +18053,15 @@ namespace WindroseTextSigns
         std::string session_window_reason{};
         if (!is_session_window_active_for_gameplay(&session_window_reason))
         {
-            if (m_session_window_blocked_last_log.time_since_epoch().count() == 0 ||
-                (now - m_session_window_blocked_last_log) >= std::chrono::seconds(2))
+            const std::string block_sig =
+                session_window_reason + "|" + m_runtime_role + "|" + m_authority_mode +
+                "|epoch=" + std::to_string(m_session_epoch);
+            constexpr auto k_blocked_heartbeat_interval = std::chrono::seconds(20);
+            const bool changed = m_session_window_blocked_last_signature != block_sig;
+            const bool heartbeat_due =
+                m_session_window_blocked_last_log.time_since_epoch().count() == 0 ||
+                (now - m_session_window_blocked_last_log) >= k_blocked_heartbeat_interval;
+            if (changed || heartbeat_due)
             {
                 log_line("[session] gameplay_construction_blocked_until_definitive_start epoch=" +
                          std::to_string(m_session_epoch) +
@@ -18018,6 +18069,7 @@ namespace WindroseTextSigns
                          " runtimeRole=" + m_runtime_role +
                          " authorityMode=" + m_authority_mode);
                 m_session_window_blocked_last_log = now;
+                m_session_window_blocked_last_signature = block_sig;
             }
             return;
         }
