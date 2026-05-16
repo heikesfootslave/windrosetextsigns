@@ -7552,6 +7552,7 @@ namespace WindroseTextSigns
             m_missing_label_scan_counts.clear();
             m_seen_live_label_keys.clear();
             m_rendered_text_cache.clear();
+            m_phase4_last_apply_success_at.clear();
             m_component_name_cache.clear();
             m_phase4_next_retry.clear();
             m_restore_scan_has_seen_live_labels = false;
@@ -14264,6 +14265,7 @@ namespace WindroseTextSigns
         m_create_null_retry_states.erase(key);
         m_last_row_count_by_key[key] = row_count;
         m_rendered_text_cache[key] = text_value;
+        m_phase4_last_apply_success_at[key] = std::chrono::steady_clock::now();
         std::ostringstream loc{};
         loc << std::fixed << std::setprecision(2)
             << relative_location.GetX() << ","
@@ -16153,6 +16155,8 @@ namespace WindroseTextSigns
         m_session_window_start_offset = offset;
         m_session_window_end_offset = offset;
         m_session_window_blocked_last_log = {};
+        m_ready_latch_blocked_last_log = {};
+        m_ready_latch_blocked_last_signature.clear();
         log_line("[session] session_window_opened epoch=" + std::to_string(m_session_epoch) +
                  " signal=" + signal +
                  " logPath=" + (m_session_window_log_path.empty() ? "unknown" : m_session_window_log_path.string()) +
@@ -16171,6 +16175,8 @@ namespace WindroseTextSigns
         m_session_window_log_path = log_path;
         m_session_window_end_offset = offset;
         m_session_window_blocked_last_log = {};
+        m_ready_latch_blocked_last_log = {};
+        m_ready_latch_blocked_last_signature.clear();
         log_line("[session] session_window_closed epoch=" + std::to_string(m_session_epoch) +
                  " signal=" + signal +
                  " logPath=" + (m_session_window_log_path.empty() ? "unknown" : m_session_window_log_path.string()) +
@@ -16229,6 +16235,8 @@ namespace WindroseTextSigns
         m_session_window_start_offset = 0;
         m_session_window_end_offset = 0;
         m_session_window_blocked_last_log = {};
+        m_ready_latch_blocked_last_log = {};
+        m_ready_latch_blocked_last_signature.clear();
         m_pending_role_watchdog_started = {};
         m_pending_role_watchdog_logged = false;
         m_pending_resolution_last_block_reason.clear();
@@ -16301,6 +16309,7 @@ namespace WindroseTextSigns
         m_recent_construct_slot_signals.clear();
         m_restore_skip_guard_log_buckets.clear();
         m_phase4_last_failure_reason.clear();
+        m_phase4_last_apply_success_at.clear();
         m_create_null_retry_states.clear();
         m_hosted_authority_local_apply_deferred_keys.clear();
         m_bridge_route_retry_consumed = false;
@@ -16674,6 +16683,7 @@ namespace WindroseTextSigns
         uint32_t pass_count = 0;
         uint32_t warn_count = 0;
         uint32_t fail_count = 0;
+        const auto pass_started_at = std::chrono::steady_clock::now();
         const auto view = get_player_viewpoint_reflective(controller);
         const auto view_forward = view.valid ? vec_normalize(rotation_to_forward(view.rotation)) : FVector(0.0, 0.0, 0.0);
         const float max_dist = std::max(100.0f, static_cast<float>(safe_stoi(config_string_value("WTS_MAX_TARGET_DISTANCE", "1000"), 1000)));
@@ -16904,7 +16914,19 @@ namespace WindroseTextSigns
                 ++no_render_streak;
             }
             const bool repeated_no_render = no_render_streak >= 3;
-            const bool hard_fail = !pass && (component_pending_kill || repeated_no_render);
+            bool post_apply_grace = false;
+            long long post_apply_age_ms = -1;
+            if (const auto applied = m_phase4_last_apply_success_at.find(key); applied != m_phase4_last_apply_success_at.end())
+            {
+                const auto elapsed = pass_started_at - applied->second;
+                post_apply_age_ms = static_cast<long long>(std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count());
+                post_apply_grace = elapsed <= std::chrono::seconds(6);
+            }
+
+            // Visual verify can observe render-state propagation before UE finishes
+            // creating/advancing render state on newly applied text. Treat this short
+            // window as WARN-only instead of FAIL to avoid false negatives.
+            const bool hard_fail = !pass && (component_pending_kill || (repeated_no_render && !post_apply_grace));
             const std::string tier = pass ? "PASS" : (hard_fail ? "FAIL" : "WARN");
 
             ++pass_count;
@@ -16952,6 +16974,8 @@ namespace WindroseTextSigns
                      " lastRenderAdvanced=" + std::string{strong_last_render_signal ? "true" : "false"} +
                      " strongSignals=" + std::to_string(strong_signal_count) +
                      " noRenderStreak=" + std::to_string(no_render_streak) +
+                     " postApplyGrace=" + std::string{post_apply_grace ? "true" : "false"} +
+                     " postApplyAgeMs=" + std::to_string(post_apply_age_ms) +
                      " expectedChars=" + std::to_string(rec.text.size()) +
                      " observedChars=" + std::to_string(observed_text.size()));
 
@@ -17161,6 +17185,7 @@ namespace WindroseTextSigns
         }
         tick_pending_fallback_hotkeys();
         tick_file_triggers();
+        const auto now = std::chrono::steady_clock::now();
         if (!is_dedicated_runtime_process())
         {
             if (!m_session_ready_latched)
@@ -17170,14 +17195,34 @@ namespace WindroseTextSigns
                 const bool definitive_ready = is_definitive_ready_signal_observed(&definitive_signal, &definitive_reason);
                 if (!m_role_lock_acquired)
                 {
-                    log_line("[session] ready_latch_blocked reason=role_not_locked role=" + m_runtime_role +
-                             " epoch=" + std::to_string(m_session_epoch));
+                    const std::string sig = "role_not_locked|" + m_runtime_role;
+                    const bool should_log =
+                        m_ready_latch_blocked_last_signature != sig ||
+                        m_ready_latch_blocked_last_log.time_since_epoch().count() == 0 ||
+                        (now - m_ready_latch_blocked_last_log) >= std::chrono::seconds(2);
+                    if (should_log)
+                    {
+                        log_line("[session] ready_latch_blocked reason=role_not_locked role=" + m_runtime_role +
+                                 " epoch=" + std::to_string(m_session_epoch));
+                        m_ready_latch_blocked_last_signature = sig;
+                        m_ready_latch_blocked_last_log = now;
+                    }
                 }
                 else if (!definitive_ready)
                 {
-                    log_line("[session] ready_latch_blocked reason=no_definitive_signal role=" + m_runtime_role +
-                             " detail=" + definitive_reason +
-                             " epoch=" + std::to_string(m_session_epoch));
+                    const std::string sig = "no_definitive_signal|" + m_runtime_role + "|" + definitive_reason;
+                    const bool should_log =
+                        m_ready_latch_blocked_last_signature != sig ||
+                        m_ready_latch_blocked_last_log.time_since_epoch().count() == 0 ||
+                        (now - m_ready_latch_blocked_last_log) >= std::chrono::seconds(2);
+                    if (should_log)
+                    {
+                        log_line("[session] ready_latch_blocked reason=no_definitive_signal role=" + m_runtime_role +
+                                 " detail=" + definitive_reason +
+                                 " epoch=" + std::to_string(m_session_epoch));
+                        m_ready_latch_blocked_last_signature = sig;
+                        m_ready_latch_blocked_last_log = now;
+                    }
                 }
                 else
                 {
@@ -17185,6 +17230,8 @@ namespace WindroseTextSigns
                     if (is_session_ready_for_role_resolution(&ready_reason))
                     {
                         m_session_ready_latched = true;
+                        m_ready_latch_blocked_last_signature.clear();
+                        m_ready_latch_blocked_last_log = {};
                         refresh_world_text_font_profile("ready_latch", true);
                         m_world_text_font_profile_ready_latched = true;
                         m_phase7_teardown_skip_logged = false;
@@ -17288,7 +17335,6 @@ namespace WindroseTextSigns
             }
         }
         tick_bridge();
-        const auto now = std::chrono::steady_clock::now();
         std::string localclient_stability_reason{};
         if (is_localclient_runtime_stable_for_post_ready(&localclient_stability_reason))
         {
@@ -17377,6 +17423,7 @@ namespace WindroseTextSigns
                     // Without this, reconnect can retain stale "already rendered" state and
                     // skip reapplying visible text even though actors/components were rebuilt.
                     m_rendered_text_cache.clear();
+                    m_phase4_last_apply_success_at.clear();
                     m_phase4_last_failure_reason.clear();
                     m_component_name_cache.clear();
                     m_phase4_next_retry.clear();

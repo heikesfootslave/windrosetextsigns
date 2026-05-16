@@ -586,6 +586,7 @@ namespace WindroseTextSigns
         std::chrono::steady_clock::time_point m_last_restore_scan_diag{};
         std::chrono::steady_clock::time_point m_last_ui_tick_log{};
         std::unordered_map<std::string, std::string> m_rendered_text_cache{};
+        std::unordered_map<std::string, std::chrono::steady_clock::time_point> m_phase4_last_apply_success_at{};
         std::unordered_map<std::string, std::string> m_phase4_last_failure_reason{};
         std::unordered_set<std::string> m_label_text_visual_logged_keys{};
         std::unordered_map<std::string, std::string> m_component_name_cache{};
@@ -662,6 +663,8 @@ namespace WindroseTextSigns
         uintmax_t m_session_window_start_offset{0};
         uintmax_t m_session_window_end_offset{0};
         std::chrono::steady_clock::time_point m_session_window_blocked_last_log{};
+        std::chrono::steady_clock::time_point m_ready_latch_blocked_last_log{};
+        std::string m_ready_latch_blocked_last_signature{};
         std::chrono::steady_clock::time_point m_last_player_activity{};
         std::chrono::steady_clock::time_point m_pending_role_watchdog_started{};
         bool m_pending_role_watchdog_logged{false};
