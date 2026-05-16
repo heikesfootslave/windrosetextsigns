@@ -665,6 +665,8 @@ namespace WindroseTextSigns
         std::chrono::steady_clock::time_point m_session_window_blocked_last_log{};
         std::chrono::steady_clock::time_point m_ready_latch_blocked_last_log{};
         std::string m_ready_latch_blocked_last_signature{};
+        std::chrono::steady_clock::time_point m_ready_latch_blocked_first_seen{};
+        uint64_t m_ready_latch_blocked_count{0};
         std::chrono::steady_clock::time_point m_last_player_activity{};
         std::chrono::steady_clock::time_point m_pending_role_watchdog_started{};
         bool m_pending_role_watchdog_logged{false};

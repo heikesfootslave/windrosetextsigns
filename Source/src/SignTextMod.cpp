@@ -916,7 +916,6 @@ namespace
         static const std::regex remoteaddr_endpoint_rx{
             R"(\bRemoteAddr:\s*([0-9]{1,3}(?:\.[0-9]{1,3}){3}):([0-9]+)\b)",
             std::regex::icase};
-
         std::optional<std::string> last_host{};
         for (auto it = std::sregex_iterator(content.begin(), content.end(), remoteaddr_endpoint_rx);
              it != std::sregex_iterator{};
@@ -936,6 +935,147 @@ namespace
         return last_host;
     }
 
+    struct RouteEndpoint
+    {
+        std::string host{};
+        uint16_t port{0};
+        std::string source{};
+    };
+
+    auto try_latest_definitive_route_endpoint_from_log_window(
+        const std::filesystem::path& log_path,
+        const uintmax_t window_start_offset) -> std::optional<RouteEndpoint>
+    {
+        if (log_path.empty())
+        {
+            return std::nullopt;
+        }
+
+        std::error_code ec{};
+        const auto file_size = std::filesystem::file_size(log_path, ec);
+        if (ec || file_size == 0)
+        {
+            return std::nullopt;
+        }
+
+        const uintmax_t start_offset = std::min<uintmax_t>(window_start_offset, file_size);
+        if (start_offset >= file_size)
+        {
+            return std::nullopt;
+        }
+
+        std::ifstream input{log_path, std::ios::binary};
+        if (!input.is_open())
+        {
+            return std::nullopt;
+        }
+
+        input.seekg(static_cast<std::streamoff>(start_offset), std::ios::beg);
+        if (!input.good())
+        {
+            return std::nullopt;
+        }
+
+        std::string content{};
+        constexpr size_t k_max_read_bytes = 8 * 1024 * 1024;
+        content.reserve(k_max_read_bytes);
+
+        std::array<char, 64 * 1024> buffer{};
+        while (input.good() && content.size() < k_max_read_bytes)
+        {
+            const auto remaining = k_max_read_bytes - content.size();
+            const auto chunk_size = static_cast<std::streamsize>(std::min<size_t>(buffer.size(), remaining));
+            input.read(buffer.data(), chunk_size);
+            const auto got = input.gcount();
+            if (got <= 0)
+            {
+                break;
+            }
+            content.append(buffer.data(), static_cast<size_t>(got));
+        }
+
+        if (content.empty())
+        {
+            return std::nullopt;
+        }
+
+        static const std::regex coop_serverurl_endpoint_rx{
+            R"(\bCoop server connected.*ServerUrl\s*'([0-9]{1,3}(?:\.[0-9]{1,3}){3}):([0-9]+)')",
+            std::regex::icase};
+        static const std::regex browse_endpoint_rx{
+            R"(\bBrowse:\s*([0-9]{1,3}(?:\.[0-9]{1,3}){3}):([0-9]+)\b)",
+            std::regex::icase};
+        static const std::regex loadmap_endpoint_rx{
+            R"(\bLoadMap:\s*([0-9]{1,3}(?:\.[0-9]{1,3}){3}):([0-9]+)\b)",
+            std::regex::icase};
+        static const std::regex remoteaddr_endpoint_rx{
+            R"(\bRemoteAddr:\s*([0-9]{1,3}(?:\.[0-9]{1,3}){3}):([0-9]+)\b)",
+            std::regex::icase};
+
+        std::optional<RouteEndpoint> last_serverurl{};
+        std::optional<RouteEndpoint> last_other{};
+        std::istringstream lines{content};
+        std::string line{};
+        std::smatch match{};
+        const auto parse_int_fallback = [](const std::string& text, int fallback) {
+            try
+            {
+                size_t consumed = 0;
+                const int value = std::stoi(text, &consumed, 10);
+                if (consumed != text.size())
+                {
+                    return fallback;
+                }
+                return value;
+            }
+            catch (...)
+            {
+                return fallback;
+            }
+        };
+        while (std::getline(lines, line))
+        {
+            auto capture = [&](const std::regex& rx, const std::string& source, std::optional<RouteEndpoint>& sink) {
+                if (!std::regex_search(line, match, rx) || match.size() < 3)
+                {
+                    return false;
+                }
+                const std::string host = match[1].str();
+                const int port_i = parse_int_fallback(match[2].str(), 0);
+                if (!parse_ipv4_octets(host).has_value() || port_i <= 0 || port_i > 65535)
+                {
+                    return false;
+                }
+                RouteEndpoint endpoint{};
+                endpoint.host = host;
+                endpoint.port = static_cast<uint16_t>(port_i);
+                endpoint.source = source;
+                sink = endpoint;
+                return true;
+            };
+
+            if (capture(coop_serverurl_endpoint_rx, "coop_serverurl", last_serverurl))
+            {
+                continue;
+            }
+            if (capture(browse_endpoint_rx, "browse_endpoint", last_other))
+            {
+                continue;
+            }
+            if (capture(loadmap_endpoint_rx, "loadmap_endpoint", last_other))
+            {
+                continue;
+            }
+            (void)capture(remoteaddr_endpoint_rx, "remoteaddr_endpoint", last_other);
+        }
+
+        if (last_serverurl.has_value())
+        {
+            return last_serverurl;
+        }
+        return last_other;
+    }
+
     auto discover_bridge_route_from_r5_log(const std::filesystem::path& preferred) -> BridgeRouteDiscovery
     {
         static const std::regex candidate_rx{
@@ -943,6 +1083,9 @@ namespace
             std::regex::icase};
         static const std::regex direct_server_address_rx{
             R"(Start direct connection to server\.\s*ServerAddress\s+([0-9]{1,3}(?:\.[0-9]{1,3}){3}))",
+            std::regex::icase};
+        static const std::regex coop_serverurl_direct_rx{
+            R"(\bCoop server connected.*ServerUrl\s*'([0-9]{1,3}(?:\.[0-9]{1,3}){3}):([0-9]+)')",
             std::regex::icase};
         static const std::regex browse_endpoint_rx{
             R"(\bBrowse:\s*([0-9]{1,3}(?:\.[0-9]{1,3}){3}):([0-9]+)\b)",
@@ -1048,6 +1191,10 @@ namespace
                 if (std::regex_search(line, direct_match, remoteaddr_endpoint_rx) && direct_match.size() >= 2)
                 {
                     append_fallback_candidate(direct_match[1].str(), "remoteaddr_endpoint");
+                }
+                if (std::regex_search(line, direct_match, coop_serverurl_direct_rx) && direct_match.size() >= 2)
+                {
+                    append_fallback_candidate(direct_match[1].str(), "coop_serverurl");
                 }
             }
 
@@ -10844,7 +10991,14 @@ namespace WindroseTextSigns
         };
         if (type == "route_probe")
         {
-            if (m_bridge_role == BridgeRole::DedicatedServer || m_bridge_role == BridgeRole::ListenHost)
+            const auto runtime_role_lower = lower_ascii(m_runtime_role);
+            const bool server_runtime = is_dedicated_runtime_process();
+            const bool hosted_server_runtime = runtime_role_lower == "hostedserver";
+            const bool dedicated_server_runtime = runtime_role_lower == "dedicatedserver";
+            const bool can_ack_route_probe =
+                server_runtime &&
+                (m_bridge_role == BridgeRole::DedicatedServer || hosted_server_runtime || dedicated_server_runtime);
+            if (can_ack_route_probe)
             {
                 const auto token = unescape_json(fields.count("token") ? fields.at("token") : "");
                 const auto probe_host = unescape_json(fields.count("probeHost") ? fields.at("probeHost") : "");
@@ -10856,6 +11010,9 @@ namespace WindroseTextSigns
                     << ",\"token\":\"" << escape_json(token) << "\""
                     << ",\"probeHost\":\"" << escape_json(probe_host) << "\""
                     << ",\"probeSource\":\"" << escape_json(probe_source) << "\""
+                    << ",\"runtimeRole\":\"" << escape_json(m_runtime_role) << "\""
+                    << ",\"bridgeRole\":\"" << escape_json(bridge_role_name(m_bridge_role)) << "\""
+                    << ",\"authoritative\":\"" << (m_sidecar_authoritative ? "true" : "false") << "\""
                     << ",\"writer\":\"BridgeRouteProbeResponder\""
                     << ",\"epoch\":" << m_session_epoch
                     << "}";
@@ -10870,12 +11027,27 @@ namespace WindroseTextSigns
         if (type == "route_probe_ack")
         {
             const auto token = unescape_json(fields.count("token") ? fields.at("token") : "");
+            const auto ack_runtime_role = lower_ascii(unescape_json(fields.count("runtimeRole") ? fields.at("runtimeRole") : ""));
+            const auto ack_bridge_role = lower_ascii(unescape_json(fields.count("bridgeRole") ? fields.at("bridgeRole") : ""));
+            const bool ack_from_server_role =
+                ack_runtime_role == "dedicatedserver" ||
+                ack_runtime_role == "hostedserver" ||
+                ack_bridge_role == "dedicatedserver";
             if (m_bridge_route_probe_active &&
                 m_bridge_route_probe_waiting_ack &&
                 !m_bridge_route_probe_token.empty() &&
                 token == m_bridge_route_probe_token &&
                 !m_bridge_route_lock_acquired)
             {
+                if (!ack_from_server_role)
+                {
+                    log_line("[bridge-route] route_probe_result candidate=" + m_bridge_route_probe_host +
+                             ":" + std::to_string(m_bridge_udp_port) +
+                             " result=rejected_non_server_ack runtimeRole=" +
+                             (ack_runtime_role.empty() ? "none" : ack_runtime_role) +
+                             " bridgeRole=" + (ack_bridge_role.empty() ? "none" : ack_bridge_role));
+                    return;
+                }
                 log_line("[bridge-route] route_probe_result candidate=" + m_bridge_route_probe_host +
                          ":" + std::to_string(m_bridge_udp_port) +
                          " result=success");
@@ -11317,6 +11489,10 @@ namespace WindroseTextSigns
         {
             return;
         }
+        if (m_bridge_route_retry_consumed)
+        {
+            return;
+        }
 
         if (!m_bridge_route_gate_open)
         {
@@ -11329,6 +11505,58 @@ namespace WindroseTextSigns
             return;
         }
 
+        const auto try_lock_from_definitive_endpoint = [&](const std::string& reason_tag) -> bool {
+            std::filesystem::path authority_log_path = m_session_window_log_path;
+            if (authority_log_path.empty())
+            {
+                authority_log_path = m_bridge_route_log_path;
+            }
+            const uintmax_t authority_window_start =
+                m_session_window_open ? m_session_window_start_offset : static_cast<uintmax_t>(0);
+            const auto endpoint = try_latest_definitive_route_endpoint_from_log_window(authority_log_path, authority_window_start);
+            if (!endpoint.has_value())
+            {
+                return false;
+            }
+            log_line("[bridge-route] definitive_endpoint_candidate host=" + endpoint->host +
+                     " port=" + std::to_string(static_cast<unsigned int>(endpoint->port)) +
+                     " source=" + endpoint->source +
+                     " reason=" + reason_tag);
+            return apply_bridge_remote_endpoint(
+                endpoint->host,
+                endpoint->port,
+                "definitive_endpoint_" + endpoint->source + "_" + reason_tag);
+        };
+
+        auto handle_probe_exhausted = [&](const std::string& details) {
+            m_bridge_route_probe_active = false;
+            m_bridge_route_probe_waiting_ack = false;
+            if (try_lock_from_definitive_endpoint(details))
+            {
+                return;
+            }
+            if (!m_session_ready_latched)
+            {
+                const bool should_log_wait =
+                    m_bridge_route_wait_last_reason != details ||
+                    m_bridge_route_wait_last_log.time_since_epoch().count() == 0 ||
+                    (now - m_bridge_route_wait_last_log) >= std::chrono::seconds(3);
+                if (should_log_wait)
+                {
+                    log_line("[bridge-route] route_lock_pending reason=awaiting_definitive_endpoint details=" + details);
+                    m_bridge_route_wait_last_reason = details;
+                    m_bridge_route_wait_last_log = now;
+                }
+                return;
+            }
+
+            if (!m_bridge_route_retry_consumed)
+            {
+                m_bridge_route_retry_consumed = true;
+                log_line("[bridge-route] route_lock_failed_no_reachable_endpoint details=final_check_after_ready_latched");
+            }
+        };
+
         if (!m_bridge_route_probe_active)
         {
             m_bridge_route_probe_candidates = build_route_probe_candidates();
@@ -11336,14 +11564,12 @@ namespace WindroseTextSigns
             m_bridge_route_probe_active = true;
             if (m_bridge_route_probe_candidates.empty())
             {
-                log_line("[bridge-route] route_lock_failed_no_reachable_endpoint details=no_candidates_after_gate_open");
-                m_bridge_route_probe_active = false;
+                handle_probe_exhausted("no_candidates_after_gate_open");
                 return;
             }
             if (!start_next_route_probe(now))
             {
-                log_line("[bridge-route] route_lock_failed_no_reachable_endpoint details=probe_send_failed_all_candidates");
-                m_bridge_route_probe_active = false;
+                handle_probe_exhausted("probe_send_failed_all_candidates");
             }
             return;
         }
@@ -11356,8 +11582,7 @@ namespace WindroseTextSigns
             ++m_bridge_route_probe_index;
             if (!start_next_route_probe(now))
             {
-                log_line("[bridge-route] route_lock_failed_no_reachable_endpoint details=all_candidates_timed_out");
-                m_bridge_route_probe_active = false;
+                handle_probe_exhausted("all_candidates_timed_out");
             }
         }
         return;
@@ -12189,7 +12414,9 @@ namespace WindroseTextSigns
         }
         else if (m_sidecar_authoritative && runtime_role_lower == "localclient")
         {
-            desired = is_local_hosted_runtime() ? BridgeRole::RemoteClient : BridgeRole::ListenHost;
+            // LocalClient (solo or hosted authority) is send-only for bridge traffic.
+            // Do not bind/listen the relay UDP server socket from LocalClient.
+            desired = BridgeRole::RemoteClient;
         }
         else if (runtime_role_lower == "remoteclient" || runtime_role_lower.find("remote") != std::string::npos)
         {
@@ -12224,6 +12451,14 @@ namespace WindroseTextSigns
             maybe_acquire_role_lock(now, "role_stable_" + reason);
             return;
         }
+
+        const bool should_bind_server_socket =
+            desired == BridgeRole::DedicatedServer || desired == BridgeRole::ListenHost;
+        log_line("[bridge] bridge_bind_policy reason=" + reason +
+                 " runtimeRole=" + m_runtime_role +
+                 " desiredBridgeRole=" + bridge_role_name(desired) +
+                 " shouldBindServer=" + std::string{should_bind_server_socket ? "true" : "false"} +
+                 " authoritative=" + std::string{m_sidecar_authoritative ? "true" : "false"});
 
         m_bridge_role = desired;
         NativeBridge::instance().set_role(desired);
@@ -16157,6 +16392,8 @@ namespace WindroseTextSigns
         m_session_window_blocked_last_log = {};
         m_ready_latch_blocked_last_log = {};
         m_ready_latch_blocked_last_signature.clear();
+        m_ready_latch_blocked_first_seen = {};
+        m_ready_latch_blocked_count = 0;
         log_line("[session] session_window_opened epoch=" + std::to_string(m_session_epoch) +
                  " signal=" + signal +
                  " logPath=" + (m_session_window_log_path.empty() ? "unknown" : m_session_window_log_path.string()) +
@@ -16177,6 +16414,8 @@ namespace WindroseTextSigns
         m_session_window_blocked_last_log = {};
         m_ready_latch_blocked_last_log = {};
         m_ready_latch_blocked_last_signature.clear();
+        m_ready_latch_blocked_first_seen = {};
+        m_ready_latch_blocked_count = 0;
         log_line("[session] session_window_closed epoch=" + std::to_string(m_session_epoch) +
                  " signal=" + signal +
                  " logPath=" + (m_session_window_log_path.empty() ? "unknown" : m_session_window_log_path.string()) +
@@ -16237,6 +16476,8 @@ namespace WindroseTextSigns
         m_session_window_blocked_last_log = {};
         m_ready_latch_blocked_last_log = {};
         m_ready_latch_blocked_last_signature.clear();
+        m_ready_latch_blocked_first_seen = {};
+        m_ready_latch_blocked_count = 0;
         m_pending_role_watchdog_started = {};
         m_pending_role_watchdog_logged = false;
         m_pending_resolution_last_block_reason.clear();
@@ -16326,15 +16567,28 @@ namespace WindroseTextSigns
             m_destroy_signal_log_offset = 0;
             m_destroy_signal_log_initialized = false;
         }
+
+        // Hard reset sockets before any role/route re-init in the new epoch.
+        {
+            const auto pre_bound_port = NativeBridge::instance().server_bound_port();
+            const auto pre_open = NativeBridge::instance().server_socket_open();
+            const auto pre_err = NativeBridge::instance().server_last_bind_error();
+            m_bridge_role = BridgeRole::Unknown;
+            NativeBridge::instance().set_role(BridgeRole::Unknown);
+            const auto post_bound_port = NativeBridge::instance().server_bound_port();
+            const auto post_open = NativeBridge::instance().server_socket_open();
+            log_line("[bridge] bridge_listener_closed reason=session_reset_" + reason +
+                     " preOpen=" + std::string{pre_open ? "true" : "false"} +
+                     " prePort=" + std::to_string(static_cast<unsigned int>(pre_bound_port)) +
+                     " preLastBindError=" + std::to_string(pre_err) +
+                     " postOpen=" + std::string{post_open ? "true" : "false"} +
+                     " postPort=" + std::to_string(static_cast<unsigned int>(post_bound_port)));
+        }
+
         reset_visual_verify_debug_state();
         reset_server_role_classification_state("session_reset_" + reason);
         reset_role_route_locks("session_reset_" + reason);
         reset_bridge_snapshot_state("session_reset_" + reason);
-        if (!is_dedicated_runtime_process())
-        {
-            m_bridge_role = BridgeRole::Unknown;
-            NativeBridge::instance().set_role(m_bridge_role);
-        }
         if (had_ready || had_locks)
         {
             log_line("[session] reset reason=" + reason +
@@ -17193,45 +17447,82 @@ namespace WindroseTextSigns
                 std::string definitive_signal{};
                 std::string definitive_reason{};
                 const bool definitive_ready = is_definitive_ready_signal_observed(&definitive_signal, &definitive_reason);
+                const auto note_ready_latch_blocked =
+                    [&](const std::string& sig, const std::string& message) {
+                        constexpr auto k_unchanged_heartbeat_interval = std::chrono::seconds(20);
+                        const bool changed = m_ready_latch_blocked_last_signature != sig;
+                        if (changed)
+                        {
+                            m_ready_latch_blocked_last_signature = sig;
+                            m_ready_latch_blocked_last_log = now;
+                            m_ready_latch_blocked_first_seen = now;
+                            m_ready_latch_blocked_count = 1;
+                            log_line(message + " epoch=" + std::to_string(m_session_epoch) + " count=1");
+                            return;
+                        }
+
+                        ++m_ready_latch_blocked_count;
+                        const bool heartbeat_due =
+                            m_ready_latch_blocked_last_log.time_since_epoch().count() == 0 ||
+                            (now - m_ready_latch_blocked_last_log) >= k_unchanged_heartbeat_interval;
+                        if (heartbeat_due)
+                        {
+                            const auto blocked_for_ms =
+                                m_ready_latch_blocked_first_seen.time_since_epoch().count() == 0
+                                ? static_cast<long long>(0)
+                                : std::chrono::duration_cast<std::chrono::milliseconds>(
+                                      now - m_ready_latch_blocked_first_seen)
+                                      .count();
+                            log_line(message +
+                                     " epoch=" + std::to_string(m_session_epoch) +
+                                     " count=" + std::to_string(m_ready_latch_blocked_count) +
+                                     " blockedMs=" + std::to_string(blocked_for_ms) +
+                                     " heartbeat=true");
+                            m_ready_latch_blocked_last_log = now;
+                        }
+                    };
                 if (!m_role_lock_acquired)
                 {
                     const std::string sig = "role_not_locked|" + m_runtime_role;
-                    const bool should_log =
-                        m_ready_latch_blocked_last_signature != sig ||
-                        m_ready_latch_blocked_last_log.time_since_epoch().count() == 0 ||
-                        (now - m_ready_latch_blocked_last_log) >= std::chrono::seconds(2);
-                    if (should_log)
-                    {
-                        log_line("[session] ready_latch_blocked reason=role_not_locked role=" + m_runtime_role +
-                                 " epoch=" + std::to_string(m_session_epoch));
-                        m_ready_latch_blocked_last_signature = sig;
-                        m_ready_latch_blocked_last_log = now;
-                    }
+                    note_ready_latch_blocked(
+                        sig,
+                        "[session] ready_latch_blocked reason=role_not_locked role=" + m_runtime_role);
                 }
                 else if (!definitive_ready)
                 {
                     const std::string sig = "no_definitive_signal|" + m_runtime_role + "|" + definitive_reason;
-                    const bool should_log =
-                        m_ready_latch_blocked_last_signature != sig ||
-                        m_ready_latch_blocked_last_log.time_since_epoch().count() == 0 ||
-                        (now - m_ready_latch_blocked_last_log) >= std::chrono::seconds(2);
-                    if (should_log)
-                    {
-                        log_line("[session] ready_latch_blocked reason=no_definitive_signal role=" + m_runtime_role +
-                                 " detail=" + definitive_reason +
-                                 " epoch=" + std::to_string(m_session_epoch));
-                        m_ready_latch_blocked_last_signature = sig;
-                        m_ready_latch_blocked_last_log = now;
-                    }
+                    note_ready_latch_blocked(
+                        sig,
+                        "[session] ready_latch_blocked reason=no_definitive_signal role=" + m_runtime_role +
+                        " detail=" + definitive_reason);
                 }
                 else
                 {
                     std::string ready_reason{};
                     if (is_session_ready_for_role_resolution(&ready_reason))
                     {
+                        if (m_ready_latch_blocked_count > 0)
+                        {
+                            const auto blocked_for_ms =
+                                m_ready_latch_blocked_first_seen.time_since_epoch().count() == 0
+                                ? static_cast<long long>(0)
+                                : std::chrono::duration_cast<std::chrono::milliseconds>(
+                                      now - m_ready_latch_blocked_first_seen)
+                                      .count();
+                            log_line("[session] ready_latch_unblocked summaryCount=" +
+                                     std::to_string(m_ready_latch_blocked_count) +
+                                     " blockedMs=" + std::to_string(blocked_for_ms) +
+                                     " finalSignature=" +
+                                     (m_ready_latch_blocked_last_signature.empty()
+                                          ? std::string{"none"}
+                                          : m_ready_latch_blocked_last_signature) +
+                                     " epoch=" + std::to_string(m_session_epoch));
+                        }
                         m_session_ready_latched = true;
                         m_ready_latch_blocked_last_signature.clear();
                         m_ready_latch_blocked_last_log = {};
+                        m_ready_latch_blocked_first_seen = {};
+                        m_ready_latch_blocked_count = 0;
                         refresh_world_text_font_profile("ready_latch", true);
                         m_world_text_font_profile_ready_latched = true;
                         m_phase7_teardown_skip_logged = false;
