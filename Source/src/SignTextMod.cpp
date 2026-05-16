@@ -9015,6 +9015,15 @@ namespace WindroseTextSigns
             std::unordered_map<std::string, LabelRecord> labels{};
             size_t parsed_rows{0};
             uint64_t revision{0};
+            bool read_ok{false};
+            bool schema_valid{false};
+            bool has_labels_node{false};
+            bool is_primary{false};
+            bool is_bak{false};
+            bool is_tmp{false};
+            bool is_snapshot{false};
+            int source_rank{0};
+            int64_t mtime_ticks{0};
         };
 
         std::vector<ParsedCandidate> parsed_candidates{};
@@ -9025,20 +9034,34 @@ namespace WindroseTextSigns
             {
                 continue;
             }
-            if (!read_text_file(path, content))
-            {
-                continue;
-            }
-
-            const bool has_labels_node = (content.find("\"labels\"") != std::string::npos);
-            if (!has_labels_node)
-            {
-                log_line("[save] load_candidate_rejected invalid_json_shape path=" + path.string());
-                continue;
-            }
-
             ParsedCandidate parsed{};
             parsed.path = path;
+            parsed.is_primary = (path == m_sidecar_path);
+            parsed.is_bak = (path == std::filesystem::path(backup_path));
+            parsed.is_tmp = (path == std::filesystem::path(temp_path));
+            parsed.is_snapshot = !parsed.is_primary && !parsed.is_bak && !parsed.is_tmp;
+            parsed.source_rank = parsed.is_bak ? 3 : (parsed.is_snapshot ? 2 : (parsed.is_tmp ? 1 : 0));
+            std::error_code mtime_ec{};
+            if (const auto mtime = std::filesystem::last_write_time(path, mtime_ec); !mtime_ec)
+            {
+                parsed.mtime_ticks = static_cast<int64_t>(mtime.time_since_epoch().count());
+            }
+
+            if (!read_text_file(path, content))
+            {
+                log_line("[save] load_candidate_rejected unreadable path=" + path.string());
+                parsed_candidates.push_back(std::move(parsed));
+                continue;
+            }
+            parsed.read_ok = true;
+            parsed.has_labels_node = (content.find("\"labels\"") != std::string::npos);
+            if (!parsed.has_labels_node)
+            {
+                log_line("[save] load_candidate_rejected invalid_json_shape path=" + path.string());
+                parsed_candidates.push_back(std::move(parsed));
+                continue;
+            }
+            parsed.schema_valid = true;
             if (std::smatch revision_match{}; std::regex_search(content, revision_match, std::regex{"\\\"revision\\\"\\s*:\\s*([0-9]+)"}) && revision_match.size() > 1)
             {
                 try
@@ -9117,44 +9140,74 @@ namespace WindroseTextSigns
 
         ParsedCandidate* chosen = nullptr;
         bool restored_from_backup = false;
-
-        if (primary_candidate && !primary_candidate->labels.empty())
+        const bool primary_valid = primary_candidate && primary_candidate->schema_valid;
+        const bool primary_exists = std::filesystem::exists(m_sidecar_path);
+        if (primary_valid)
         {
             chosen = primary_candidate;
-        }
-        else if (primary_candidate && primary_candidate->labels.empty())
-        {
-            for (auto& candidate : parsed_candidates)
+            if (primary_candidate->labels.empty())
             {
-                if (candidate.path == m_sidecar_path)
-                {
-                    continue;
-                }
-                if (!candidate.labels.empty())
-                {
-                    chosen = &candidate;
-                    restored_from_backup = true;
-                    break;
-                }
-            }
-            if (!chosen)
-            {
-                chosen = primary_candidate;
+                log_line("[save] load_primary_valid_empty_preserved path=" + m_sidecar_path.string() +
+                         " reason=primary_valid_empty");
             }
         }
         else
         {
+            ParsedCandidate* best_recovery = nullptr;
             for (auto& candidate : parsed_candidates)
             {
-                if (!candidate.labels.empty())
+                if (candidate.is_primary || !candidate.schema_valid || candidate.labels.empty())
                 {
-                    chosen = &candidate;
-                    break;
+                    continue;
+                }
+                if (!best_recovery)
+                {
+                    best_recovery = &candidate;
+                    continue;
+                }
+                if (candidate.revision != best_recovery->revision)
+                {
+                    if (candidate.revision > best_recovery->revision)
+                    {
+                        best_recovery = &candidate;
+                    }
+                    continue;
+                }
+                if (candidate.parsed_rows != best_recovery->parsed_rows)
+                {
+                    if (candidate.parsed_rows > best_recovery->parsed_rows)
+                    {
+                        best_recovery = &candidate;
+                    }
+                    continue;
+                }
+                if (candidate.mtime_ticks != best_recovery->mtime_ticks)
+                {
+                    if (candidate.mtime_ticks > best_recovery->mtime_ticks)
+                    {
+                        best_recovery = &candidate;
+                    }
+                    continue;
+                }
+                if (candidate.source_rank > best_recovery->source_rank)
+                {
+                    best_recovery = &candidate;
                 }
             }
-            if (!chosen)
+            if (best_recovery)
             {
-                chosen = &parsed_candidates.front();
+                chosen = best_recovery;
+                restored_from_backup = true;
+                log_line("[save] auto_restore_triggered_primary_invalid reason=" +
+                         std::string{primary_exists ? "primary_invalid" : "primary_missing"} +
+                         " source=" + chosen->path.string() +
+                         " revision=" + std::to_string(chosen->revision) +
+                         " parsedRows=" + std::to_string(chosen->parsed_rows));
+            }
+            else if (primary_candidate && primary_candidate->read_ok)
+            {
+                chosen = primary_candidate;
+                log_line("[save] auto_restore_skipped_primary_invalid reason=no_nonempty_recovery path=" + m_sidecar_path.string());
             }
         }
 
@@ -11149,16 +11202,14 @@ namespace WindroseTextSigns
                 ack_runtime_role == "dedicatedserver" ||
                 ack_runtime_role == "hostedserver" ||
                 ack_bridge_role == "dedicatedserver";
-            const bool ack_from_authority = (ack_authoritative == "true" || ack_authoritative == "1");
             const bool ack_identity_match =
                 m_bridge_route_probe_active &&
                 m_bridge_route_probe_waiting_ack &&
                 !m_bridge_route_probe_token.empty() &&
                 token == m_bridge_route_probe_token &&
                 !m_bridge_route_probe_host.empty() &&
-                (ack_probe_host.empty() || lower_ascii(ack_probe_host) == lower_ascii(m_bridge_route_probe_host)) &&
-                (ack_session.empty() || ack_session == m_session_id) &&
-                (ack_epoch == 0 || ack_epoch == static_cast<uint64_t>(m_session_epoch));
+                !ack_probe_host.empty() &&
+                lower_ascii(ack_probe_host) == lower_ascii(m_bridge_route_probe_host);
             if (m_bridge_route_probe_active &&
                 m_bridge_route_probe_waiting_ack &&
                 !m_bridge_route_probe_token.empty() &&
@@ -11178,7 +11229,11 @@ namespace WindroseTextSigns
                          " probeHost=" + (ack_probe_host.empty() ? "none" : ack_probe_host) +
                          " runtimeRole=" + (keys_runtime.empty() ? "missing" : keys_runtime) +
                          " bridgeRole=" + (keys_bridge.empty() ? "missing" : keys_bridge) +
-                         " authoritative=" + (ack_authoritative.empty() ? "missing" : ack_authoritative));
+                         " authoritative=" + (ack_authoritative.empty() ? "missing" : ack_authoritative) +
+                         " sessionMismatch=" + std::string{
+                             (!ack_session.empty() && !m_session_id.empty() && ack_session != m_session_id) ? "true" : "false"} +
+                         " epochMismatch=" + std::string{
+                             (ack_epoch != 0 && ack_epoch != static_cast<uint64_t>(m_session_epoch)) ? "true" : "false"});
                 if (!ack_identity_match)
                 {
                     log_line("[bridge-route] route_probe_result candidate=" + m_bridge_route_probe_host +
@@ -11189,7 +11244,7 @@ namespace WindroseTextSigns
                              " probeHost=" + (ack_probe_host.empty() ? "none" : ack_probe_host));
                     return;
                 }
-                if (!ack_from_server_role && !ack_from_authority)
+                if (!ack_from_server_role)
                 {
                     log_line("[bridge-route] route_probe_result candidate=" + m_bridge_route_probe_host +
                              ":" + std::to_string(m_bridge_udp_port) +
@@ -11197,13 +11252,6 @@ namespace WindroseTextSigns
                              (ack_runtime_role.empty() ? "none" : ack_runtime_role) +
                              " bridgeRole=" + (ack_bridge_role.empty() ? "none" : ack_bridge_role));
                     return;
-                }
-                if (!ack_from_server_role && ack_from_authority)
-                {
-                    log_line("[bridge-route] route_probe_ack_accepted_legacy_parse candidate=" + m_bridge_route_probe_host +
-                             ":" + std::to_string(m_bridge_udp_port) +
-                             " authoritative=true runtimeRole=" + (ack_runtime_role.empty() ? "none" : ack_runtime_role) +
-                             " bridgeRole=" + (ack_bridge_role.empty() ? "none" : ack_bridge_role));
                 }
                 log_line("[bridge-route] route_probe_result candidate=" + m_bridge_route_probe_host +
                          ":" + std::to_string(m_bridge_udp_port) +
@@ -12542,6 +12590,7 @@ namespace WindroseTextSigns
     auto SignTextMod::configure_bridge_role(const std::string& reason) -> void
     {
         const auto now = std::chrono::steady_clock::now();
+        const bool session_reset_reason = reason.rfind("session_reset_", 0) == 0;
         const auto runtime_role_lower = lower_ascii(m_runtime_role);
         BridgeRole desired = BridgeRole::Unknown;
         const bool server_pending_classification =
@@ -12610,6 +12659,21 @@ namespace WindroseTextSigns
         if (desired == m_bridge_role)
         {
             maybe_acquire_role_lock(now, "role_stable_" + reason);
+            return;
+        }
+
+        if (!session_reset_reason &&
+            m_role_lock_acquired &&
+            m_bridge_role == BridgeRole::RemoteClient &&
+            desired == BridgeRole::RemoteClient)
+        {
+            log_line("[bridge] bridge_role_change_preserve_route_state reason=" + reason +
+                     " oldRole=" + bridge_role_name(m_bridge_role) +
+                     " newRole=" + bridge_role_name(desired) +
+                     " lock=true");
+            m_bridge_role = desired;
+            NativeBridge::instance().set_role(desired);
+            maybe_acquire_role_lock(now, "role_preserve_" + reason);
             return;
         }
 
