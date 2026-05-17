@@ -276,6 +276,14 @@ namespace WindroseTextSigns
         auto is_bootstrap_resolution_window_active(std::chrono::steady_clock::time_point now) const -> bool;
         auto maybe_acquire_role_lock(std::chrono::steady_clock::time_point now, const std::string& reason) -> void;
         auto reset_role_route_locks(const std::string& reason) -> void;
+        auto is_remoteclient_ready_and_world_bound() const -> bool;
+        auto should_ignore_remote_inbound_before_ready(
+            const std::string& type,
+            std::string* out_reason = nullptr,
+            std::string* out_authority_path = nullptr) const -> bool;
+        auto start_remote_post_ready_resync(const std::string& reason) -> void;
+        auto stop_remote_post_ready_resync(const std::string& reason, bool success) -> void;
+        auto tick_remote_post_ready_resync(std::chrono::steady_clock::time_point now) -> void;
         auto next_snapshot_retry_delay() const -> std::chrono::seconds;
         auto tick_bridge() -> void;
         auto send_bridge_snapshot_request(const std::string& reason) -> void;
@@ -485,6 +493,14 @@ namespace WindroseTextSigns
         bool m_hosted_server_resync_in_flight{false};
         std::unordered_map<std::string, std::chrono::steady_clock::time_point> m_hosted_server_snapshot_unavailable_last_by_session{};
         std::chrono::steady_clock::time_point m_remote_snapshot_no_cache_backoff_until{};
+        bool m_remote_post_ready_resync_active{false};
+        bool m_remote_post_ready_resync_in_flight{false};
+        bool m_remote_post_ready_resync_bootstrap_done{false};
+        uint32_t m_remote_post_ready_resync_attempts{0};
+        std::chrono::steady_clock::time_point m_remote_post_ready_resync_started{};
+        std::chrono::steady_clock::time_point m_remote_post_ready_resync_next_due{};
+        std::chrono::steady_clock::time_point m_remote_post_ready_resync_last_send{};
+        std::string m_remote_post_ready_resync_last_reason{};
         bool m_server_role_classification_pending{false};
         bool m_server_role_signal_executable_seen{false};
         bool m_server_role_signal_hosted_ini_seen{false};

@@ -11551,6 +11551,17 @@ namespace WindroseTextSigns
                      " type=" + type +
                      " epoch=" + std::to_string(m_session_epoch));
         }
+        std::string remote_pre_ready_ignore_reason{};
+        std::string remote_pre_ready_authority_path{};
+        if (should_ignore_remote_inbound_before_ready(type, &remote_pre_ready_ignore_reason, &remote_pre_ready_authority_path))
+        {
+            log_line("[bridge] remote_inbound_ignored_pre_ready type=" + type +
+                     " authorityPath=" + remote_pre_ready_authority_path +
+                     " reason=" + remote_pre_ready_ignore_reason +
+                     " epoch=" + std::to_string(m_session_epoch) +
+                     " worldId=" + m_world_folder_id);
+            return;
+        }
         if (type == "set")
         {
             handle_bridge_server_set(fields);
@@ -11633,11 +11644,20 @@ namespace WindroseTextSigns
                     if (!m_sidecar_authoritative)
                     {
                         queue_first_authoritative_render_pass("snapshot_end_complete", m_world_folder_id);
+                        stop_remote_post_ready_resync("snapshot_end_complete", true);
+                        log_line("[bridge] snapshot_applied_success type=snapshot_end_complete epoch=" +
+                                 std::to_string(m_session_epoch) +
+                                 " worldId=" + m_world_folder_id +
+                                 " revision=" + std::to_string(m_revision));
                     }
                 }
                 else
                 {
                     log_line("[bridge] snapshot_reconcile_deferred reason=incomplete_snapshot id=" + snapshot_id);
+                    log_line("[bridge] snapshot_apply_failed reason=incomplete_snapshot id=" + snapshot_id +
+                             " seen=" + std::to_string(m_bridge_snapshot_seen_keys.size()) +
+                             " expected=" + std::to_string(m_bridge_snapshot_expected_count) +
+                             " epoch=" + std::to_string(m_session_epoch));
                 }
                 return;
             }
@@ -11649,6 +11669,11 @@ namespace WindroseTextSigns
             if (!m_sidecar_authoritative)
             {
                 queue_first_authoritative_render_pass("snapshot_end_legacy", m_world_folder_id);
+                stop_remote_post_ready_resync("snapshot_end_legacy", true);
+                log_line("[bridge] snapshot_applied_success type=snapshot_end_legacy epoch=" +
+                         std::to_string(m_session_epoch) +
+                         " worldId=" + m_world_folder_id +
+                         " revision=" + std::to_string(m_revision));
             }
             log_line("[bridge] snapshot_end revision=" + std::to_string(m_revision) +
                      " role=" + bridge_role_name(m_bridge_role) +
@@ -12272,6 +12297,14 @@ namespace WindroseTextSigns
         m_hosted_server_snapshot_unavailable_last_by_session.clear();
         m_snapshot_requester_state_by_session.clear();
         m_remote_snapshot_no_cache_backoff_until = {};
+        m_remote_post_ready_resync_active = false;
+        m_remote_post_ready_resync_in_flight = false;
+        m_remote_post_ready_resync_bootstrap_done = false;
+        m_remote_post_ready_resync_attempts = 0;
+        m_remote_post_ready_resync_started = {};
+        m_remote_post_ready_resync_next_due = {};
+        m_remote_post_ready_resync_last_send = {};
+        m_remote_post_ready_resync_last_reason.clear();
         m_hosted_server_endpoint_advertised = false;
         m_hosted_server_endpoint_host.clear();
         m_hosted_server_endpoint_port = 0;
@@ -13013,6 +13046,181 @@ namespace WindroseTextSigns
         }
     }
 
+    auto SignTextMod::is_remoteclient_ready_and_world_bound() const -> bool
+    {
+        return m_bridge_role == BridgeRole::RemoteClient &&
+            !m_sidecar_authoritative &&
+            m_session_ready_latched &&
+            is_worldid_bound_for_current_epoch();
+    }
+
+    auto SignTextMod::should_ignore_remote_inbound_before_ready(
+        const std::string& type,
+        std::string* out_reason,
+        std::string* out_authority_path) const -> bool
+    {
+        if (out_reason)
+        {
+            out_reason->clear();
+        }
+        if (out_authority_path)
+        {
+            const auto authority_mode_lower = lower_ascii(m_authority_mode);
+            *out_authority_path = authority_mode_lower.find("hosted") != std::string::npos
+                ? "hosted"
+                : "dedicated";
+        }
+        if (m_bridge_role != BridgeRole::RemoteClient || m_sidecar_authoritative)
+        {
+            return false;
+        }
+        if (type != "upsert" && type != "clear" && type != "snapshot_end")
+        {
+            return false;
+        }
+        if (m_session_ready_latched && is_worldid_bound_for_current_epoch())
+        {
+            return false;
+        }
+        if (out_reason)
+        {
+            if (!m_session_ready_latched)
+            {
+                *out_reason = "session_ready_not_latched";
+            }
+            else if (!is_worldid_bound_for_current_epoch())
+            {
+                *out_reason = "world_not_bound";
+            }
+            else
+            {
+                *out_reason = "not_ready";
+            }
+        }
+        return true;
+    }
+
+    auto SignTextMod::start_remote_post_ready_resync(const std::string& reason) -> void
+    {
+        if (m_bridge_role != BridgeRole::RemoteClient || m_sidecar_authoritative)
+        {
+            return;
+        }
+        const auto now = std::chrono::steady_clock::now();
+        m_remote_post_ready_resync_active = true;
+        m_remote_post_ready_resync_in_flight = false;
+        m_remote_post_ready_resync_attempts = 0;
+        m_remote_post_ready_resync_started = now;
+        m_remote_post_ready_resync_next_due = now;
+        m_remote_post_ready_resync_last_send = {};
+        m_remote_post_ready_resync_last_reason = reason;
+        m_remote_post_ready_resync_bootstrap_done = true;
+        m_bridge_snapshot_received = false;
+        m_bridge_snapshot_world_id.clear();
+        log_line("[bridge] resync_start epoch=" + std::to_string(m_session_epoch) +
+                 " role=" + bridge_role_name(m_bridge_role) +
+                 " authority=" + std::string{m_sidecar_authoritative ? "true" : "false"} +
+                 " worldId=" + m_world_folder_id +
+                 " reason=" + reason);
+    }
+
+    auto SignTextMod::stop_remote_post_ready_resync(const std::string& reason, const bool success) -> void
+    {
+        if (!m_remote_post_ready_resync_active)
+        {
+            return;
+        }
+        const auto now = std::chrono::steady_clock::now();
+        if (success)
+        {
+            const auto elapsed_ms = m_remote_post_ready_resync_started.time_since_epoch().count() == 0
+                ? static_cast<long long>(0)
+                : std::chrono::duration_cast<std::chrono::milliseconds>(now - m_remote_post_ready_resync_started).count();
+            log_line("[bridge] resync_success epoch=" + std::to_string(m_session_epoch) +
+                     " role=" + bridge_role_name(m_bridge_role) +
+                     " worldId=" + m_world_folder_id +
+                     " attempts=" + std::to_string(m_remote_post_ready_resync_attempts) +
+                     " elapsedMs=" + std::to_string(elapsed_ms) +
+                     " reason=" + reason);
+        }
+        else
+        {
+            log_line("[bridge] resync_cancel_on_session_exit epoch=" + std::to_string(m_session_epoch) +
+                     " role=" + bridge_role_name(m_bridge_role) +
+                     " worldId=" + m_world_folder_id +
+                     " attempts=" + std::to_string(m_remote_post_ready_resync_attempts) +
+                     " reason=" + reason);
+        }
+        m_remote_post_ready_resync_active = false;
+        m_remote_post_ready_resync_in_flight = false;
+        m_remote_post_ready_resync_attempts = 0;
+        m_remote_post_ready_resync_started = {};
+        m_remote_post_ready_resync_next_due = {};
+        m_remote_post_ready_resync_last_send = {};
+        m_remote_post_ready_resync_last_reason.clear();
+    }
+
+    auto SignTextMod::tick_remote_post_ready_resync(const std::chrono::steady_clock::time_point now) -> void
+    {
+        if (!m_remote_post_ready_resync_active)
+        {
+            return;
+        }
+        if (!is_remoteclient_ready_and_world_bound())
+        {
+            return;
+        }
+        const bool snapshot_current_world =
+            m_bridge_snapshot_received &&
+            (!is_hex_world_id(m_world_folder_id) || m_bridge_snapshot_world_id == m_world_folder_id);
+        if (snapshot_current_world)
+        {
+            stop_remote_post_ready_resync("snapshot_applied_success", true);
+            return;
+        }
+        if (m_remote_post_ready_resync_in_flight && now < m_remote_post_ready_resync_next_due)
+        {
+            return;
+        }
+        if (m_remote_post_ready_resync_in_flight && now >= m_remote_post_ready_resync_next_due)
+        {
+            m_remote_post_ready_resync_in_flight = false;
+        }
+        if (!has_viable_remote_route_for_snapshot())
+        {
+            m_remote_post_ready_resync_next_due = now + std::chrono::seconds(15);
+            return;
+        }
+
+        const uint32_t next_attempt = m_remote_post_ready_resync_attempts + 1;
+        std::string request_reason{"remote_post_ready_resync"};
+        std::string retry_log_tag{"resync_retry_long"};
+        auto retry_delay = std::chrono::seconds(15);
+        if (next_attempt == 1)
+        {
+            request_reason = "remote_post_ready_resync_initial";
+            retry_log_tag = "resync_start";
+            retry_delay = std::chrono::seconds(1);
+        }
+        else if (next_attempt == 2 || next_attempt == 3)
+        {
+            request_reason = "remote_post_ready_resync_retry_short";
+            retry_log_tag = "resync_retry_short";
+            retry_delay = (next_attempt == 2) ? std::chrono::seconds(3) : std::chrono::seconds(15);
+        }
+        send_bridge_snapshot_request(request_reason);
+        ++m_remote_post_ready_resync_attempts;
+        m_remote_post_ready_resync_in_flight = true;
+        m_remote_post_ready_resync_last_send = now;
+        m_remote_post_ready_resync_next_due = now + retry_delay;
+        log_line("[bridge] " + retry_log_tag +
+                 " epoch=" + std::to_string(m_session_epoch) +
+                 " role=" + bridge_role_name(m_bridge_role) +
+                 " worldId=" + m_world_folder_id +
+                 " attempt=" + std::to_string(next_attempt) +
+                 " nextRetrySec=" + std::to_string(static_cast<long long>(retry_delay.count())));
+    }
+
     auto SignTextMod::maybe_acquire_role_lock(
         const std::chrono::steady_clock::time_point now,
         const std::string& reason) -> void
@@ -13201,7 +13409,18 @@ namespace WindroseTextSigns
         }
 
         update_bridge_health(now);
-        if (m_bridge_role == BridgeRole::RemoteClient && !m_sidecar_authoritative && now >= m_bridge_next_snapshot_request)
+        if (m_bridge_role == BridgeRole::RemoteClient && !m_sidecar_authoritative)
+        {
+            if (is_remoteclient_ready_and_world_bound() && !m_remote_post_ready_resync_bootstrap_done)
+            {
+                start_remote_post_ready_resync("ready_world_bound");
+            }
+            tick_remote_post_ready_resync(now);
+        }
+        if (m_bridge_role == BridgeRole::RemoteClient &&
+            !m_sidecar_authoritative &&
+            !m_remote_post_ready_resync_active &&
+            now >= m_bridge_next_snapshot_request)
         {
             if (m_remote_snapshot_no_cache_backoff_until.time_since_epoch().count() != 0 &&
                 now < m_remote_snapshot_no_cache_backoff_until)
@@ -16760,6 +16979,10 @@ namespace WindroseTextSigns
         const bool had_ready = m_session_ready_latched;
         const bool had_locks = m_role_lock_acquired || m_bridge_route_lock_acquired;
         const bool force_reset = reason == "definitive_session_start";
+        if (m_remote_post_ready_resync_active)
+        {
+            stop_remote_post_ready_resync("session_reset_" + reason, false);
+        }
         const bool preserve_hosted_ready_markers =
             reason == "world_inactive" && lower_ascii(m_runtime_role) == "localclientpending";
         const bool had_ready_markers =
