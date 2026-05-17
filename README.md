@@ -4,7 +4,9 @@ WindroseTextSigns is a UE4SS C++ mod for Windrose that lets players edit text on
 
 You do not craft a new sign item. Build normal Wooden Labels, look at one, press `F8` (default), and edit text in the in-game window.
 
-![WindroseTextSigns in-game editable wooden labels](docs/windrose-text-signs-screenshot.png)
+| Example 1 | Example 2 |
+| --- | --- |
+| ![WindroseTextSigns in-game editable wooden labels](docs/windrose-text-signs-screenshot.png) | ![WindroseTextSigns in-game editable wooden labels second screenshot](docs/windrose-text-signs-screenshot-2.png) |
 
 ## Download
 
