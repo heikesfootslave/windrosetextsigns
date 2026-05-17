@@ -1,82 +1,128 @@
 # WindroseTextSigns
 
-WindroseTextSigns is a UE4SS C++ mod for Windrose that lets players turn native wooden labels into editable text signs.
+WindroseTextSigns is a UE4SS C++ mod for Windrose that lets players edit text on placed native Wooden Labels.
 
-The mod does not add a new build-menu item. Build any normal wooden label in game, look at it, press the configured hotkey (default F8), and enter the text you want displayed on the sign.
+You do not craft a new sign item. Build normal Wooden Labels, look at one, press `F8` (default), and edit text in the in-game window.
 
 ![WindroseTextSigns in-game editable wooden labels](docs/windrose-text-signs-screenshot.png)
 
-## Downloads
+## Download
 
-Get the latest packaged mod zip from the [GitHub Releases page](https://github.com/Ageous27/WindroseTextSigns/releases/latest).
+Get the latest packaged zip from [GitHub Releases](https://github.com/Ageous27/WindroseTextSigns/releases/latest).
 
-## Features
+## What Is In The Zip
 
-- Edit placed wooden labels in game with a configurable hotkey.
-- Hide the native white label icon when a label is converted into a text sign.
-- Render text directly on the sign in the world.
-- Persist sign text per world using sidecar JSON data.
-- Support Solo, Hosted, and Dedicated Server play modes.
-- Keep a client-side cache for reconnect display while the server remains authoritative in multiplayer.
-- Use a UDP bridge for client/server sign-text updates.
-- Auto route discovery for clients where possible, with static host fallback.
-- UPnP port mapping supports `auto`, `on`, and `off` modes for dedicated/listen hosts.
-- In multiplayer, players without the mod will still see normal signs.
+The zip includes:
 
-## Requirements
+- Mod folder:
+  - `WindroseTextSigns\enabled.txt`
+  - `WindroseTextSigns\Config\WindroseTextSigns.ini`
+  - `WindroseTextSigns\dlls\main.dll`
+- Optional font override package:
+  - `Content\Paks\~mods\0_WindroseTextSigns_RDFOverride_P.pak`
+  - `Content\Paks\~mods\0_WindroseTextSigns_RDFOverride_P.utoc`
+  - `Content\Paks\~mods\0_WindroseTextSigns_RDFOverride_P.ucas`
 
-- Windrose
-- UE4SS installed for Windrose
-- The same WindroseTextSigns mod package installed on both the client and the dedicated server for multiplayer use
+## Installation Paths
 
-## Installation
-
-1. Download the latest zip from [Releases](https://github.com/Ageous27/WindroseTextSigns/releases/latest).
-2. Extract the `WindroseTextSigns` folder into the UE4SS mods folder.
-
-Client example:
+Use these path variables in this README:
 
 ```text
-...\Windrose\R5\Binaries\Win64\ue4ss\Mods\WindroseTextSigns
+<WindroseClientRoot>      = your Windrose install root
+<HostedServerRoot>        = <WindroseClientRoot>\R5\Builds\WindowsServer\R5
+<DedicatedServerRoot>     = your dedicated server R5 root
 ```
 
-Dedicated server example:
+## Install: Solo Play Only
 
-```text
-...\WindowsServer\R5\Binaries\Win64\ue4ss\Mods\WindroseTextSigns
-```
+1. Close Windrose.
+2. Copy mod folder from zip:
+   - source: `WindroseTextSigns\`
+   - destination: `<WindroseClientRoot>\R5\Binaries\Win64\ue4ss\Mods\WindroseTextSigns`
+3. Optional font package install (recommended for themed font):
+   - source: `Content\Paks\~mods\0_WindroseTextSigns_RDFOverride_P.pak/.utoc/.ucas`
+   - destination: `<WindroseClientRoot>\R5\Content\Paks\~mods\`
+4. Start game.
 
-The mod folder should contain:
+## Install: Hosted Sessions
 
-```text
-enabled.txt
-Config\WindroseTextSigns.ini
-dlls\main.dll
-```
+Hosted sessions use both a client runtime and a local hosted server runtime.
 
-## Usage
+UE4SS and this mod must be installed in both locations.
 
-1. Build any native wooden label in game.
+1. Close Windrose.
+2. Install to Hosted Client (your normal game install):
+   - mod destination:
+     - `<WindroseClientRoot>\R5\Binaries\Win64\ue4ss\Mods\WindroseTextSigns`
+   - optional font package destination:
+     - `<WindroseClientRoot>\R5\Content\Paks\~mods\`
+3. Install to Hosted Server runtime:
+   - mod destination:
+     - `<HostedServerRoot>\Binaries\Win64\ue4ss\Mods\WindroseTextSigns`
+   - optional font package destination:
+     - `<HostedServerRoot>\Content\Paks\~mods\`
+
+Notes:
+- The font package is primarily visual and matters most on clients that render sign text.
+- For consistency during troubleshooting, install the same mod version in both client and hosted server locations.
+
+## Install: Dedicated Server
+
+1. Install mod on each client that should view/edit signs:
+   - `<WindroseClientRoot>\R5\Binaries\Win64\ue4ss\Mods\WindroseTextSigns`
+2. Install mod on dedicated server:
+   - destination:
+     - `<DedicatedServerRoot>\Binaries\Win64\ue4ss\Mods\WindroseTextSigns`
+3. Optional font package on clients:
+   - `<WindroseClientRoot>\R5\Content\Paks\~mods\`
+4. Optional font package on dedicated server:
+   - `<DedicatedServerRoot>\Content\Paks\~mods\`
+
+## Revert To Default In-Game Font
+
+To use default game font rendering again, remove or do not install these three files:
+
+- `0_WindroseTextSigns_RDFOverride_P.pak`
+- `0_WindroseTextSigns_RDFOverride_P.utoc`
+- `0_WindroseTextSigns_RDFOverride_P.ucas`
+
+From:
+
+- Client: `...\Windrose\R5\Content\Paks\~mods\`
+- Hosted server: `...\Windrose\R5\Builds\WindowsServer\R5\Content\Paks\~mods\`
+- Dedicated server: `...\WindowsServer\R5\Content\Paks\~mods\`
+
+## In-Game Usage
+
+1. Build a normal Wooden Label.
 2. Look at the label.
-3. Press `F8`.
-4. Enter sign text in the in-game editor.
-5. Press `Enter` to apply.
-6. Use `Shift+Enter` for a new line.
-7. Use `Esc` to cancel/close.
+3. Press `F8` to open the editor.
+4. Type text.
+5. Use `Shift+Enter` for newline.
+6. Press `Enter` or click `Apply` to save.
+7. Press `F8` again or `Esc` to close without applying.
+8. Use `Clear` to remove text for that sign.
 
-To clear a sign, open the editor, remove all text, and apply.
+## Save Data
 
-Destroying a sign should remove its saved text record after the mod confirms the sign is gone.
+Authoritative save locations:
+
+- Solo and Hosted Client:
+  - `%LOCALAPPDATA%\R5\Saved\SaveProfiles\<profileId>\WindroseTextSigns\<worldIslandId>\SignTexts.json`
+- Dedicated Server:
+  - `...\R5\Saved\SaveProfiles\Default\WindroseTextSigns\<worldIslandId>\SignTexts.json`
+
+Backups are written beside the main JSON file.
 
 ## Configuration
 
-Configuration lives in:
+Config file:
 
 ```text
-Config\WindroseTextSigns.ini
+WindroseTextSigns\Config\WindroseTextSigns.ini
 ```
 
-The most important production settings are:
+Most-used settings:
 
 ```ini
 [General]
@@ -87,121 +133,22 @@ WTS_MIN_VIEW_DOT=0.92
 WTS_BRIDGE_SERVER_HOST=auto
 WTS_BRIDGE_UDP_PORT=45801
 WTS_BRIDGE_UPNP_MODE=auto
-WTS_BRIDGE_UPNP_ENABLED=true
-WTS_R5_LOG_CLIENT_PATH=%LOCALAPPDATA%\R5\Saved\Logs\R5.log
-WTS_R5_LOG_DEDICATED_PATH=C:\Games\WindowsServer\R5\Saved\Logs\R5.log
-WTS_R5_LOG_HOSTED_SERVER_PATH=C:\SteamLibrary\steamapps\common\Windrose\R5\Builds\WindowsServer\R5\Saved\Logs\R5.log
-WTS_F8_LATENCY_BREAKDOWN_ENABLED=true
 ```
 
-### Session Bootstrap Log Sources
+### Static Dedicated IP (UPnP Off)
 
-Bootstrap now reads dedicated per-role log sources and keeps independent per-source cursors and session windows.
-This prevents stale lines from earlier sessions in a persistent `R5.log` from re-triggering role/session state.
+If you want manual networking for dedicated server sessions, use a fixed server IP/hostname and disable UPnP.
 
-Config keys:
-
-```ini
-WTS_R5_LOG_CLIENT_PATH=%LOCALAPPDATA%\R5\Saved\Logs\R5.log
-WTS_R5_LOG_DEDICATED_PATH=C:\Games\WindowsServer\R5\Saved\Logs\R5.log
-WTS_R5_LOG_HOSTED_SERVER_PATH=C:\SteamLibrary\steamapps\common\Windrose\R5\Builds\WindowsServer\R5\Saved\Logs\R5.log
-```
-
-Cursor state is persisted in:
-
-```text
-Cache\Bootstrap\BootstrapCursorState.ini
-```
-
-### Hotkey
-
-Change the edit hotkey with:
-
-```ini
-WTS_HOTKEY=F8
-```
-
-### F8 Latency Telemetry
-
-Per-press editor-open latency breakdown logging is enabled by default:
-
-```ini
-WTS_F8_LATENCY_BREAKDOWN_ENABLED=true
-```
-
-This emits a compact one-line trace per F8 open:
-
-- edge -> target selection
-- target -> UMG construct
-- construct -> open_result
-- total edge -> open_result
-
-Use it to diagnose reports where the editor opens slowly on some machines.
-
-### Targeting
-
-These settings control how close and centered a sign must be before the hotkey selects it:
-
-```ini
-WTS_MAX_TARGET_DISTANCE=1000
-WTS_MIN_VIEW_DOT=0.92
-```
-
-### Multiplayer Bridge
-
-Default bridge settings:
-
-```ini
-WTS_BRIDGE_SERVER_HOST=auto
-WTS_BRIDGE_UDP_PORT=45801
-WTS_BRIDGE_UPNP_MODE=auto
-```
-
-`WTS_BRIDGE_SERVER_HOST=auto` is the recommended default. Remote clients try to infer the server route from Windrose connection/log data.
-
-If auto discovery does not work, set the client to a static server address:
-
-```ini
-WTS_BRIDGE_SERVER_HOST=your.server.ip.or.hostname
-```
-
-### UPnP Mode
-
-Set host UPnP behavior with:
-
-```ini
-WTS_BRIDGE_UPNP_MODE=auto
-```
-
-Modes:
-
-- `auto` (recommended): waits for observed bridge client network type and only attempts UPnP when public (internet) clients are detected.
-- `on`: always attempts UPnP on dedicated/listen hosts.
-- `off`: never attempts UPnP.
-
-`auto` is best for mixed sessions and avoids unnecessary UPnP attempts for same-machine and LAN-only clients. If a host must be reachable from the internet immediately, use `on` or manual port forwarding.
-
-`WTS_BRIDGE_UPNP_ENABLED` remains supported for backward compatibility:
-
-- `true` maps to `WTS_BRIDGE_UPNP_MODE=auto`
-- `false` maps to `WTS_BRIDGE_UPNP_MODE=off`
-
-If UPnP is unavailable, manually forward the configured UDP bridge port to the dedicated server.
-
-### Static Server + UPnP Disabled (Recommended Fallback)
-
-If auto route discovery or UPnP is unreliable in your environment, use a static bridge host and disable UPnP explicitly.
-
-Client `Config\WindroseTextSigns.ini`:
+Client `WindroseTextSigns\Config\WindroseTextSigns.ini`:
 
 ```ini
 [General]
-WTS_BRIDGE_SERVER_HOST=your.server.ip.or.hostname
+WTS_BRIDGE_SERVER_HOST=<DedicatedServerIP-or-DNS>
 WTS_BRIDGE_UDP_PORT=45801
 WTS_BRIDGE_UPNP_MODE=off
 ```
 
-Dedicated server `Config\WindroseTextSigns.ini`:
+Dedicated server `WindroseTextSigns\Config\WindroseTextSigns.ini`:
 
 ```ini
 [General]
@@ -210,63 +157,22 @@ WTS_BRIDGE_UDP_PORT=45801
 WTS_BRIDGE_UPNP_MODE=off
 ```
 
-Notes:
+Important:
+- UDP transport is required by the current bridge implementation.
+- There is no supported `UDP disabled` mode in current builds.
 - Client and server must use the same `WTS_BRIDGE_UDP_PORT`.
-- On the client, set `WTS_BRIDGE_SERVER_HOST` to the dedicated server's reachable address.
-- On the dedicated server, leave `WTS_BRIDGE_SERVER_HOST=auto`; do not point it at itself.
-- If connecting over internet, manual UDP port forwarding/NAT rules are required when UPnP is off.
 
-## Save Data
+## Troubleshooting
 
-WindroseTextSigns stores text data outside the mod folder so it can survive mod deletion or reinstall when the user keeps the `R5\Saved` folder.
-
-Dedicated server authoritative data:
-
-```text
-...\R5\Saved\SaveProfiles\Default\WindroseTextSigns\<worldIslandId>\SignTexts.json
-```
-
-Solo and Hosted authoritative data:
-
-```text
-%LOCALAPPDATA%\R5\Saved\SaveProfiles\<profileId>\WindroseTextSigns\<worldIslandId>\SignTexts.json
-```
-
-The mod also writes backups beside the main JSON file.
-
-Remote clients keep a cache for display/reconnect help, but the server is the source of truth during multiplayer.
-
-## Font Notes
-
-World text layout now auto-selects by runtime detection of:
-
-```text
-0_WindroseTextSigns_RDFOverride_P.pak
-0_WindroseTextSigns_RDFOverride_P.utoc
-0_WindroseTextSigns_RDFOverride_P.ucas
-```
-
-No manual enable toggle is required. Raw font files alone are not enough for `TextRenderComponent`; a cooked Unreal `UFont` asset is still required for explicit font assignment.
+- If signs do not update in multiplayer, confirm matching mod version on all required roles for that mode.
+- If route discovery fails on dedicated server, set a static host in client config:
+  - `WTS_BRIDGE_SERVER_HOST=your.server.ip.or.hostname`
+- Keep both logs when reporting issues:
+  - `WindroseTextSigns.log`
+  - `R5.log`
 
 ## Known Limitations
 
-- The in-game editor is functional but visually simple.
-- `Esc` can still also trigger the game escape menu in some cases.
-- Auto server route discovery may not work for every network setup.
-- UPnP depends on the router and local network configuration.
-- Static IP or manual port forwarding may be needed for some dedicated servers.
-- Rare UE4SS-layer crashes may still occur on session exit in some environments; keep both `WindroseTextSigns.log` and `R5.log` for triage.
-
-## Known Issues
-
-- Very quickly destroying and rebuilding a sign may result in the text coming back.
-- Workaround: Wait 5-10 seconds before rebuilding.
-
-## Logging Behavior
-
-- `WindroseTextSigns.log` now appends across sessions instead of resetting each launch.
-- Log size is capped at 2MB.
-- Bootstrap history is retained with a bounded budget:
-  - target: 256KB (12.5% of cap)
-  - hard max: 307KB (15% of cap)
-- When trimming is required, oldest non-bootstrap runtime lines are trimmed first, then oldest bootstrap blocks if still over cap.
+- The editor is functional-first and visually minimal.
+- Auto route discovery can still depend on network environment specifics.
+- Rare UE4SS/session-exit instability may still occur in some environments.

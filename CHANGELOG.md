@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.4
+- Major rewrite for stability and hardening across Solo, Hosted, and Dedicated sessions.
+- Added a new thematically aligned sign font option.
+- Updated editor window generation/reuse for faster open time.
+- Fixed first-click passthrough issues that could trigger player attack while the editor is open.
+- Fixed `Esc` passthrough so it no longer incorrectly toggles the game menu while editing.
+- Added editor toggle behavior: pressing the sign edit hotkey (`F8` by default) now also closes the editor.
+- Improved sign sync and recovery behavior after reconnects/session transitions.
+- Improved dedicated/hosted communication reliability for sidecar snapshot and delta flow.
+
 ## 0.1.3
 - Added F8 input latency breakdown telemetry (per-press edge->target->construct->open timing) and default-enabled ini control.
 - Improved Phase7 teardown policy to reduce false in-session UI teardown/auto-close during transient readiness churn.
