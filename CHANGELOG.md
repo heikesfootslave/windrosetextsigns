@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.1.5
+- Reworked F8 input handling to enforce one press per action with key-release rearm, preventing duplicate opens/closes and canceling stale open requests when targeting retries are exhausted.
+
 ## 0.1.4
 - Major rewrite for stability and hardening across Solo, Hosted, and Dedicated sessions.
 - Added a new thematically aligned sign font option.
