@@ -127,6 +127,7 @@ namespace WindroseTextSigns
         auto config_string_value(std::string_view key, std::string fallback) const -> std::string;
 
         auto tick_pending_hotkey() -> void;
+        auto request_hotkey_press(const char* source) -> bool;
         auto tick_pending_fallback_hotkeys() -> void;
         auto tick_file_triggers() -> void;
         auto run_native_transport_inventory_probe(const std::string& reason) -> void;
@@ -530,6 +531,8 @@ namespace WindroseTextSigns
         int m_hotkey_vk{0x77};
         std::string m_hotkey_name{"F8"};
         bool m_hotkey_poll_was_down{false};
+        bool m_hotkey_action_in_flight{false};
+        bool m_hotkey_require_release_before_next_press{false};
         bool m_phase7_enter_was_down{false};
         bool m_phase7_escape_was_down{false};
         bool m_phase7_shift_was_down{false};

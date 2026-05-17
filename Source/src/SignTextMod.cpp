@@ -5526,7 +5526,7 @@ namespace WindroseTextSigns
             return;
         }
         register_keydown_event(static_cast<Input::Key>(m_hotkey_vk), [this]() {
-            m_hotkey_requested.store(true);
+            request_hotkey_press("keydown_callback");
         });
         register_keydown_event(Input::Key::RETURN, [this]() {
             if (m_phase7_umg_widget)
@@ -5541,6 +5541,30 @@ namespace WindroseTextSigns
             }
         });
         log_line("[input] Registered hotkeys: " + m_hotkey_name + "=target/open_or_close_editor");
+    }
+
+    auto SignTextMod::request_hotkey_press(const char* source) -> bool
+    {
+        const std::string source_name = (source && *source) ? source : "unknown";
+        if (m_hotkey_require_release_before_next_press)
+        {
+            log_line("[input] hotkey_request_ignored reason=await_release key=" + m_hotkey_name +
+                     " source=" + source_name);
+            return false;
+        }
+        if (m_hotkey_action_in_flight)
+        {
+            log_line("[input] hotkey_request_ignored reason=in_flight key=" + m_hotkey_name +
+                     " source=" + source_name);
+            return false;
+        }
+
+        m_hotkey_action_in_flight = true;
+        m_hotkey_require_release_before_next_press = true;
+        m_hotkey_requested.store(true);
+        log_line("[input] hotkey_request_accepted key=" + m_hotkey_name +
+                 " source=" + source_name);
+        return true;
     }
 
     auto SignTextMod::install_phase7_keyboard_capture_hook() -> void
@@ -6679,6 +6703,10 @@ namespace WindroseTextSigns
         m_phase7_open_sla_violation_logged = false;
         m_phase7_open_pending_since = {};
         m_phase7_umg_last_text.clear();
+        m_hotkey_requested.store(false);
+        m_hotkey_retry_remaining = 0;
+        m_hotkey_action_in_flight = false;
+        m_hotkey_require_release_before_next_press = false;
         m_phase7_native_editor_open = false;
         m_phase7_native_widget = nullptr;
         m_phase7_umg_widget = nullptr;
@@ -8405,6 +8433,7 @@ namespace WindroseTextSigns
                 }
                 m_ui_open = false;
                 m_hotkey_retry_remaining = 0;
+                m_hotkey_action_in_flight = false;
                 if (m_f8_latency_breakdown_enabled && m_f8_latency_trace.active)
                 {
                     m_f8_latency_trace.active = false;
@@ -8463,7 +8492,8 @@ namespace WindroseTextSigns
                              " stage=target edge_to_failure_ms=" + std::to_string(edge_to_fail_ms));
                     m_f8_latency_trace.active = false;
                 }
-                m_ui_open = m_phase7_imgui_fallback_enabled;
+                m_ui_open = false;
+                m_hotkey_action_in_flight = false;
             }
             return;
         }
@@ -8494,6 +8524,7 @@ namespace WindroseTextSigns
         if (umg_opened)
         {
             m_ui_open = false;
+            m_hotkey_action_in_flight = false;
             return;
         }
 
@@ -8501,10 +8532,12 @@ namespace WindroseTextSigns
         if (native_opened)
         {
             m_ui_open = false;
+            m_hotkey_action_in_flight = false;
             return;
         }
 
         m_ui_open = m_phase7_imgui_fallback_enabled;
+        m_hotkey_action_in_flight = false;
         log_line("[phase7] hotkey fallback_to_imgui=" + std::string{m_phase7_imgui_fallback_enabled ? "true" : "false"} +
                  " nativeSupported=" + std::string{m_phase7_native_supported ? "true" : "false"} +
                  " umgOpened=" + std::string{umg_opened ? "true" : "false"} +
@@ -17939,21 +17972,29 @@ namespace WindroseTextSigns
             // capture hardware edge directly in case callback registration misses events
             // while input focus/context changes.
             const bool hotkey_is_down = ((GetAsyncKeyState(m_hotkey_vk) & 0x8000) != 0);
+            if (!hotkey_is_down && m_hotkey_require_release_before_next_press)
+            {
+                m_hotkey_require_release_before_next_press = false;
+                log_line("[input] hotkey_rearmed_on_release key=" + m_hotkey_name);
+            }
             if (hotkey_is_down && !m_hotkey_poll_was_down)
             {
-                m_hotkey_requested.store(true);
-                m_last_player_activity = std::chrono::steady_clock::now();
-                if (m_f8_latency_breakdown_enabled)
+                const bool accepted = request_hotkey_press("polled_edge");
+                if (accepted)
                 {
-                    m_f8_latency_trace.active = true;
-                    m_f8_latency_trace.target_seen = false;
-                    m_f8_latency_trace.construct_seen = false;
-                    m_f8_latency_trace.edge = m_last_player_activity;
-                    m_f8_latency_trace.target = {};
-                    m_f8_latency_trace.construct = {};
-                    ++m_f8_latency_trace.press_id;
+                    m_last_player_activity = std::chrono::steady_clock::now();
+                    if (m_f8_latency_breakdown_enabled)
+                    {
+                        m_f8_latency_trace.active = true;
+                        m_f8_latency_trace.target_seen = false;
+                        m_f8_latency_trace.construct_seen = false;
+                        m_f8_latency_trace.edge = m_last_player_activity;
+                        m_f8_latency_trace.target = {};
+                        m_f8_latency_trace.construct = {};
+                        ++m_f8_latency_trace.press_id;
+                    }
+                    log_line("[input] hotkey polled_edge key=" + m_hotkey_name);
                 }
-                log_line("[input] hotkey polled_edge key=" + m_hotkey_name);
             }
             m_hotkey_poll_was_down = hotkey_is_down;
 
@@ -19238,7 +19279,7 @@ namespace WindroseTextSigns
 
         if (ImGui::Button("Target Label From Camera (hotkey logic)"))
         {
-            m_hotkey_requested.store(true);
+            request_hotkey_press("imgui_button");
         }
         ImGui::SameLine();
         if (ImGui::Button("Reload Sidecar"))
