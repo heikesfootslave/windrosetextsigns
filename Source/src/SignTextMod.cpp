@@ -7033,13 +7033,21 @@ namespace WindroseTextSigns
         }
         if (role == "Remote Client")
         {
-            const bool connected =
+            const bool route_healthy =
                 m_bridge_route_lock_acquired &&
-                !m_bridge_health_unhealthy &&
-                is_current_world_snapshot_ready();
+                !m_bridge_health_unhealthy;
+            const bool snapshot_ready = is_current_world_snapshot_ready();
+            const auto now = std::chrono::steady_clock::now();
+            constexpr auto k_status_authoritative_rx_grace = std::chrono::seconds(15);
+            const bool has_recent_authoritative_rx =
+                m_bridge_last_authoritative_rx.time_since_epoch().count() != 0 &&
+                (now - m_bridge_last_authoritative_rx) <= k_status_authoritative_rx_grace;
+            const bool connected = route_healthy && (snapshot_ready || has_recent_authoritative_rx);
             return connected
                 ? "Connected to Server"
-                : "Error - Not connected to Server";
+                : ((route_healthy && m_bridge_snapshot_request_in_flight)
+                    ? "Syncing..."
+                    : "Error - Not connected to Server");
         }
         return "Error - Not connected to Server";
     }
@@ -9886,6 +9894,8 @@ namespace WindroseTextSigns
         }
         if (!has_viable_remote_route_for_snapshot())
         {
+            m_bridge_snapshot_request_in_flight = false;
+            mark_phase7_status_dirty("snapshot_request_blocked_no_route");
             log_line("[bridge-route] send_blocked type=snapshot_request reason=no_valid_committed_route" +
                      std::string(" role=") + bridge_role_name(m_bridge_role) +
                      " routeHost=" + (m_bridge_remote_server_host.empty() ? "none" : m_bridge_remote_server_host) +
@@ -9916,6 +9926,8 @@ namespace WindroseTextSigns
         m_bridge_snapshot_id.clear();
         m_bridge_snapshot_seen_keys.clear();
         const bool sent = NativeBridge::instance().send_to_server(payload.str());
+        m_bridge_snapshot_request_in_flight = sent;
+        mark_phase7_status_dirty(sent ? "snapshot_request_in_flight" : "snapshot_request_send_failed");
         log_line("[bridge] snapshot_request reason=" + reason +
                  " sent=" + std::string{sent ? "true" : "false"} +
                  " role=" + bridge_role_name(m_bridge_role) +
@@ -11056,7 +11068,10 @@ namespace WindroseTextSigns
         }
         m_bridge_snapshot_received = true;
         m_bridge_snapshot_world_id = local_world_id;
+        m_bridge_last_authoritative_rx = std::chrono::steady_clock::now();
+        m_bridge_snapshot_request_in_flight = false;
         mark_bridge_healthy("client_upsert_applied");
+        mark_phase7_status_dirty("authoritative_rx_upsert");
         log_line("[bridge] client_upsert_applied key=" + key +
                  " stableId=" + stable_id +
                  " localWorldId=" + local_world_id +
@@ -11181,7 +11196,10 @@ namespace WindroseTextSigns
         }
         m_bridge_snapshot_received = true;
         m_bridge_snapshot_world_id = local_world_id;
+        m_bridge_last_authoritative_rx = std::chrono::steady_clock::now();
+        m_bridge_snapshot_request_in_flight = false;
         mark_bridge_healthy("client_clear_applied");
+        mark_phase7_status_dirty("authoritative_rx_clear");
         log_line("[bridge] client_clear_applied key=" + key +
                  " stableId=" + stable_id +
                  " localWorldId=" + local_world_id +
@@ -11962,7 +11980,10 @@ namespace WindroseTextSigns
                 {
                     m_bridge_snapshot_received = true;
                     m_bridge_snapshot_world_id = m_world_folder_id;
+                    m_bridge_last_authoritative_rx = std::chrono::steady_clock::now();
+                    m_bridge_snapshot_request_in_flight = false;
                     mark_bridge_healthy("snapshot_complete");
+                    mark_phase7_status_dirty("authoritative_rx_snapshot_complete");
                     reconcile_bridge_snapshot("snapshot_complete");
                     if (!m_sidecar_authoritative)
                     {
@@ -11987,7 +12008,10 @@ namespace WindroseTextSigns
 
             m_bridge_snapshot_received = true;
             m_bridge_snapshot_world_id = m_world_folder_id;
+            m_bridge_last_authoritative_rx = std::chrono::steady_clock::now();
+            m_bridge_snapshot_request_in_flight = false;
             mark_bridge_healthy("snapshot_end_legacy");
+            mark_phase7_status_dirty("authoritative_rx_snapshot_legacy");
             reconcile_bridge_snapshot("snapshot_end_legacy");
             if (!m_sidecar_authoritative)
             {
@@ -12006,6 +12030,8 @@ namespace WindroseTextSigns
         if (type == "snapshot_unavailable")
         {
             const auto unavailable_reason = unescape_json(fields.count("reason") ? fields.at("reason") : "unknown");
+            m_bridge_snapshot_request_in_flight = false;
+            mark_phase7_status_dirty("snapshot_unavailable");
             log_line("[bridge] snapshot_unavailable reason=" + unavailable_reason +
                      " role=" + bridge_role_name(m_bridge_role) +
                      " worldId=" + m_world_folder_id);
@@ -12057,7 +12083,10 @@ namespace WindroseTextSigns
             }
             m_bridge_snapshot_received = true;
             m_bridge_snapshot_world_id = m_world_folder_id;
+            m_bridge_last_authoritative_rx = std::chrono::steady_clock::now();
+            m_bridge_snapshot_request_in_flight = false;
             mark_bridge_healthy("snapshot_fresh_ack");
+            mark_phase7_status_dirty("authoritative_rx_snapshot_fresh_ack");
             stop_remote_post_ready_resync("snapshot_fresh_ack", true);
             log_line("[bridge] snapshot_fresh_ack_applied requesterSession=" +
                      (requester_session.empty() ? "none" : requester_session) +
@@ -12630,6 +12659,8 @@ namespace WindroseTextSigns
     auto SignTextMod::reset_bridge_snapshot_payload_state(const std::string& reason) -> void
     {
         (void)reason;
+        m_bridge_snapshot_request_in_flight = false;
+        m_bridge_last_authoritative_rx = {};
         m_bridge_snapshot_received = false;
         m_bridge_snapshot_world_id.clear();
         m_bridge_health_unhealthy = false;
@@ -13371,6 +13402,7 @@ namespace WindroseTextSigns
     auto SignTextMod::reset_role_route_locks(const std::string& reason) -> void
     {
         const bool had_lock = m_role_lock_acquired || m_bridge_route_lock_acquired;
+        m_bridge_snapshot_request_in_flight = false;
         m_role_lock_acquired = false;
         m_role_lock_runtime_role.clear();
         m_role_lock_bridge_role.clear();

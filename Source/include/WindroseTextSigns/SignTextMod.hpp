@@ -460,7 +460,9 @@ namespace WindroseTextSigns
         std::chrono::steady_clock::time_point m_bridge_next_snapshot_request{};
         std::chrono::steady_clock::time_point m_bridge_sync_wait_started{};
         std::chrono::steady_clock::time_point m_bridge_last_snapshot_request{};
+        std::chrono::steady_clock::time_point m_bridge_last_authoritative_rx{};
         std::chrono::steady_clock::time_point m_bridge_last_status{};
+        bool m_bridge_snapshot_request_in_flight{false};
         bool m_bridge_snapshot_received{false};
         std::string m_bridge_snapshot_world_id{};
         bool m_bridge_health_unhealthy{false};
