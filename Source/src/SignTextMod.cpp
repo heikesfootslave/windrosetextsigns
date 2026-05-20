@@ -6207,9 +6207,8 @@ namespace WindroseTextSigns
         const bool input_opacity = invoke_set_float_value(text_box, STR("SetRenderOpacity"), STR("/Script/UMG.Widget:SetRenderOpacity"), 1.0f);
         const bool frame_scale = invoke_set_vector2d_value(frame, STR("SetRenderScale"), STR("/Script/UMG.Widget:SetRenderScale"), 1.0f, 1.0f);
         const bool title_scale = invoke_set_vector2d_value(title, STR("SetRenderScale"), STR("/Script/UMG.Widget:SetRenderScale"), 0.78f, 0.78f);
-        // Status/hints use inherited game DPI/style. Do not force render scale.
-        const bool hint_scale = true;
-        const bool status_scale = true;
+        const bool hint_scale = invoke_set_vector2d_value(hint, STR("SetRenderScale"), STR("/Script/UMG.Widget:SetRenderScale"), 0.9f, 0.9f);
+        const bool status_scale = invoke_set_vector2d_value(status, STR("SetRenderScale"), STR("/Script/UMG.Widget:SetRenderScale"), 1.0f, 1.0f);
         const bool input_scale = invoke_set_vector2d_value(text_box, STR("SetRenderScale"), STR("/Script/UMG.Widget:SetRenderScale"), 1.0f, 1.0f);
 
         auto* frame_slot = invoke_add_child(root, frame);
