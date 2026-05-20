@@ -6017,6 +6017,41 @@ namespace WindroseTextSigns
         }
     }
 
+    auto SignTextMod::apply_phase7_umg_debug_scales(const char* reason) -> void
+    {
+        if (!m_phase7_umg_hint || !m_phase7_umg_status)
+        {
+            return;
+        }
+        if (!is_uobject_reflection_safe(m_phase7_umg_hint) ||
+            !is_uobject_reflection_safe(m_phase7_umg_status))
+        {
+            return;
+        }
+
+        m_phase7_debug_hint_render_scale = std::clamp(m_phase7_debug_hint_render_scale, 0.25f, 2.00f);
+        m_phase7_debug_status_render_scale = std::clamp(m_phase7_debug_status_render_scale, 0.25f, 2.00f);
+        const bool hint_ok = invoke_set_vector2d_value(
+            m_phase7_umg_hint, STR("SetRenderScale"), STR("/Script/UMG.Widget:SetRenderScale"),
+            m_phase7_debug_hint_render_scale, m_phase7_debug_hint_render_scale);
+        const bool status_ok = invoke_set_vector2d_value(
+            m_phase7_umg_status, STR("SetRenderScale"), STR("/Script/UMG.Widget:SetRenderScale"),
+            m_phase7_debug_status_render_scale, m_phase7_debug_status_render_scale);
+
+        if (reason)
+        {
+            std::ostringstream hint_text{};
+            hint_text << std::fixed << std::setprecision(2) << m_phase7_debug_hint_render_scale;
+            std::ostringstream status_text{};
+            status_text << std::fixed << std::setprecision(2) << m_phase7_debug_status_render_scale;
+            log_line("[phase7-umg] debug_render_scale_apply reason=" + std::string{reason} +
+                     " hint=" + hint_text.str() +
+                     " status=" + status_text.str() +
+                     " hintOk=" + std::string{hint_ok ? "true" : "false"} +
+                     " statusOk=" + std::string{status_ok ? "true" : "false"});
+        }
+    }
+
     auto parse_retry_delay_ms_config(const std::string& raw_value) -> std::array<uint32_t, 3>
     {
         std::array<uint32_t, 3> parsed{250, 750, 1500};
@@ -6207,8 +6242,12 @@ namespace WindroseTextSigns
         const bool input_opacity = invoke_set_float_value(text_box, STR("SetRenderOpacity"), STR("/Script/UMG.Widget:SetRenderOpacity"), 1.0f);
         const bool frame_scale = invoke_set_vector2d_value(frame, STR("SetRenderScale"), STR("/Script/UMG.Widget:SetRenderScale"), 1.0f, 1.0f);
         const bool title_scale = invoke_set_vector2d_value(title, STR("SetRenderScale"), STR("/Script/UMG.Widget:SetRenderScale"), 0.78f, 0.78f);
-        const bool hint_scale = invoke_set_vector2d_value(hint, STR("SetRenderScale"), STR("/Script/UMG.Widget:SetRenderScale"), 0.9f, 0.9f);
-        const bool status_scale = invoke_set_vector2d_value(status, STR("SetRenderScale"), STR("/Script/UMG.Widget:SetRenderScale"), 1.0f, 1.0f);
+        const bool hint_scale = invoke_set_vector2d_value(
+            hint, STR("SetRenderScale"), STR("/Script/UMG.Widget:SetRenderScale"),
+            m_phase7_debug_hint_render_scale, m_phase7_debug_hint_render_scale);
+        const bool status_scale = invoke_set_vector2d_value(
+            status, STR("SetRenderScale"), STR("/Script/UMG.Widget:SetRenderScale"),
+            m_phase7_debug_status_render_scale, m_phase7_debug_status_render_scale);
         const bool input_scale = invoke_set_vector2d_value(text_box, STR("SetRenderScale"), STR("/Script/UMG.Widget:SetRenderScale"), 1.0f, 1.0f);
 
         auto* frame_slot = invoke_add_child(root, frame);
@@ -6265,6 +6304,7 @@ namespace WindroseTextSigns
         m_phase7_umg_hint = hint;
         m_phase7_umg_status = status;
         cache_phase7_umg_function_pointers();
+        apply_phase7_umg_debug_scales("prewarm_init");
 
         // Prewarm should build the widget tree only; do not add/show during loading/bootstrap.
         m_phase7_umg_in_viewport = false;
@@ -19513,6 +19553,19 @@ namespace WindroseTextSigns
         if (ImGui::Button("Reload Sidecar"))
         {
             load_sidecar_json();
+        }
+
+        ImGui::Separator();
+        ImGui::Text("Phase 7 UMG Debug (Temporary)");
+        float status_scale_value = m_phase7_debug_status_render_scale;
+        float hint_scale_value = m_phase7_debug_hint_render_scale;
+        bool status_scale_changed = ImGui::DragFloat("Status Render Scale", &status_scale_value, 0.01f, 0.25f, 2.00f, "%.2f");
+        bool hint_scale_changed = ImGui::DragFloat("Hint Render Scale", &hint_scale_value, 0.01f, 0.25f, 2.00f, "%.2f");
+        if (status_scale_changed || hint_scale_changed)
+        {
+            m_phase7_debug_status_render_scale = std::clamp(status_scale_value, 0.25f, 2.00f);
+            m_phase7_debug_hint_render_scale = std::clamp(hint_scale_value, 0.25f, 2.00f);
+            apply_phase7_umg_debug_scales("imgui_debug_tune");
         }
 
         if (!m_selected.has_value())

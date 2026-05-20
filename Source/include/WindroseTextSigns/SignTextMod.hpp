@@ -105,6 +105,7 @@ namespace WindroseTextSigns
         auto set_phase7_game_and_ui_input_mode(bool enable_ui_mode) -> bool;
         auto cache_phase7_umg_class_pointers() -> bool;
         auto cache_phase7_umg_function_pointers() -> void;
+        auto apply_phase7_umg_debug_scales(const char* reason = nullptr) -> void;
         auto invoke_phase7_set_visibility(uint8_t value, const char* source_tag = nullptr) -> bool;
         auto invalidate_phase7_umg_widget_cache(const std::string& reason) -> void;
         auto ensure_phase7_umg_widget_built() -> bool;
@@ -586,6 +587,8 @@ namespace WindroseTextSigns
         RC::Unreal::UFunction* m_phase7_fn_set_keyboard_focus{};
         RC::Unreal::UFunction* m_phase7_fn_set_focus{};
         RC::Unreal::UFunction* m_phase7_fn_set_visibility{};
+        float m_phase7_debug_status_render_scale{1.0f};
+        float m_phase7_debug_hint_render_scale{0.9f};
         bool m_phase7_umg_prewarm_attempted{false};
         bool m_phase7_umg_prewarm_succeeded{false};
         bool m_phase7_umg_in_viewport{false};
