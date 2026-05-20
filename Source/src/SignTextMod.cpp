@@ -6207,10 +6207,9 @@ namespace WindroseTextSigns
         const bool input_opacity = invoke_set_float_value(text_box, STR("SetRenderOpacity"), STR("/Script/UMG.Widget:SetRenderOpacity"), 1.0f);
         const bool frame_scale = invoke_set_vector2d_value(frame, STR("SetRenderScale"), STR("/Script/UMG.Widget:SetRenderScale"), 1.0f, 1.0f);
         const bool title_scale = invoke_set_vector2d_value(title, STR("SetRenderScale"), STR("/Script/UMG.Widget:SetRenderScale"), 0.78f, 0.78f);
-        // Keep 1:1 render scale for status/hints so Canvas-slot coordinates stay
-        // visually stable and text does not drift/overflow from transform shrink.
-        const bool hint_scale = invoke_set_vector2d_value(hint, STR("SetRenderScale"), STR("/Script/UMG.Widget:SetRenderScale"), 1.0f, 1.0f);
-        const bool status_scale = invoke_set_vector2d_value(status, STR("SetRenderScale"), STR("/Script/UMG.Widget:SetRenderScale"), 1.0f, 1.0f);
+        // Status/hints use inherited game DPI/style. Do not force render scale.
+        const bool hint_scale = true;
+        const bool status_scale = true;
         const bool input_scale = invoke_set_vector2d_value(text_box, STR("SetRenderScale"), STR("/Script/UMG.Widget:SetRenderScale"), 1.0f, 1.0f);
 
         auto* frame_slot = invoke_add_child(root, frame);
@@ -6230,11 +6229,11 @@ namespace WindroseTextSigns
         const bool input_pos = invoke_set_vector2d_value(input_slot, STR("SetPosition"), nullptr, 52.0f, 112.0f);
         const bool input_size = invoke_set_vector2d_value(input_slot, STR("SetSize"), nullptr, 320.0f, 170.0f);
         auto* hint_slot = invoke_add_child(panel, hint);
-        const bool hint_pos = invoke_set_vector2d_value(hint_slot, STR("SetPosition"), nullptr, 52.0f, 354.0f);
-        const bool hint_size = invoke_set_vector2d_value(hint_slot, STR("SetSize"), nullptr, 320.0f, 58.0f);
+        const bool hint_pos = invoke_set_vector2d_value(hint_slot, STR("SetPosition"), nullptr, 192.0f, 352.0f);
+        const bool hint_size = invoke_set_vector2d_value(hint_slot, STR("SetSize"), nullptr, 180.0f, 52.0f);
         auto* status_slot = invoke_add_child(panel, status);
-        const bool status_pos = invoke_set_vector2d_value(status_slot, STR("SetPosition"), nullptr, 52.0f, 300.0f);
-        const bool status_size = invoke_set_vector2d_value(status_slot, STR("SetSize"), nullptr, 320.0f, 48.0f);
+        const bool status_pos = invoke_set_vector2d_value(status_slot, STR("SetPosition"), nullptr, 52.0f, 292.0f);
+        const bool status_size = invoke_set_vector2d_value(status_slot, STR("SetSize"), nullptr, 320.0f, 56.0f);
 
         const bool input_frame_content = invoke_set_content(input_frame, input_background);
         const bool input_background_content = invoke_set_content(input_background, editor);
