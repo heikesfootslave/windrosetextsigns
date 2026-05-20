@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.6
+- Added an in-editor `Status` section showing live `Role` and `Network` state.
+- Fix an issue where the world ID could get 'lost' to the mod resulting in no communication with the sign text json.
+
+
 ## 0.1.5
 - Reworked F8 input handling to enforce one press per action with key-release rearm, preventing duplicate opens/closes and canceling stale open requests when targeting retries are exhausted.
 

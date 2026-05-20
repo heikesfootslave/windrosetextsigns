@@ -25,6 +25,46 @@ The zip includes:
   - `Content\Paks\~mods\0_WindroseTextSigns_RDFOverride_P.utoc`
   - `Content\Paks\~mods\0_WindroseTextSigns_RDFOverride_P.ucas`
 
+## In-Game Usage
+
+1. Build a normal Wooden Label.
+2. Look at the label.
+3. Press `F8` to open the editor.
+4. Type text.
+5. Use `Shift+Enter` for newline.
+6. Press `Enter` or click `Apply` to save.
+7. Press `F8` again or `Esc` to close without applying.
+8. Use `Clear` to remove text for that sign.
+
+## Status Display
+
+The editor includes a `Status` section below the text box.
+
+It shows:
+
+- `Role: <value>`
+- `Network: <value>`
+
+Role values:
+
+- `Solo`: local solo authoritative session.
+- `Host`: hosted client authoritative session.
+- `Remote Client`: connected client in multiplayer.
+- `Error: Not locked`: role has not been locked for the current session yet.
+
+Network values:
+
+- Solo role:
+  - `Solo`: sidecar load/save health is good.
+  - `Error - Sign Text file not saved`: sidecar read/write health failed.
+- Host role:
+  - `Connected to Host Server`: hosted authority route is healthy.
+  - `Error - Not connected to host server`: hosted authority route is not healthy.
+- Remote Client role:
+  - `Connected to Server`: route is healthy and authoritative data is current.
+  - `Syncing...`: route is healthy and snapshot refresh is in progress.
+  - `Error - Not connected to Server`: no healthy/current authoritative connection.
+
 ## Installation Paths
 
 Use these path variables in this README:
@@ -93,17 +133,6 @@ From:
 - Client: `...\Windrose\R5\Content\Paks\~mods\`
 - Hosted server: `...\Windrose\R5\Builds\WindowsServer\R5\Content\Paks\~mods\`
 - Dedicated server: `...\WindowsServer\R5\Content\Paks\~mods\`
-
-## In-Game Usage
-
-1. Build a normal Wooden Label.
-2. Look at the label.
-3. Press `F8` to open the editor.
-4. Type text.
-5. Use `Shift+Enter` for newline.
-6. Press `Enter` or click `Apply` to save.
-7. Press `F8` again or `Esc` to close without applying.
-8. Use `Clear` to remove text for that sign.
 
 ## Save Data
 
