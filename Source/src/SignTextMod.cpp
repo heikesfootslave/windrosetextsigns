@@ -6343,21 +6343,17 @@ namespace WindroseTextSigns
         bool collapsed = false;
         if (built && m_phase7_umg_widget)
         {
-            if (!m_phase7_umg_in_viewport)
-            {
-                m_phase7_umg_in_viewport =
-                    invoke_with_int_param_cached(m_phase7_umg_widget, m_phase7_fn_add_to_viewport, 1000) ||
-                    invoke_add_to_viewport(m_phase7_umg_widget, 1000);
-            }
+            // Build-only prewarm: do not attach during loading/startup.
+            // First F8 press performs the one-time attach, then later opens reuse it.
             collapsed = invoke_phase7_set_visibility(1, "prewarm_collapse");
         }
 
         install_phase7_keyboard_capture_hook();
         const bool hook_installed = m_phase7_keyboard_hook_installed.load(std::memory_order_relaxed);
 
-        // Prewarm is complete only when build+attach+hook-install are done. This keeps
-        // F8 open path fast and avoids one-time hook startup cost during interaction.
-        const bool prewarm_ready = built && m_phase7_umg_in_viewport && hook_installed;
+        // Prewarm is complete when build+hook-install are done.
+        // Viewport attach is intentionally deferred until explicit user open (F8).
+        const bool prewarm_ready = built && hook_installed;
         m_phase7_umg_prewarm_succeeded = prewarm_ready;
         m_phase7_umg_prewarm_next_try = now + std::chrono::seconds(prewarm_ready ? 60 : 3);
         log_line("[phase7-umg] prewarm_try success=" + std::string{prewarm_ready ? "true" : "false"} +
@@ -11773,6 +11769,24 @@ namespace WindroseTextSigns
                 return;
             }
 
+            const auto send_snapshot_fresh_ack = [&](const uint64_t authoritative_revision, const std::string& ack_writer) {
+                std::ostringstream ack{};
+                ack << "{\"mod\":\"WindroseTextSigns\",\"schema\":\"bridge.v1\",\"type\":\"snapshot_fresh_ack\""
+                    << ",\"session\":\"" << escape_json(m_session_id) << "\""
+                    << ",\"requesterSession\":\"" << escape_json(requester_key) << "\""
+                    << ",\"worldId\":\"" << escape_json(m_world_folder_id) << "\""
+                    << ",\"writer\":\"" << escape_json(ack_writer) << "\""
+                    << ",\"requesterRevision\":" << requester_revision
+                    << ",\"authoritativeRevision\":" << authoritative_revision
+                    << "}";
+                const bool sent = NativeBridge::instance().broadcast_to_clients(ack.str());
+                log_line("[bridge] snapshot_fresh_ack_sent requesterSession=" + requester_key +
+                         " requesterRevision=" + std::to_string(requester_revision) +
+                         " authoritativeRevision=" + std::to_string(authoritative_revision) +
+                         " writer=" + ack_writer +
+                         " sent=" + std::string{sent ? "true" : "false"});
+            };
+
             if (is_hosted_server_relay_context() &&
                 m_hosted_server_cache_initialized &&
                 requester_revision >= m_hosted_server_cache_revision)
@@ -11783,6 +11797,7 @@ namespace WindroseTextSigns
                          " epoch=" + std::to_string(m_session_epoch));
                 requester_state.last_requester_revision_seen =
                     std::max<uint64_t>(requester_state.last_requester_revision_seen, requester_revision);
+                send_snapshot_fresh_ack(m_hosted_server_cache_revision, "HostedServerRelay");
                 return;
             }
             if (!is_hosted_server_relay_context() &&
@@ -11794,6 +11809,7 @@ namespace WindroseTextSigns
                          " localRevision=" + std::to_string(m_revision));
                 requester_state.last_requester_revision_seen =
                     std::max<uint64_t>(requester_state.last_requester_revision_seen, requester_revision);
+                send_snapshot_fresh_ack(m_revision, "DedicatedServerAuthority");
                 return;
             }
             broadcast_bridge_snapshot("snapshot_request");
@@ -12012,6 +12028,41 @@ namespace WindroseTextSigns
                              m_remote_snapshot_no_cache_backoff_until - now_tp).count()) +
                          " epoch=" + std::to_string(m_session_epoch));
             }
+            return;
+        }
+        if (type == "snapshot_fresh_ack")
+        {
+            if (m_bridge_role != BridgeRole::RemoteClient)
+            {
+                return;
+            }
+            const auto requester_session = unescape_json(fields.count("requesterSession") ? fields.at("requesterSession") : "");
+            if (!requester_session.empty() && !m_session_id.empty() && requester_session != m_session_id)
+            {
+                return;
+            }
+            const auto incoming_world_id = unescape_json(fields.count("worldId") ? fields.at("worldId") : "");
+            if (!incoming_world_id.empty() &&
+                is_hex_world_id(m_world_folder_id) &&
+                is_hex_world_id(incoming_world_id) &&
+                lower_ascii(incoming_world_id) != lower_ascii(m_world_folder_id))
+            {
+                log_line("[bridge] snapshot_fresh_ack_ignored reason=world_mismatch incomingWorldId=" + incoming_world_id +
+                         " localWorldId=" + m_world_folder_id);
+                return;
+            }
+            if (fields.count("authoritativeRevision"))
+            {
+                m_revision = std::max<uint64_t>(m_revision, static_cast<uint64_t>(safe_stoi(fields.at("authoritativeRevision"), static_cast<int>(m_revision))));
+            }
+            m_bridge_snapshot_received = true;
+            m_bridge_snapshot_world_id = m_world_folder_id;
+            mark_bridge_healthy("snapshot_fresh_ack");
+            stop_remote_post_ready_resync("snapshot_fresh_ack", true);
+            log_line("[bridge] snapshot_fresh_ack_applied requesterSession=" +
+                     (requester_session.empty() ? "none" : requester_session) +
+                     " worldId=" + m_world_folder_id +
+                     " revision=" + std::to_string(m_revision));
             return;
         }
         log_line("[bridge] payload_ignored type=" + type +
