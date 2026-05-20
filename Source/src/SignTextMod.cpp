@@ -6224,6 +6224,9 @@ namespace WindroseTextSigns
         const bool status_color =
             invoke_set_rgba_value(status, STR("SetColorAndOpacity"), nullptr, 0.82f, 0.80f, 0.75f, 1.0f) ||
             invoke_set_rgba_value(status, STR("SetForegroundColor"), nullptr, 0.82f, 0.80f, 0.75f, 1.0f);
+        const bool status_pivot = invoke_set_vector2d_value(
+            status, STR("SetRenderTransformPivot"), STR("/Script/UMG.Widget:SetRenderTransformPivot"),
+            0.0f, 0.0f);
         const bool frame_color = invoke_set_rgba_value(frame, STR("SetBrushColor"), STR("/Script/UMG.Border:SetBrushColor"), 0.17f, 0.17f, 0.16f, 0.94f);
         const bool background_color = invoke_set_rgba_value(background, STR("SetBrushColor"), STR("/Script/UMG.Border:SetBrushColor"), 0.045f, 0.050f, 0.055f, 0.90f);
         const bool divider_color = invoke_set_rgba_value(divider, STR("SetBrushColor"), STR("/Script/UMG.Border:SetBrushColor"), 0.72f, 0.68f, 0.58f, 0.76f);
@@ -6270,7 +6273,7 @@ namespace WindroseTextSigns
         const bool hint_pos = invoke_set_vector2d_value(hint_slot, STR("SetPosition"), nullptr, 192.0f, 352.0f);
         const bool hint_size = invoke_set_vector2d_value(hint_slot, STR("SetSize"), nullptr, 180.0f, 52.0f);
         auto* status_slot = invoke_add_child(panel, status);
-        const bool status_pos = invoke_set_vector2d_value(status_slot, STR("SetPosition"), nullptr, 52.0f, 287.0f);
+        const bool status_pos = invoke_set_vector2d_value(status_slot, STR("SetPosition"), nullptr, 52.0f, 292.0f);
         const bool status_size = invoke_set_vector2d_value(status_slot, STR("SetSize"), nullptr, 320.0f, 56.0f);
 
         const bool input_frame_content = invoke_set_content(input_frame, input_background);
@@ -6310,6 +6313,7 @@ namespace WindroseTextSigns
         m_phase7_umg_in_viewport = false;
         log_line(std::string{"[phase7-umg] prewarm_result built=true added=false collapsed=true focus=false"} +
                  " style=" + std::string{(title_text && hint_text && status_text && input_text && title_color && hint_color && status_color && input_color &&
+                                          status_pivot &&
                                           frame_color && background_color && divider_color && input_frame_color && input_background_color &&
                                           frame_padding && background_padding && input_frame_padding && input_background_padding &&
                                           editor_width && editor_height && root_opacity && frame_opacity && background_opacity &&
