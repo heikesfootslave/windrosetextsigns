@@ -7913,6 +7913,32 @@ namespace WindroseTextSigns
             return;
         }
 
+        // World-id is immutable once bound for the epoch: keep route on the definitive GUID
+        // and ignore later non-GUID/name churn until epoch reset.
+        auto effective_world_folder_id = world_folder_id;
+        if (is_worldid_bound_for_current_epoch() && is_hex_world_id(m_worldid_latched_id))
+        {
+            const auto incoming_is_hex = is_hex_world_id(effective_world_folder_id);
+            if (!incoming_is_hex)
+            {
+                if (!effective_world_folder_id.empty() &&
+                    lower_ascii(effective_world_folder_id) != lower_ascii(m_worldid_latched_id))
+                {
+                    log_line("[worldid] route_world_ignored reason=non_hex_after_bind current=" + m_worldid_latched_id +
+                             " incoming=" + effective_world_folder_id +
+                             " epoch=" + std::to_string(m_session_epoch));
+                }
+                effective_world_folder_id = m_worldid_latched_id;
+            }
+            else if (lower_ascii(effective_world_folder_id) != lower_ascii(m_worldid_latched_id))
+            {
+                log_line("[worldid] route_world_ignored reason=guid_change_after_bind current=" + m_worldid_latched_id +
+                         " incoming=" + effective_world_folder_id +
+                         " epoch=" + std::to_string(m_session_epoch));
+                effective_world_folder_id = m_worldid_latched_id;
+            }
+        }
+
         const bool localclient_authoritative_target =
             !is_dedicated_runtime_process() &&
             authoritative &&
@@ -7920,18 +7946,18 @@ namespace WindroseTextSigns
         if (localclient_authoritative_target &&
             is_worldid_bound_for_current_epoch() &&
             is_hex_world_id(m_worldid_latched_id) &&
-            is_hex_world_id(world_folder_id) &&
-            lower_ascii(world_folder_id) != lower_ascii(m_worldid_latched_id))
+            is_hex_world_id(effective_world_folder_id) &&
+            lower_ascii(effective_world_folder_id) != lower_ascii(m_worldid_latched_id))
         {
             log_line("[worldid] switch_blocked reason=existing_world_protection current=" +
-                     m_worldid_latched_id + " incoming=" + world_folder_id);
+                     m_worldid_latched_id + " incoming=" + effective_world_folder_id);
             return;
         }
 
         const bool world_changed =
             !m_world_folder_id.empty() &&
-            !world_folder_id.empty() &&
-            m_world_folder_id != world_folder_id;
+            !effective_world_folder_id.empty() &&
+            m_world_folder_id != effective_world_folder_id;
         const bool role_or_authority_change =
             m_runtime_role != runtime_role ||
             m_data_mode != data_mode ||
@@ -7947,7 +7973,7 @@ namespace WindroseTextSigns
                      " runtimeRole=" + m_runtime_role +
                      " authorityMode=" + m_authority_mode +
                      " oldWorldId=" + m_world_folder_id +
-                     " newWorldId=" + world_folder_id +
+                     " newWorldId=" + effective_world_folder_id +
                      " roleOrAuthorityChange=" + std::string{role_or_authority_change ? "true" : "false"});
         }
 
@@ -7962,7 +7988,7 @@ namespace WindroseTextSigns
             m_sidecar_kind != sidecar_kind ||
             m_sidecar_authoritative != authoritative ||
             m_save_profile_root != profile_root.string() ||
-            m_world_folder_id != world_folder_id;
+            m_world_folder_id != effective_world_folder_id;
 
         if (m_role_lock_acquired && !world_changed)
         {
@@ -7992,9 +8018,9 @@ namespace WindroseTextSigns
         m_sidecar_kind = sidecar_kind;
         m_sidecar_authoritative = authoritative;
         m_save_profile_root = profile_root.string();
-        m_world_folder_id = world_folder_id;
+        m_world_folder_id = effective_world_folder_id;
         if (m_role_lock_acquired &&
-            !m_world_folder_id.empty() &&
+            is_hex_world_id(m_world_folder_id) &&
             m_role_lock_world_id != m_world_folder_id)
         {
             // Keep lock metadata aligned with definitive world-id path migration
@@ -13539,7 +13565,7 @@ namespace WindroseTextSigns
         m_role_lock_acquired = true;
         m_role_lock_runtime_role = m_runtime_role;
         m_role_lock_bridge_role = bridge_role_name(m_bridge_role);
-        m_role_lock_world_id = m_world_folder_id;
+        m_role_lock_world_id = is_hex_world_id(m_world_folder_id) ? m_world_folder_id : std::string{};
         m_role_lock_start_signal = m_definitive_session_start_signal;
         log_line("[role] lock_acquired runtimeRole=" + m_role_lock_runtime_role +
                  " bridgeRole=" + m_role_lock_bridge_role +
