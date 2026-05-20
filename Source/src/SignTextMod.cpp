@@ -6270,7 +6270,7 @@ namespace WindroseTextSigns
         const bool hint_pos = invoke_set_vector2d_value(hint_slot, STR("SetPosition"), nullptr, 192.0f, 352.0f);
         const bool hint_size = invoke_set_vector2d_value(hint_slot, STR("SetSize"), nullptr, 180.0f, 52.0f);
         auto* status_slot = invoke_add_child(panel, status);
-        const bool status_pos = invoke_set_vector2d_value(status_slot, STR("SetPosition"), nullptr, 52.0f, 292.0f);
+        const bool status_pos = invoke_set_vector2d_value(status_slot, STR("SetPosition"), nullptr, 52.0f, 287.0f);
         const bool status_size = invoke_set_vector2d_value(status_slot, STR("SetSize"), nullptr, 320.0f, 56.0f);
 
         const bool input_frame_content = invoke_set_content(input_frame, input_background);
