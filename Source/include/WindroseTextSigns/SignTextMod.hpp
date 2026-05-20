@@ -105,6 +105,7 @@ namespace WindroseTextSigns
         auto set_phase7_game_and_ui_input_mode(bool enable_ui_mode) -> bool;
         auto cache_phase7_umg_class_pointers() -> bool;
         auto cache_phase7_umg_function_pointers() -> void;
+        auto apply_phase7_umg_debug_scales(const char* reason = nullptr) -> void;
         auto invoke_phase7_set_visibility(uint8_t value, const char* source_tag = nullptr) -> bool;
         auto invalidate_phase7_umg_widget_cache(const std::string& reason) -> void;
         auto ensure_phase7_umg_widget_built() -> bool;
@@ -117,6 +118,11 @@ namespace WindroseTextSigns
         auto maybe_run_phase7_bootstrap_sanitize() -> void;
         auto reset_phase7_runtime_state() -> void;
         auto is_phase7_runtime_interaction_safe(std::string* out_reason = nullptr) -> bool;
+        auto mark_phase7_status_dirty(const char* reason = nullptr) -> void;
+        auto refresh_phase7_umg_status(bool force, const char* reason = nullptr) -> void;
+        auto build_phase7_role_status_text() const -> std::string;
+        auto build_phase7_network_status_text() const -> std::string;
+        auto is_current_world_snapshot_ready() const -> bool;
         auto tick_phase7_umg_editor() -> void;
         auto install_phase7_keyboard_capture_hook() -> void;
         auto uninstall_phase7_keyboard_capture_hook() -> void;
@@ -360,6 +366,7 @@ namespace WindroseTextSigns
         std::string m_role_lock_runtime_role{};
         std::string m_role_lock_bridge_role{};
         std::string m_role_lock_world_id{};
+        std::string m_role_lock_start_signal{};
         std::string m_runtime_role{"Unknown"};
         std::string m_data_mode{"Unknown"};
         std::string m_authority_mode{"Unknown"};
@@ -367,6 +374,8 @@ namespace WindroseTextSigns
         std::string m_save_profile_root{};
         std::string m_world_folder_id{};
         bool m_sidecar_authoritative{false};
+        bool m_last_sidecar_load_ok{false};
+        bool m_last_sidecar_save_ok{true};
         WorldIdBindPhase m_worldid_bind_phase{WorldIdBindPhase::Unbound};
         std::string m_worldid_provisional_id{};
         std::string m_worldid_latched_id{};
@@ -451,7 +460,9 @@ namespace WindroseTextSigns
         std::chrono::steady_clock::time_point m_bridge_next_snapshot_request{};
         std::chrono::steady_clock::time_point m_bridge_sync_wait_started{};
         std::chrono::steady_clock::time_point m_bridge_last_snapshot_request{};
+        std::chrono::steady_clock::time_point m_bridge_last_authoritative_rx{};
         std::chrono::steady_clock::time_point m_bridge_last_status{};
+        bool m_bridge_snapshot_request_in_flight{false};
         bool m_bridge_snapshot_received{false};
         std::string m_bridge_snapshot_world_id{};
         bool m_bridge_health_unhealthy{false};
@@ -562,6 +573,7 @@ namespace WindroseTextSigns
         RC::Unreal::UObject* m_phase7_umg_text_box{};
         RC::Unreal::UObject* m_phase7_umg_title{};
         RC::Unreal::UObject* m_phase7_umg_hint{};
+        RC::Unreal::UObject* m_phase7_umg_status{};
         RC::Unreal::UObject* m_phase7_umg_apply_button{};
         RC::Unreal::UObject* m_phase7_umg_clear_button{};
         RC::Unreal::UObject* m_phase7_umg_cancel_button{};
@@ -577,6 +589,8 @@ namespace WindroseTextSigns
         RC::Unreal::UFunction* m_phase7_fn_set_keyboard_focus{};
         RC::Unreal::UFunction* m_phase7_fn_set_focus{};
         RC::Unreal::UFunction* m_phase7_fn_set_visibility{};
+        float m_phase7_debug_status_render_scale{0.5f};
+        float m_phase7_debug_hint_render_scale{0.4f};
         bool m_phase7_umg_prewarm_attempted{false};
         bool m_phase7_umg_prewarm_succeeded{false};
         bool m_phase7_umg_in_viewport{false};
@@ -604,6 +618,11 @@ namespace WindroseTextSigns
         bool m_phase7_guard_hysteresis_logged{false};
         std::chrono::steady_clock::time_point m_phase7_stale_epoch_last_log{};
         std::string m_phase7_stale_epoch_last_detail{};
+        bool m_phase7_status_dirty{true};
+        std::chrono::steady_clock::time_point m_phase7_last_status_ui_refresh{};
+        std::string m_phase7_last_status_role_text{};
+        std::string m_phase7_last_status_network_text{};
+        std::chrono::steady_clock::time_point m_phase7_last_status_log{};
 
         std::optional<SelectionCandidate> m_selected{};
         std::array<char, 257> m_text_buffer{};
