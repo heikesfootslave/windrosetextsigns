@@ -5081,6 +5081,7 @@ namespace WindroseTextSigns
         m_role_lock_runtime_role.clear();
         m_role_lock_bridge_role.clear();
         m_role_lock_world_id.clear();
+        m_role_lock_start_signal.clear();
         m_bridge_route_lock_acquired = false;
         m_bridge_route_locked_host.clear();
         m_bridge_route_loopback_same_machine_ok = false;
@@ -6206,8 +6207,10 @@ namespace WindroseTextSigns
         const bool input_opacity = invoke_set_float_value(text_box, STR("SetRenderOpacity"), STR("/Script/UMG.Widget:SetRenderOpacity"), 1.0f);
         const bool frame_scale = invoke_set_vector2d_value(frame, STR("SetRenderScale"), STR("/Script/UMG.Widget:SetRenderScale"), 1.0f, 1.0f);
         const bool title_scale = invoke_set_vector2d_value(title, STR("SetRenderScale"), STR("/Script/UMG.Widget:SetRenderScale"), 0.78f, 0.78f);
-        const bool hint_scale = invoke_set_vector2d_value(hint, STR("SetRenderScale"), STR("/Script/UMG.Widget:SetRenderScale"), 0.42f, 0.42f);
-        const bool status_scale = invoke_set_vector2d_value(status, STR("SetRenderScale"), STR("/Script/UMG.Widget:SetRenderScale"), 0.50f, 0.50f);
+        // Keep 1:1 render scale for status/hints so Canvas-slot coordinates stay
+        // visually stable and text does not drift/overflow from transform shrink.
+        const bool hint_scale = invoke_set_vector2d_value(hint, STR("SetRenderScale"), STR("/Script/UMG.Widget:SetRenderScale"), 1.0f, 1.0f);
+        const bool status_scale = invoke_set_vector2d_value(status, STR("SetRenderScale"), STR("/Script/UMG.Widget:SetRenderScale"), 1.0f, 1.0f);
         const bool input_scale = invoke_set_vector2d_value(text_box, STR("SetRenderScale"), STR("/Script/UMG.Widget:SetRenderScale"), 1.0f, 1.0f);
 
         auto* frame_slot = invoke_add_child(root, frame);
@@ -6227,11 +6230,11 @@ namespace WindroseTextSigns
         const bool input_pos = invoke_set_vector2d_value(input_slot, STR("SetPosition"), nullptr, 52.0f, 112.0f);
         const bool input_size = invoke_set_vector2d_value(input_slot, STR("SetSize"), nullptr, 320.0f, 170.0f);
         auto* hint_slot = invoke_add_child(panel, hint);
-        const bool hint_pos = invoke_set_vector2d_value(hint_slot, STR("SetPosition"), nullptr, 68.0f, 384.0f);
-        const bool hint_size = invoke_set_vector2d_value(hint_slot, STR("SetSize"), nullptr, 660.0f, 96.0f);
+        const bool hint_pos = invoke_set_vector2d_value(hint_slot, STR("SetPosition"), nullptr, 52.0f, 354.0f);
+        const bool hint_size = invoke_set_vector2d_value(hint_slot, STR("SetSize"), nullptr, 320.0f, 58.0f);
         auto* status_slot = invoke_add_child(panel, status);
-        const bool status_pos = invoke_set_vector2d_value(status_slot, STR("SetPosition"), nullptr, 68.0f, 298.0f);
-        const bool status_size = invoke_set_vector2d_value(status_slot, STR("SetSize"), nullptr, 660.0f, 84.0f);
+        const bool status_pos = invoke_set_vector2d_value(status_slot, STR("SetPosition"), nullptr, 52.0f, 300.0f);
+        const bool status_size = invoke_set_vector2d_value(status_slot, STR("SetSize"), nullptr, 320.0f, 48.0f);
 
         const bool input_frame_content = invoke_set_content(input_frame, input_background);
         const bool input_background_content = invoke_set_content(input_background, editor);
@@ -6962,10 +6965,10 @@ namespace WindroseTextSigns
         }
         if (locked_role_lower == "localclient")
         {
-            const auto authority_mode_lower = lower_ascii(m_authority_mode);
+            // Role status is derived from lock-captured state only.
+            const auto start_signal_lower = lower_ascii(m_role_lock_start_signal);
             const bool hosted_context =
-                is_local_hosted_runtime() ||
-                authority_mode_lower.find("hosted") != std::string::npos;
+                start_signal_lower == "client_readytoplay_to_startcoophostserver";
             return hosted_context ? "Host" : "Solo";
         }
         return "Error: Not locked";
@@ -7037,6 +7040,37 @@ namespace WindroseTextSigns
         if (role_text != m_phase7_last_status_role_text ||
             network_text != m_phase7_last_status_network_text)
         {
+            const auto locked_role_lower = lower_ascii(
+                m_role_lock_runtime_role.empty() ? m_runtime_role : m_role_lock_runtime_role);
+            std::string legacy_role = "Error: Not locked";
+            if (m_role_lock_acquired)
+            {
+                if (locked_role_lower == "remoteclient")
+                {
+                    legacy_role = "Remote Client";
+                }
+                else if (locked_role_lower == "localclient")
+                {
+                    const auto current_start_signal_lower = lower_ascii(m_definitive_session_start_signal);
+                    const bool hosted_context_legacy =
+                        is_local_hosted_runtime() ||
+                        current_start_signal_lower.find("startcoophostserver") != std::string::npos;
+                    legacy_role = hosted_context_legacy ? "Host" : "Solo";
+                }
+            }
+
+            log_line("[phase7-status-role] locked=" + std::string{m_role_lock_acquired ? "true" : "false"} +
+                     " runtimeRole=" + (m_role_lock_runtime_role.empty() ? m_runtime_role : m_role_lock_runtime_role) +
+                     " displayRole=" + role_text +
+                     " epoch=" + std::to_string(m_session_epoch) +
+                     " worldId=" + (m_world_folder_id.empty() ? "unknown" : m_world_folder_id));
+            if (legacy_role != role_text)
+            {
+                log_line("[phase7-status-role] legacy_disagree legacy=" + legacy_role +
+                         " authoritative=" + role_text +
+                         " epoch=" + std::to_string(m_session_epoch));
+            }
+
             m_phase7_last_status_role_text = role_text;
             m_phase7_last_status_network_text = network_text;
             log_line("[phase7-status] role=" + role_text +
@@ -13222,6 +13256,7 @@ namespace WindroseTextSigns
         m_role_lock_runtime_role.clear();
         m_role_lock_bridge_role.clear();
         m_role_lock_world_id.clear();
+        m_role_lock_start_signal.clear();
         m_bridge_route_lock_acquired = false;
         m_bridge_route_locked_host.clear();
         m_bridge_route_last_candidates.clear();
@@ -13463,6 +13498,7 @@ namespace WindroseTextSigns
         m_role_lock_runtime_role = m_runtime_role;
         m_role_lock_bridge_role = bridge_role_name(m_bridge_role);
         m_role_lock_world_id = m_world_folder_id;
+        m_role_lock_start_signal = m_definitive_session_start_signal;
         log_line("[role] lock_acquired runtimeRole=" + m_role_lock_runtime_role +
                  " bridgeRole=" + m_role_lock_bridge_role +
                  " worldId=" + (m_role_lock_world_id.empty() ? "unknown" : m_role_lock_world_id) +

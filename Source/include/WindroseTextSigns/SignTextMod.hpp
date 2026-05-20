@@ -365,6 +365,7 @@ namespace WindroseTextSigns
         std::string m_role_lock_runtime_role{};
         std::string m_role_lock_bridge_role{};
         std::string m_role_lock_world_id{};
+        std::string m_role_lock_start_signal{};
         std::string m_runtime_role{"Unknown"};
         std::string m_data_mode{"Unknown"};
         std::string m_authority_mode{"Unknown"};
