@@ -417,6 +417,7 @@ namespace WindroseTextSigns
         std::string m_bridge_route_last_discovered_host{};
         std::vector<std::string> m_bridge_route_last_candidates{};
         bool m_bridge_route_lock_acquired{false};
+        bool m_route_lock_failed_no_reachable_endpoint{false};
         std::string m_bridge_route_locked_host{};
         bool m_bridge_route_loopback_same_machine_ok{false};
         bool m_bridge_route_retry_consumed{false};

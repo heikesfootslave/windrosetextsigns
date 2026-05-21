@@ -7014,6 +7014,8 @@ namespace WindroseTextSigns
 
     auto SignTextMod::build_phase7_network_status_text() const -> std::string
     {
+        constexpr const char* k_route_lock_failed_hint =
+            "Error - check firewall, UPnP, or port settings";
         const auto role = build_phase7_role_status_text();
         if (role == "Solo")
         {
@@ -7027,6 +7029,10 @@ namespace WindroseTextSigns
                 m_hosted_authority_route_active &&
                 m_bridge_route_lock_acquired &&
                 !m_bridge_health_unhealthy;
+            if (!connected && m_route_lock_failed_no_reachable_endpoint)
+            {
+                return k_route_lock_failed_hint;
+            }
             return connected
                 ? "Connected to Host Server"
                 : "Error - Not connected to host server";
@@ -7043,6 +7049,10 @@ namespace WindroseTextSigns
                 m_bridge_last_authoritative_rx.time_since_epoch().count() != 0 &&
                 (now - m_bridge_last_authoritative_rx) <= k_status_authoritative_rx_grace;
             const bool connected = route_healthy && (snapshot_ready || has_recent_authoritative_rx);
+            if (!connected && m_route_lock_failed_no_reachable_endpoint)
+            {
+                return k_route_lock_failed_hint;
+            }
             return connected
                 ? "Connected to Server"
                 : ((route_healthy && m_bridge_snapshot_request_in_flight)
@@ -12174,7 +12184,9 @@ namespace WindroseTextSigns
             if (!m_bridge_route_retry_consumed)
             {
                 m_bridge_route_retry_consumed = true;
+                m_route_lock_failed_no_reachable_endpoint = true;
                 log_line("[bridge-route] route_lock_failed_no_reachable_endpoint details=final_check_after_ready_latched");
+                mark_phase7_status_dirty("route_lock_failed_no_reachable_endpoint");
             }
         };
 
@@ -12613,6 +12625,7 @@ namespace WindroseTextSigns
             m_bridge_remote_server_host,
             static_cast<uint16_t>(m_bridge_udp_port));
         m_bridge_route_lock_acquired = true;
+        m_route_lock_failed_no_reachable_endpoint = false;
         m_bridge_route_locked_host = host;
         m_bridge_route_staged_active = false;
         m_bridge_route_staged_host.clear();
@@ -13409,6 +13422,7 @@ namespace WindroseTextSigns
         m_role_lock_world_id.clear();
         m_role_lock_start_signal.clear();
         m_bridge_route_lock_acquired = false;
+        m_route_lock_failed_no_reachable_endpoint = false;
         m_bridge_route_locked_host.clear();
         m_bridge_route_last_candidates.clear();
         m_bridge_route_last_discovered_host.clear();
