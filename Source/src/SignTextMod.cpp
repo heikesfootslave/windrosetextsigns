@@ -8010,6 +8010,17 @@ namespace WindroseTextSigns
             m_save_profile_root != profile_root.string() ||
             m_world_folder_id != effective_world_folder_id;
 
+        if (m_role_lock_acquired && authoritative != m_sidecar_authoritative)
+        {
+            log_line("[role] lock_held skip_sidecar_route reason=" + reason +
+                     " detail=authoritative_mismatch" +
+                     " lockedAuthoritative=" + std::string{m_sidecar_authoritative ? "true" : "false"} +
+                     " incomingAuthoritative=" + std::string{authoritative ? "true" : "false"} +
+                     " lockedRuntimeRole=" + m_runtime_role +
+                     " incomingRuntimeRole=" + runtime_role);
+            return;
+        }
+
         if (m_role_lock_acquired && !world_changed)
         {
             if (role_or_authority_change)
@@ -8208,34 +8219,7 @@ namespace WindroseTextSigns
                 "world_authority_detected");
             return;
         }
-
-        std::filesystem::path cache_base{};
-        if (!profile_root.empty())
-        {
-            cache_base = profile_root / "WindroseTextSigns";
-        }
-        else
-        {
-            cache_base = m_mod_root / "Cache";
-        }
-
-        auto remote_world_id = safe_world_id;
-        if (auto connected_island_id = try_latest_connected_island_id_from_local_log();
-            connected_island_id.has_value() && is_hex_world_id(*connected_island_id))
-        {
-            remote_world_id = *connected_island_id;
-        }
-
-        set_sidecar_route(
-            cache_base / "RemoteCache" / remote_world_id,
-            "RemoteClient",
-            "RemoteClientCache",
-            "ServerAuthoritativePendingBridge",
-            "cache",
-            false,
-            profile_root,
-            remote_world_id,
-            "world_authority_absent_remote_cache");
+        return;
     }
 
     auto SignTextMod::active_storage_world_id(const std::string& actor_world_id) const -> std::string

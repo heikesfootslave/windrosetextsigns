@@ -12,19 +12,6 @@ You do not craft a new sign item. Build normal Wooden Labels, look at one, press
 
 Get the latest packaged zip from [GitHub Releases](https://github.com/Ageous27/WindroseTextSigns/releases/latest).
 
-## What Is In The Zip
-
-The zip includes:
-
-- Mod folder:
-  - `WindroseTextSigns\enabled.txt`
-  - `WindroseTextSigns\Config\WindroseTextSigns.ini`
-  - `WindroseTextSigns\dlls\main.dll`
-- Optional font override package:
-  - `Content\Paks\~mods\0_WindroseTextSigns_RDFOverride_P.pak`
-  - `Content\Paks\~mods\0_WindroseTextSigns_RDFOverride_P.utoc`
-  - `Content\Paks\~mods\0_WindroseTextSigns_RDFOverride_P.ucas`
-
 ## In-Game Usage
 
 1. Build a normal Wooden Label.
@@ -71,6 +58,20 @@ Network values:
 `Error - Not connected to Server` is likely a network health issue.  Something has interrupted normal UDP network traffic, if traffic is restored this should automatically return to `Connected to Server`
 
 `Syncing...` means the Remote Client has sent a request to the dedicated server and is waiting for the response.  You might not ever see this message if the response is fast.  That doesn't mean syncing has not occurred.
+
+
+## What Is In The Zip
+
+The zip includes:
+
+- Mod folder:
+  - `WindroseTextSigns\enabled.txt`
+  - `WindroseTextSigns\Config\WindroseTextSigns.ini`
+  - `WindroseTextSigns\dlls\main.dll`
+- Optional font override package:
+  - `Content\Paks\~mods\0_WindroseTextSigns_RDFOverride_P.pak`
+  - `Content\Paks\~mods\0_WindroseTextSigns_RDFOverride_P.utoc`
+  - `Content\Paks\~mods\0_WindroseTextSigns_RDFOverride_P.ucas`
 
 
 ## Installation Paths
