@@ -246,6 +246,7 @@ namespace WindroseTextSigns
         auto refresh_world_text_font_profile(const std::string& reason, bool force_recheck) -> void;
         auto replay_cached_label_text_after_ready(const std::string& reason) -> std::pair<size_t, size_t>;
         auto queue_first_authoritative_render_pass(const std::string& source, const std::string& world_id) -> void;
+        auto flush_deferred_bridge_payloads_after_world_bind(const std::string& reason) -> void;
         auto maybe_run_first_authoritative_render_pass(const std::string& trigger) -> void;
         auto resolve_world_text_font_size_limits() -> std::pair<float, float>;
         auto make_managed_component_name(const std::string& storage_key) const -> std::string;
@@ -480,6 +481,12 @@ namespace WindroseTextSigns
         std::string m_bridge_snapshot_id{};
         std::unordered_set<std::string> m_bridge_snapshot_seen_keys{};
         std::unordered_map<std::string, std::chrono::steady_clock::time_point> m_bridge_pending_request_keys{};
+        struct DeferredBridgePayload
+        {
+            bool is_clear{false};
+            std::unordered_map<std::string, std::string> fields{};
+        };
+        std::vector<DeferredBridgePayload> m_bridge_deferred_unbound_world_payloads{};
         std::unordered_set<std::string> m_hosted_authority_local_apply_deferred_keys{};
         bool m_hosted_authority_route_active{false};
         bool m_hosted_server_authority_route_configured{false};

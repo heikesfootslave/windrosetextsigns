@@ -10896,26 +10896,37 @@ namespace WindroseTextSigns
             return;
         }
         const auto incoming_world_id = unescape_json(fields.count("worldId") ? fields.at("worldId") : "");
-        if (!incoming_world_id.empty() &&
-            is_hex_world_id(m_world_folder_id) &&
-            is_hex_world_id(incoming_world_id) &&
-            incoming_world_id != m_world_folder_id)
-        {
-            log_line("[bridge] client_upsert_ignored reason=world_mismatch incomingWorldId=" + incoming_world_id +
-                     " localWorldId=" + m_world_folder_id);
-            return;
-        }
         const auto stable_it = fields.find("stableId");
         if (stable_it == fields.end() || stable_it->second.empty())
         {
             log_line("[bridge] client_upsert_rejected reason=missing_stable_id");
             return;
         }
+        const bool world_bound_guid = is_worldid_bound_for_current_epoch() && is_hex_world_id(m_worldid_latched_id);
+        if (!world_bound_guid)
+        {
+            m_bridge_deferred_unbound_world_payloads.push_back(DeferredBridgePayload{false, fields});
+            m_remote_cached_replay_pending_after_ready = true;
+            const auto queued = m_bridge_deferred_unbound_world_payloads.size();
+            if (queued <= 3 || (queued % 25) == 0)
+            {
+                log_line("[bridge] bridge_defer_unbound_world payload=upsert queued=" +
+                         std::to_string(queued) +
+                         " reason=worldid_not_bound");
+            }
+            return;
+        }
+        if (!incoming_world_id.empty() &&
+            is_hex_world_id(incoming_world_id) &&
+            lower_ascii(incoming_world_id) != lower_ascii(m_worldid_latched_id))
+        {
+            log_line("[bridge] client_upsert_ignored reason=world_mismatch incomingWorldId=" + incoming_world_id +
+                     " localWorldId=" + m_worldid_latched_id);
+            return;
+        }
         const auto writer = unescape_json(fields.count("writer") ? fields.at("writer") : "");
         const auto stable_id = unescape_json(stable_it->second);
-        const auto local_world_id = (!m_world_folder_id.empty() && m_world_folder_id != "unknown-world")
-            ? m_world_folder_id
-            : unescape_json(fields.count("worldId") ? fields.at("worldId") : "unknown-world");
+        const auto local_world_id = m_worldid_latched_id;
         const uint64_t incoming_revision = fields.count("revision")
             ? static_cast<uint64_t>(safe_stoi(fields.at("revision"), static_cast<int>(m_revision)))
             : m_revision;
@@ -11150,26 +11161,37 @@ namespace WindroseTextSigns
             return;
         }
         const auto incoming_world_id = unescape_json(fields.count("worldId") ? fields.at("worldId") : "");
-        if (!incoming_world_id.empty() &&
-            is_hex_world_id(m_world_folder_id) &&
-            is_hex_world_id(incoming_world_id) &&
-            incoming_world_id != m_world_folder_id)
-        {
-            log_line("[bridge] client_clear_ignored reason=world_mismatch incomingWorldId=" + incoming_world_id +
-                     " localWorldId=" + m_world_folder_id);
-            return;
-        }
         const auto stable_it = fields.find("stableId");
         if (stable_it == fields.end() || stable_it->second.empty())
         {
             log_line("[bridge] client_clear_rejected reason=missing_stable_id");
             return;
         }
+        const bool world_bound_guid = is_worldid_bound_for_current_epoch() && is_hex_world_id(m_worldid_latched_id);
+        if (!world_bound_guid)
+        {
+            m_bridge_deferred_unbound_world_payloads.push_back(DeferredBridgePayload{true, fields});
+            m_remote_cached_replay_pending_after_ready = true;
+            const auto queued = m_bridge_deferred_unbound_world_payloads.size();
+            if (queued <= 3 || (queued % 25) == 0)
+            {
+                log_line("[bridge] bridge_defer_unbound_world payload=clear queued=" +
+                         std::to_string(queued) +
+                         " reason=worldid_not_bound");
+            }
+            return;
+        }
+        if (!incoming_world_id.empty() &&
+            is_hex_world_id(incoming_world_id) &&
+            lower_ascii(incoming_world_id) != lower_ascii(m_worldid_latched_id))
+        {
+            log_line("[bridge] client_clear_ignored reason=world_mismatch incomingWorldId=" + incoming_world_id +
+                     " localWorldId=" + m_worldid_latched_id);
+            return;
+        }
         const auto writer = unescape_json(fields.count("writer") ? fields.at("writer") : "");
         const auto stable_id = unescape_json(stable_it->second);
-        const auto local_world_id = (!m_world_folder_id.empty() && m_world_folder_id != "unknown-world")
-            ? m_world_folder_id
-            : unescape_json(fields.count("worldId") ? fields.at("worldId") : "unknown-world");
+        const auto local_world_id = m_worldid_latched_id;
         const uint64_t incoming_revision = fields.count("revision")
             ? static_cast<uint64_t>(safe_stoi(fields.at("revision"), static_cast<int>(m_revision)))
             : m_revision;
@@ -14165,6 +14187,60 @@ namespace WindroseTextSigns
                  " worldId=" + m_first_authoritative_render_world_id +
                  " records=" + std::to_string(m_labels.size()) +
                  " revision=" + std::to_string(m_revision));
+    }
+
+    auto SignTextMod::flush_deferred_bridge_payloads_after_world_bind(const std::string& reason) -> void
+    {
+        if (!is_worldid_bound_for_current_epoch() || !is_hex_world_id(m_worldid_latched_id))
+        {
+            return;
+        }
+        if (m_bridge_deferred_unbound_world_payloads.empty())
+        {
+            return;
+        }
+
+        auto deferred = std::move(m_bridge_deferred_unbound_world_payloads);
+        m_bridge_deferred_unbound_world_payloads.clear();
+
+        size_t upserts = 0;
+        size_t clears = 0;
+        for (const auto& payload : deferred)
+        {
+            if (payload.is_clear)
+            {
+                ++clears;
+            }
+            else
+            {
+                ++upserts;
+            }
+        }
+
+        log_line("[bridge] bridge_flush_on_world_bind queued=" + std::to_string(deferred.size()) +
+                 " upserts=" + std::to_string(upserts) +
+                 " clears=" + std::to_string(clears) +
+                 " worldId=" + m_worldid_latched_id +
+                 " reason=" + (reason.empty() ? "unknown" : reason));
+
+        for (const auto& payload : deferred)
+        {
+            if (payload.is_clear)
+            {
+                handle_bridge_client_clear(payload.fields);
+            }
+            else
+            {
+                handle_bridge_client_upsert(payload.fields);
+            }
+        }
+
+        if (!m_bridge_deferred_unbound_world_payloads.empty())
+        {
+            log_line("[bridge] bridge_flush_on_world_bind remaining=" +
+                     std::to_string(m_bridge_deferred_unbound_world_payloads.size()) +
+                     " worldId=" + m_worldid_latched_id);
+        }
     }
 
     auto SignTextMod::maybe_run_first_authoritative_render_pass(const std::string& trigger) -> void
@@ -17593,6 +17669,7 @@ namespace WindroseTextSigns
         m_def_ready_server_waiting_client_ready_seen = false;
         m_hosted_post_ready_reconcile_done = false;
         m_remote_cached_replay_pending_after_ready = false;
+        m_bridge_deferred_unbound_world_payloads.clear();
         m_first_authoritative_render_pending = false;
         m_first_authoritative_render_completed = false;
         m_first_authoritative_render_epoch = 0;
@@ -18674,6 +18751,7 @@ namespace WindroseTextSigns
                         configure_sidecar_for_actor(controller_actor, m_session_ready_world_id);
                     }
                 }
+                flush_deferred_bridge_payloads_after_world_bind("ready_latch_followup");
                 if (m_remote_cached_replay_pending_after_ready)
                 {
                     replay_cached_label_text_after_ready("ready_latch_followup");
