@@ -209,6 +209,7 @@ namespace WindroseTextSigns
         auto is_dedicated_runtime_process() const -> bool;
         auto is_world_authoritative(RC::Unreal::UObject* world_object) const -> bool;
         auto is_local_hosted_runtime() const -> bool;
+        auto treat_as_local_authoritative_for_routing(RC::Unreal::UObject* world_object) const -> bool;
         auto configure_sidecar_for_actor(RC::Unreal::AActor* actor, const std::string& world_id) -> void;
         auto active_storage_world_id(const std::string& actor_world_id) const -> std::string;
         auto set_sidecar_route(

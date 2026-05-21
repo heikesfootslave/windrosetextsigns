@@ -7917,6 +7917,15 @@ namespace WindroseTextSigns
         return cached_result;
     }
 
+    auto SignTextMod::treat_as_local_authoritative_for_routing(UObject* world_object) const -> bool
+    {
+        if (m_force_local_only)
+        {
+            return true;
+        }
+        return is_world_authoritative(world_object) || is_local_hosted_runtime();
+    }
+
     auto SignTextMod::set_sidecar_route(
         const std::filesystem::path& data_root,
         const std::string& runtime_role,
@@ -8184,7 +8193,7 @@ namespace WindroseTextSigns
             }
         }
 
-        const bool local_authority = is_world_authoritative(world) || is_local_hosted_runtime();
+        const bool local_authority = treat_as_local_authoritative_for_routing(world);
         const auto safe_world_id = sanitize_path_segment(world_id.empty() ? std::string{"unknown-world"} : world_id);
         if (local_authority)
         {

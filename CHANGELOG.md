@@ -1,6 +1,9 @@
 # Changelog
 
 ## 0.1.7
+- Added WindroseTextSigns.ini option WTS_FORCE_LOCAL_ONLY default false.  This option forces local only sign text saves.
+
+## 0.1.7
 - Added a Network error message indicating likely network / port configuration issues. 
 
 ## 0.1.6
