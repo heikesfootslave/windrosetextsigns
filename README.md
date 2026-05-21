@@ -63,7 +63,15 @@ Network values:
 - Remote Client role:
   - `Connected to Server`: route is healthy and authoritative data is current.
   - `Syncing...`: route is healthy and snapshot refresh is in progress.
+  - `Error - check firewall, UPnP, or port settings` connection to the server failed.
   - `Error - Not connected to Server`: no healthy/current authoritative connection.
+
+`Error - check firewall, UPnP, or port settings` is likely a network/port configuration issue.  The mods default configuration relies on UPnP.  UPnP must be enabled in the router for the clients, in the router for the dedicated server, and possibly in the game server manager software (if applicable).  Ensure the configured port (default 45801) is not blocked by firewalls.  If this can't be done or doesn't work see the Static Dedicated IP (UPnP Off) section below.  With static configuration ensure the selected UDP port (default 45801) is forwarded to your dedicated server and not blocked by firewalls.
+
+`Error - Not connected to Server` is likely a network health issue.  Something has interrupted normal UDP network traffic, if traffic is restored this should automatically return to `Connected to Server`
+
+`Syncing...` means the Remote Client has sent a request to the dedicated server and is waiting for the response.  You might not ever see this message if the response is fast.  That doesn't mean syncing has not occurred.
+
 
 ## Installation Paths
 
@@ -189,6 +197,7 @@ WTS_BRIDGE_UPNP_MODE=off
 ```
 
 Important:
+- With static configuration ensure the selected UDP port (default 45801) is forwarded to your dedicated server.
 - UDP transport is required by the current bridge implementation.
 - There is no supported `UDP disabled` mode in current builds.
 - Client and server must use the same `WTS_BRIDGE_UDP_PORT`.

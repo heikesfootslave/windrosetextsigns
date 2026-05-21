@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.1.7
+- Added a Network error message indicating likely network / port configuration issues. 
+
 ## 0.1.6
 - Added an in-editor `Status` section showing live `Role` and `Network` state.
 - Fix an issue where the world ID could get 'lost' to the mod resulting in no communication with the sign text json.

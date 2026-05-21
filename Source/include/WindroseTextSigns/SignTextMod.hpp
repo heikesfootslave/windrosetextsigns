@@ -590,7 +590,7 @@ namespace WindroseTextSigns
         RC::Unreal::UFunction* m_phase7_fn_set_keyboard_focus{};
         RC::Unreal::UFunction* m_phase7_fn_set_focus{};
         RC::Unreal::UFunction* m_phase7_fn_set_visibility{};
-        float m_phase7_debug_status_render_scale{0.5f};
+        float m_phase7_debug_status_render_scale{0.45f};
         float m_phase7_debug_hint_render_scale{0.4f};
         bool m_phase7_umg_prewarm_attempted{false};
         bool m_phase7_umg_prewarm_succeeded{false};
