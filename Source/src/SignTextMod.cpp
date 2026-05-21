@@ -9788,7 +9788,14 @@ namespace WindroseTextSigns
                  " revision=" + std::to_string(m_revision) +
                  " path=" + m_sidecar_path.string() +
                  " backup=" + sidecar_bak_path.string());
+        const bool promoted_load_health = !m_last_sidecar_load_ok;
         m_last_sidecar_save_ok = true;
+        m_last_sidecar_load_ok = true;
+        if (promoted_load_health)
+        {
+            log_line("[phase7-status] sidecar_health_promoted_by_successful_save worldId=" + m_world_folder_id +
+                     " reason=" + reason + " path=" + m_sidecar_path.string());
+        }
         mark_phase7_status_dirty("sidecar_save_done");
         maybe_write_backup_snapshot(reason, payload_str);
     }
