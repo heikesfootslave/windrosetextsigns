@@ -5385,6 +5385,7 @@ namespace WindroseTextSigns
         m_f8_latency_breakdown_enabled = config_bool_value("WTS_F8_LATENCY_BREAKDOWN_ENABLED", true);
         m_behavior_trace_enabled = config_bool_value("WTS_BEHAVIOR_TRACE_ENABLED", false);
         m_create_null_short_retry_enabled = config_bool_value("WTS_CREATE_NULL_SHORT_RETRY_ENABLED", true);
+        m_force_local_only = config_bool_value("WTS_FORCE_LOCAL_ONLY", false);
         m_create_null_retry_delays_ms = parse_retry_delay_ms_config(
             config_string_value("WTS_CREATE_NULL_RETRY_DELAYS_MS", "250,750,1500"));
         m_visual_verify_debug_force_reapply = config_bool_value("WTS_VISUAL_VERIFY_DEBUG_FORCE_REAPPLY", false);
@@ -5438,6 +5439,7 @@ namespace WindroseTextSigns
 
         open_log();
         log_line(std::string{"[build] version=0.1.2-prototype compiled="} + __DATE__ + " " + __TIME__ + " flags=configurable-hotkey,phase2-role-aware-sidecar,remote-cache-routing,staticconstruct-gated,phase6-native-udp-bridge,bridge-auto-route,bridge-batched-snapshots,phase7-umg-no-llhook,dedicated-no-render-components,phase4-marker-guard,restore-scan-diag,label-text-native-icon-hide,probes-default-off");
+        log_line("[force-local] enabled=" + std::string{m_force_local_only ? "true" : "false"});
         log_line("[role] runtimeRole=" + m_runtime_role +
                  " dataMode=" + m_data_mode +
                  " authorityMode=" + m_authority_mode +
@@ -6994,6 +6996,10 @@ namespace WindroseTextSigns
         {
             return "Error: Not locked";
         }
+        if (m_force_local_only)
+        {
+            return "Solo";
+        }
 
         const auto locked_role_lower = lower_ascii(
             m_role_lock_runtime_role.empty() ? m_runtime_role : m_role_lock_runtime_role);
@@ -8033,6 +8039,14 @@ namespace WindroseTextSigns
         m_sidecar_authoritative = authoritative;
         m_save_profile_root = profile_root.string();
         m_world_folder_id = effective_world_folder_id;
+        if (m_force_local_only)
+        {
+            m_runtime_role = "LocalClient";
+            m_data_mode = "LocalClientAuthoritative";
+            m_authority_mode = "LocalClientSoloOrHostedAuthoritative";
+            m_sidecar_kind = "authoritative";
+            m_sidecar_authoritative = true;
+        }
         if (m_role_lock_acquired &&
             is_hex_world_id(m_world_folder_id) &&
             m_role_lock_world_id != m_world_folder_id)
@@ -9898,6 +9912,11 @@ namespace WindroseTextSigns
     }
     auto SignTextMod::send_bridge_snapshot_request(const std::string& reason) -> void
     {
+        if (m_force_local_only)
+        {
+            log_line("[force-local] ignored_signal type=snapshot_request reason=force_local_only trigger=" + reason);
+            return;
+        }
         if (m_bridge_role != BridgeRole::RemoteClient)
         {
             return;
@@ -11457,6 +11476,21 @@ namespace WindroseTextSigns
             return;
         }
         const auto type = unescape_json(type_it->second);
+        if (m_force_local_only)
+        {
+            const auto now = std::chrono::steady_clock::now();
+            const bool should_log =
+                type != m_force_local_only_last_ignored_type ||
+                m_force_local_only_last_ignored_log.time_since_epoch().count() == 0 ||
+                (now - m_force_local_only_last_ignored_log) >= std::chrono::seconds(5);
+            if (should_log)
+            {
+                log_line("[force-local] ignored_signal type=" + type + " reason=force_local_only");
+                m_force_local_only_last_ignored_type = type;
+                m_force_local_only_last_ignored_log = now;
+            }
+            return;
+        }
         const auto stable_id = unescape_json(fields.count("stableId") ? fields.at("stableId") : "");
         const auto world_id = unescape_json(fields.count("worldId") ? fields.at("worldId") : "");
         const auto writer = unescape_json(fields.count("writer") ? fields.at("writer") : "");
@@ -13036,6 +13070,37 @@ namespace WindroseTextSigns
     {
         const auto now = std::chrono::steady_clock::now();
         const bool session_reset_reason = reason.rfind("session_reset_", 0) == 0;
+        if (m_force_local_only)
+        {
+            if (m_bridge_role != BridgeRole::Unknown)
+            {
+                m_bridge_role = BridgeRole::Unknown;
+                NativeBridge::instance().set_role(BridgeRole::Unknown);
+                reset_bridge_snapshot_state("force_local_only_bridge_disabled");
+                m_bridge_route_lock_acquired = false;
+                m_bridge_route_locked_host.clear();
+                m_bridge_route_probe_active = false;
+                m_bridge_route_probe_waiting_ack = false;
+                m_bridge_route_gate_open = false;
+                m_bridge_route_staged_active = false;
+                m_bridge_route_staged_host.clear();
+                m_bridge_route_staged_source.clear();
+                m_bridge_route_probe_candidates.clear();
+                m_bridge_route_probe_index = 0;
+                m_bridge_route_probe_token.clear();
+                m_bridge_route_probe_host.clear();
+                m_bridge_route_probe_source.clear();
+                m_hosted_authority_route_active = false;
+                m_hosted_server_authority_route_configured = false;
+                mark_phase7_status_dirty("force_local_bridge_disable");
+            }
+            if (!m_force_local_only_bridge_logged)
+            {
+                m_force_local_only_bridge_logged = true;
+                log_line("[force-local] bridge_disabled reason=force_local_only");
+            }
+            return;
+        }
         const auto runtime_role_lower = lower_ascii(m_runtime_role);
         BridgeRole desired = BridgeRole::Unknown;
         const bool server_pending_classification =
@@ -13643,6 +13708,25 @@ namespace WindroseTextSigns
         {
             return;
         }
+        if (m_force_local_only)
+        {
+            m_role_lock_acquired = true;
+            m_role_lock_runtime_role = "LocalClient";
+            m_role_lock_bridge_role = "LocalOnly";
+            m_role_lock_world_id = is_hex_world_id(m_world_folder_id) ? m_world_folder_id : std::string{};
+            m_role_lock_start_signal = "startcoopofflinegameonselectedworld";
+            log_line("[force-local] role_locked_solo epoch=" + std::to_string(m_session_epoch) +
+                     " worldId=" + (m_role_lock_world_id.empty() ? "unknown" : m_role_lock_world_id) +
+                     " reason=" + reason);
+            log_line("[force-local] sidecar_authority=true");
+            mark_phase7_status_dirty("force_local_role_lock");
+            trace_behavior_sm("role_lock_acquired",
+                              "runtimeRole=LocalClient bridgeRole=LocalOnly worldId=" +
+                                  (m_role_lock_world_id.empty() ? std::string{"unknown"} : m_role_lock_world_id) +
+                                  " reason=force_local_only");
+            schedule_localclient_role_lock_restore_passes("force_local_only_role_lock");
+            return;
+        }
 
         const auto runtime_role_lower = lower_ascii(m_runtime_role);
         const bool runtime_stable =
@@ -13791,6 +13875,11 @@ namespace WindroseTextSigns
     auto SignTextMod::tick_bridge() -> void
     {
         configure_bridge_role("tick");
+        if (m_force_local_only)
+        {
+            // Force-local mode intentionally disables bridge transport behavior.
+            return;
+        }
         if (is_hosted_client_authority_context())
         {
             (void)consume_hosted_server_endpoint("tick");
@@ -16359,7 +16448,25 @@ namespace WindroseTextSigns
                         startup_root = m_mod_root / "Cache" / "StartupCache";
                     }
 
-                    if (start_signal == "client_readytoplay_to_verifyingcoopconnection")
+                    if (m_force_local_only)
+                    {
+                        if (start_signal != "startcoopofflinegameonselectedworld")
+                        {
+                            log_line("[force-local] ignored_signal type=" + start_signal +
+                                     " reason=force_local_only_role_override");
+                        }
+                        set_sidecar_route(
+                            startup_root / "LocalClient",
+                            "LocalClient",
+                            "LocalClientAuthoritativeStartupCache",
+                            "LocalClientSoloOrHostedAuthoritative",
+                            "authoritative-startup-cache",
+                            true,
+                            profile_root,
+                            pending_world_id,
+                            "definitive_start_signal_force_local_only");
+                    }
+                    else if (start_signal == "client_readytoplay_to_verifyingcoopconnection")
                     {
                         set_sidecar_route(
                             startup_root / "RemoteClient",
@@ -17548,6 +17655,9 @@ namespace WindroseTextSigns
         m_localclient_controller_probe_last = {};
         m_localclient_stability_unstable_last = {};
         m_localclient_stability_unstable_reason.clear();
+        m_force_local_only_bridge_logged = false;
+        m_force_local_only_last_ignored_log = {};
+        m_force_local_only_last_ignored_type.clear();
         const bool preserve_r5_tail_continuity =
             reason == "definitive_session_start";
         if (!preserve_r5_tail_continuity)

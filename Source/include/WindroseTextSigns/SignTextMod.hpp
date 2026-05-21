@@ -406,6 +406,10 @@ namespace WindroseTextSigns
         bool m_behavior_trace_enabled{false};
         bool m_create_null_short_retry_enabled{true};
         std::array<uint32_t, 3> m_create_null_retry_delays_ms{250, 750, 1500};
+        bool m_force_local_only{false};
+        bool m_force_local_only_bridge_logged{false};
+        std::chrono::steady_clock::time_point m_force_local_only_last_ignored_log{};
+        std::string m_force_local_only_last_ignored_type{};
         uint64_t m_revision{0};
         std::string m_session_id{};
         BridgeRole m_bridge_role{BridgeRole::Unknown};
