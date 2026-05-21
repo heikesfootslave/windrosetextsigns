@@ -4,6 +4,7 @@
 - Added WindroseTextSigns.ini option WTS_FORCE_LOCAL_ONLY default false.  This option forces local only sign text saves.
 - Fixed a false Solo status error where `Network: Error - Sign Text file not saved` could appear on fresh worlds even after a successful first save.
 - Fixed pending-world vs real-world GUID key drift that could show sign text in-world but open the F8 editor with an empty text box.
+- Fixed a bug where a RemoteClient could get stuck looking at a local copy of the sign text json instead of the snapshot from the server.
 
 ## 0.1.7
 - Added a Network error message indicating likely network / port configuration issues. 

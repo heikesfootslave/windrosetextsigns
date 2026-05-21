@@ -176,7 +176,7 @@ WTS_BRIDGE_UPNP_MODE=auto
 WTS_FORCE_LOCAL_ONLY=false
 ```
 
-WTS_FORCE_LOCAL_ONLY=true will force all text sign data to be saved locally.  It will no longer sync with server, and other players connected to the server will not see the local edits.  Do not set this on the dedicated server.  I don't recommend switching this setting on and off.  If you set true, then make sign changes, then set false, you will likely lose the changes.
+WTS_FORCE_LOCAL_ONLY=true will force all text sign data to be saved locally.  It will no longer sync with server, and other players connected to the server will not see the local edits.  Leave this false on the dedicated server.
 
 
 ### Static Dedicated IP (UPnP Off)
