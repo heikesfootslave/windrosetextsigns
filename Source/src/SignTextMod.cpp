@@ -8146,7 +8146,26 @@ namespace WindroseTextSigns
                 reset_bridge_snapshot_payload_state("sidecar_route_change");
             }
             m_bridge_next_snapshot_request = std::chrono::steady_clock::now();
-            load_sidecar_json();
+            const bool remoteclient_authority_only =
+                !m_sidecar_authoritative &&
+                lower_ascii(m_runtime_role) == "remoteclient";
+            if (remoteclient_authority_only)
+            {
+                m_labels.clear();
+                m_revision = 0;
+                m_remote_delta_applied_state.clear();
+                m_text_buffer.fill('\0');
+                m_text_buffer_bound_key.clear();
+                m_bridge_snapshot_received = false;
+                m_bridge_snapshot_world_id.clear();
+                m_last_sidecar_load_ok = true;
+                mark_phase7_status_dirty("remoteclient_authority_only_sidecar_io_disabled");
+                log_line("[save] sidecar_io_skipped reason=remoteclient_authority_only role=RemoteClient");
+            }
+            else
+            {
+                load_sidecar_json();
+            }
         }
         configure_bridge_role("sidecar_route");
     }
@@ -9287,6 +9306,13 @@ namespace WindroseTextSigns
 
     auto SignTextMod::load_sidecar_json() -> void
     {
+        if (!m_sidecar_authoritative && lower_ascii(m_runtime_role) == "remoteclient")
+        {
+            m_last_sidecar_load_ok = true;
+            mark_phase7_status_dirty("remoteclient_authority_only_load_skipped");
+            log_line("[save] sidecar_io_skipped reason=remoteclient_authority_only op=load");
+            return;
+        }
         m_last_sidecar_load_ok = false;
         mark_phase7_status_dirty("sidecar_load_start");
         log_line("[save] load_start path=" + m_sidecar_path.string());
@@ -9615,6 +9641,13 @@ namespace WindroseTextSigns
 
     auto SignTextMod::save_sidecar_json(const std::string& reason, const std::string& key, const std::string& stable_id, const std::string& world_id) -> void
     {
+        if (!m_sidecar_authoritative && lower_ascii(m_runtime_role) == "remoteclient")
+        {
+            m_last_sidecar_save_ok = true;
+            mark_phase7_status_dirty("remoteclient_authority_only_save_skipped");
+            log_line("[save] sidecar_io_skipped reason=remoteclient_authority_only op=save writeReason=" + reason);
+            return;
+        }
         const bool world_guard_bypass =
             reason == "auto_restore_from_backup" ||
             reason == "write_recovery_candidate";
@@ -11052,10 +11085,6 @@ namespace WindroseTextSigns
         m_labels[key] = rec;
         m_remote_delta_applied_state[key] = RemoteDeltaApplyState{incoming_revision, content_hash};
         m_revision = std::max<uint64_t>(m_revision, incoming_revision);
-        if (changed)
-        {
-            save_sidecar_json("bridge_cache_upsert", key, stable_id, local_world_id);
-        }
         std::string world_bound_reason{};
         const bool world_bound_ready_for_render =
             is_world_bound_operation_allowed("bridge_remote_render_upsert", &world_bound_reason);
@@ -11218,7 +11247,6 @@ namespace WindroseTextSigns
         m_phase4_last_failure_reason.erase(key);
         m_remote_delta_applied_state[key] = RemoteDeltaApplyState{incoming_revision, 0};
         m_revision = std::max<uint64_t>(m_revision, incoming_revision);
-        save_sidecar_json("bridge_cache_clear", key, stable_id, local_world_id);
         std::string world_bound_reason{};
         const bool world_bound_ready_for_render =
             is_world_bound_operation_allowed("bridge_remote_render_clear", &world_bound_reason);
@@ -11450,7 +11478,6 @@ namespace WindroseTextSigns
             }
 
             write_recovery_candidate(reason, removed);
-            save_sidecar_json("bridge_snapshot_reconcile", "batch:" + std::to_string(removed.size()), "batch", m_world_folder_id);
             log_line("[bridge] snapshot_reconcile_components removedRecords=" + std::to_string(removed.size()) +
                      " removedComponents=" + std::to_string(removed_components));
         }
@@ -16544,16 +16571,18 @@ namespace WindroseTextSigns
                     }
                     else if (start_signal == "client_readytoplay_to_verifyingcoopconnection")
                     {
+                        const auto remote_authority_only_root = m_mod_root / "Cache" / "RemoteClientAuthorityOnly" / pending_world_id;
                         set_sidecar_route(
-                            startup_root / "RemoteClient",
+                            remote_authority_only_root,
                             "RemoteClient",
-                            "RemoteClientStartupCache",
+                            "RemoteClientAuthorityOnly",
                             "ServerAuthoritativePendingBridge",
-                            "startup-cache",
+                            "authority-only",
                             false,
                             profile_root,
                             pending_world_id,
                             "definitive_start_signal");
+                        log_line("[bridge] remoteclient_authority_only enabled=true local_sidecar_io=false");
                     }
                     else
                     {
