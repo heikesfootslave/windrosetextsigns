@@ -6343,11 +6343,18 @@ namespace WindroseTextSigns
         }
         m_phase7_umg_prewarm_attempted = true;
         const bool built = ensure_phase7_umg_widget_built();
+        bool attached = m_phase7_umg_in_viewport;
         bool collapsed = false;
         if (built && m_phase7_umg_widget)
         {
-            // Build-only prewarm: do not attach during loading/startup.
-            // First F8 press performs the one-time attach, then later opens reuse it.
+            // Attach once during prewarm and keep collapsed so F8 only needs
+            // visibility/focus work on open.
+            if (!m_phase7_umg_in_viewport)
+            {
+                attached = invoke_with_int_param_cached(m_phase7_umg_widget, m_phase7_fn_add_to_viewport, 1000) ||
+                           invoke_add_to_viewport(m_phase7_umg_widget, 1000);
+                m_phase7_umg_in_viewport = attached;
+            }
             collapsed = invoke_phase7_set_visibility(1, "prewarm_collapse");
         }
 
@@ -6355,13 +6362,12 @@ namespace WindroseTextSigns
         const bool hook_installed = m_phase7_keyboard_hook_installed.load(std::memory_order_relaxed);
 
         // Prewarm is complete when build+hook-install are done.
-        // Viewport attach is intentionally deferred until explicit user open (F8).
-        const bool prewarm_ready = built && hook_installed;
+        const bool prewarm_ready = built && hook_installed && attached;
         m_phase7_umg_prewarm_succeeded = prewarm_ready;
         m_phase7_umg_prewarm_next_try = now + std::chrono::seconds(prewarm_ready ? 60 : 3);
         log_line("[phase7-umg] prewarm_try success=" + std::string{prewarm_ready ? "true" : "false"} +
                  " built=" + std::string{built ? "true" : "false"} +
-                 " attached=" + std::string{m_phase7_umg_in_viewport ? "true" : "false"} +
+                 " attached=" + std::string{attached ? "true" : "false"} +
                  " collapsed=" + std::string{collapsed ? "true" : "false"} +
                  " llHookInstalled=" + std::string{hook_installed ? "true" : "false"} +
                  " sessionReady=" + std::string{m_session_ready_latched ? "true" : "false"});
@@ -6369,6 +6375,22 @@ namespace WindroseTextSigns
 
     auto SignTextMod::open_phase7_umg_editor_for_selection() -> bool
     {
+        constexpr long long k_open_step_budget_ms = 100;
+        const auto budgeted_step =
+            [&](const char* step_name, const auto& fn) {
+                const auto step_start = std::chrono::steady_clock::now();
+                const auto result = fn();
+                const auto step_end = std::chrono::steady_clock::now();
+                const auto step_ms = std::chrono::duration_cast<std::chrono::milliseconds>(step_end - step_start).count();
+                if (step_ms > k_open_step_budget_ms)
+                {
+                    log_line("[phase7-umg] open_step_budget_violation step=" + std::string{step_name ? step_name : "unknown"} +
+                             " ms=" + std::to_string(step_ms) +
+                             " thresholdMs=" + std::to_string(k_open_step_budget_ms));
+                }
+                return result;
+            };
+
         std::string ready_reason{};
         const bool inprocess_ready = is_session_ready_for_role_resolution(&ready_reason);
         if (!inprocess_ready)
@@ -6402,11 +6424,15 @@ namespace WindroseTextSigns
         {
             return false;
         }
-        if (!ensure_selected_actor_valid("open_phase7_umg_editor_for_selection"))
+        if (!budgeted_step("ensure_selected_actor_valid", [&]() {
+                return ensure_selected_actor_valid("open_phase7_umg_editor_for_selection");
+            }))
         {
             return false;
         }
-        if (!ensure_phase7_umg_widget_built())
+        if (!budgeted_step("ensure_phase7_umg_widget_built", [&]() {
+                return ensure_phase7_umg_widget_built();
+            }))
         {
             return false;
         }
@@ -6433,9 +6459,14 @@ namespace WindroseTextSigns
             m_text_buffer_bound_key = key;
         }
         m_phase7_umg_last_text = std::string{m_text_buffer.data()};
-        mark_phase7_status_dirty("open_editor");
-        refresh_phase7_umg_status(true, "open_editor");
-        const bool input_text = invoke_umg_set_text(m_phase7_umg_text_box, std::string{m_text_buffer.data()});
+        budgeted_step("status_refresh", [&]() {
+            mark_phase7_status_dirty("open_editor");
+            refresh_phase7_umg_status(true, "open_editor");
+            return true;
+        });
+        const bool input_text = budgeted_step("set_input_text", [&]() {
+            return invoke_umg_set_text(m_phase7_umg_text_box, std::string{m_text_buffer.data()});
+        });
         if (m_f8_latency_breakdown_enabled && m_f8_latency_trace.active && !m_f8_latency_trace.construct_seen)
         {
             m_f8_latency_trace.construct = std::chrono::steady_clock::now();
@@ -6444,16 +6475,24 @@ namespace WindroseTextSigns
 
         // Keep the widget collapsed while we acquire input mode and focus to avoid
         // the first click racing through to gameplay before UI capture is settled.
-        const bool collapsed = invoke_phase7_set_visibility(1, "open_collapse");
-        const bool input_mode_pre = set_phase7_game_and_ui_input_mode(true);
+        const bool collapsed = budgeted_step("open_collapse", [&]() {
+            return invoke_phase7_set_visibility(1, "open_collapse");
+        });
+        const bool input_mode_pre = budgeted_step("set_input_mode_pre", [&]() {
+            return set_phase7_game_and_ui_input_mode(true);
+        });
         bool added = m_phase7_umg_in_viewport;
         if (!m_phase7_umg_in_viewport)
         {
-            added = invoke_with_int_param_cached(m_phase7_umg_widget, m_phase7_fn_add_to_viewport, 1000) ||
-                    invoke_add_to_viewport(m_phase7_umg_widget, 1000);
+            added = budgeted_step("add_to_viewport", [&]() {
+                return invoke_with_int_param_cached(m_phase7_umg_widget, m_phase7_fn_add_to_viewport, 1000) ||
+                       invoke_add_to_viewport(m_phase7_umg_widget, 1000);
+            });
             m_phase7_umg_in_viewport = added;
         }
-        const bool input_mode_post = input_mode_pre ? true : set_phase7_game_and_ui_input_mode(true);
+        const bool input_mode_post = input_mode_pre ? true : budgeted_step("set_input_mode_post_retry", [&]() {
+            return set_phase7_game_and_ui_input_mode(true);
+        });
         const bool ll_hook_installed = m_phase7_keyboard_hook_installed.load(std::memory_order_relaxed);
         // Swallow the very first post-open mouse down. Keep this armed until consumed
         // so delayed user clicks are still protected from passthrough.
@@ -6465,11 +6504,17 @@ namespace WindroseTextSigns
         const bool ready_to_show = added && input_mode_post && ll_hook_installed;
         if (ready_to_show)
         {
-            focus_keyboard = invoke_no_param_cached(m_phase7_umg_text_box, m_phase7_fn_set_keyboard_focus) ||
-                             invoke_no_param(m_phase7_umg_text_box, STR("SetKeyboardFocus"), STR("/Script/UMG.Widget:SetKeyboardFocus"));
-            focus_widget = invoke_no_param_cached(m_phase7_umg_text_box, m_phase7_fn_set_focus) ||
-                           invoke_no_param(m_phase7_umg_text_box, STR("SetFocus"), STR("/Script/UMG.Widget:SetFocus"));
-            visible = invoke_phase7_set_visibility(0, "open_visible");
+            visible = budgeted_step("open_visible", [&]() {
+                return invoke_phase7_set_visibility(0, "open_visible");
+            });
+            focus_keyboard = budgeted_step("focus_keyboard", [&]() {
+                return invoke_no_param_cached(m_phase7_umg_text_box, m_phase7_fn_set_keyboard_focus) ||
+                       invoke_no_param(m_phase7_umg_text_box, STR("SetKeyboardFocus"), STR("/Script/UMG.Widget:SetKeyboardFocus"));
+            });
+            focus_widget = budgeted_step("focus_widget", [&]() {
+                return invoke_no_param_cached(m_phase7_umg_text_box, m_phase7_fn_set_focus) ||
+                       invoke_no_param(m_phase7_umg_text_box, STR("SetFocus"), STR("/Script/UMG.Widget:SetFocus"));
+            });
         }
 
         log_line("[phase7-umg] open_result added=" + std::string{added ? "true" : "false"} +
@@ -6563,6 +6608,22 @@ namespace WindroseTextSigns
 
     auto SignTextMod::tick_phase7_umg_open_pending() -> void
     {
+        constexpr long long k_open_pending_step_budget_ms = 100;
+        const auto budgeted_step =
+            [&](const char* step_name, const auto& fn) {
+                const auto step_start = std::chrono::steady_clock::now();
+                const auto result = fn();
+                const auto step_end = std::chrono::steady_clock::now();
+                const auto step_ms = std::chrono::duration_cast<std::chrono::milliseconds>(step_end - step_start).count();
+                if (step_ms > k_open_pending_step_budget_ms)
+                {
+                    log_line("[phase7-umg] open_pending_step_budget_violation step=" + std::string{step_name ? step_name : "unknown"} +
+                             " ms=" + std::to_string(step_ms) +
+                             " thresholdMs=" + std::to_string(k_open_pending_step_budget_ms));
+                }
+                return result;
+            };
+
         if (!m_phase7_umg_open_pending)
         {
             return;
@@ -6578,16 +6639,24 @@ namespace WindroseTextSigns
             return;
         }
 
-        const bool input_mode_ready = set_phase7_game_and_ui_input_mode(true);
+        const bool input_mode_ready = budgeted_step("set_input_mode_pending", [&]() {
+            return set_phase7_game_and_ui_input_mode(true);
+        });
         const bool ll_hook_installed = m_phase7_keyboard_hook_installed.load(std::memory_order_relaxed);
         const bool ready_to_show = input_mode_ready && ll_hook_installed;
         if (ready_to_show)
         {
-            const bool focus_keyboard = invoke_no_param_cached(m_phase7_umg_text_box, m_phase7_fn_set_keyboard_focus) ||
-                                        invoke_no_param(m_phase7_umg_text_box, STR("SetKeyboardFocus"), STR("/Script/UMG.Widget:SetKeyboardFocus"));
-            const bool focus_widget = invoke_no_param_cached(m_phase7_umg_text_box, m_phase7_fn_set_focus) ||
-                                      invoke_no_param(m_phase7_umg_text_box, STR("SetFocus"), STR("/Script/UMG.Widget:SetFocus"));
-            const bool visible = invoke_phase7_set_visibility(0, "open_pending_visible");
+            const bool visible = budgeted_step("open_pending_visible", [&]() {
+                return invoke_phase7_set_visibility(0, "open_pending_visible");
+            });
+            const bool focus_keyboard = budgeted_step("open_pending_focus_keyboard", [&]() {
+                return invoke_no_param_cached(m_phase7_umg_text_box, m_phase7_fn_set_keyboard_focus) ||
+                       invoke_no_param(m_phase7_umg_text_box, STR("SetKeyboardFocus"), STR("/Script/UMG.Widget:SetKeyboardFocus"));
+            });
+            const bool focus_widget = budgeted_step("open_pending_focus_widget", [&]() {
+                return invoke_no_param_cached(m_phase7_umg_text_box, m_phase7_fn_set_focus) ||
+                       invoke_no_param(m_phase7_umg_text_box, STR("SetFocus"), STR("/Script/UMG.Widget:SetFocus"));
+            });
             m_phase7_umg_open_pending = false;
             m_phase7_open_sla_violation_logged = false;
             const auto now = std::chrono::steady_clock::now();
@@ -6755,17 +6824,53 @@ namespace WindroseTextSigns
             return;
         }
 
+        m_phase7_editor_close_replay_pending = true;
+        m_phase7_editor_close_replay_source = source ? source : "unknown";
+        m_phase7_editor_close_replay_not_before = std::chrono::steady_clock::now() + std::chrono::milliseconds(50);
+        log_line("[phase7] editor_close_replay_queued source=" + m_phase7_editor_close_replay_source +
+                 " delayMs=50");
+    }
+
+    auto SignTextMod::maybe_run_deferred_editor_close_replay() -> void
+    {
+        if (!m_phase7_editor_close_replay_pending)
+        {
+            return;
+        }
+        if (!m_session_ready_latched)
+        {
+            m_phase7_editor_close_replay_pending = false;
+            m_phase7_editor_close_replay_source.clear();
+            m_phase7_editor_close_replay_not_before = {};
+            return;
+        }
+        if (m_phase7_native_editor_open || m_phase7_ui_input_mode_active || m_phase7_umg_open_pending || m_phase7_active_epoch != 0)
+        {
+            return;
+        }
+        const auto now = std::chrono::steady_clock::now();
+        if (m_phase7_editor_close_replay_not_before.time_since_epoch().count() != 0 &&
+            now < m_phase7_editor_close_replay_not_before)
+        {
+            return;
+        }
+
         std::string world_bound_reason{};
         if (!is_world_bound_operation_allowed("editor_close_cached_replay", &world_bound_reason))
         {
-            log_line("[phase7] editor_close_replay_deferred source=" + std::string{source ? source : "unknown"} +
+            log_line("[phase7] editor_close_replay_deferred source=" +
+                     (m_phase7_editor_close_replay_source.empty() ? std::string{"unknown"} : m_phase7_editor_close_replay_source) +
                      " reason=" + world_bound_reason);
             return;
         }
 
-        const auto result = replay_cached_label_text_after_ready(
-            std::string{"editor_close_"} + (source ? source : "unknown"));
-        log_line("[phase7] editor_close_replay source=" + std::string{source ? source : "unknown"} +
+        const auto source = m_phase7_editor_close_replay_source.empty() ? std::string{"unknown"} : m_phase7_editor_close_replay_source;
+        m_phase7_editor_close_replay_pending = false;
+        m_phase7_editor_close_replay_source.clear();
+        m_phase7_editor_close_replay_not_before = {};
+
+        const auto result = replay_cached_label_text_after_ready("editor_close_" + source);
+        log_line("[phase7] editor_close_replay source=" + source +
                  " candidates=" + std::to_string(result.first) +
                  " rendered=" + std::to_string(result.second) +
                  " worldId=" + (m_world_folder_id.empty() ? "unknown" : m_world_folder_id));
@@ -6829,6 +6934,9 @@ namespace WindroseTextSigns
         m_phase7_last_status_role_text.clear();
         m_phase7_last_status_network_text.clear();
         m_phase7_last_status_log = {};
+        m_phase7_editor_close_replay_pending = false;
+        m_phase7_editor_close_replay_source.clear();
+        m_phase7_editor_close_replay_not_before = {};
     }
 
     auto SignTextMod::arm_phase7_definitive_teardown(const std::string& reason) -> void
@@ -14248,9 +14356,32 @@ namespace WindroseTextSigns
         }
 
         size_t candidates = 0;
-        size_t rendered = 0;
+        size_t staged = 0;
         const auto active_world = m_world_folder_id;
-        for (const auto& [key, rec] : m_labels)
+        std::unordered_map<std::string, AActor*> actors_by_stable_id{};
+        UObjectGlobals::ForEachUObject([&](UObject* object, int32, int32) {
+            if (!object || !object->IsA(AActor::StaticClass()))
+            {
+                return LoopAction::Continue;
+            }
+            auto* actor = Cast<AActor>(object);
+            if (!actor || !is_probable_label_actor(actor))
+            {
+                return LoopAction::Continue;
+            }
+            const auto stable_id = extract_stable_id(actor);
+            if (!stable_id.empty() && !actors_by_stable_id.contains(stable_id))
+            {
+                actors_by_stable_id.emplace(stable_id, actor);
+            }
+            return LoopAction::Continue;
+        });
+
+        const bool prior_batch_mode = m_phase4_batch_stage_mode;
+        m_phase4_batch_stage_mode = true;
+        m_phase4_staged_swap_plans.clear();
+
+        for (const auto& [_, rec] : m_labels)
         {
             if (!is_confirmed_label_text_kind(rec.kind))
             {
@@ -14261,30 +14392,99 @@ namespace WindroseTextSigns
                 continue;
             }
             ++candidates;
-            bool applied_any = false;
-            UObjectGlobals::ForEachUObject([&](UObject* object, int32, int32) {
-                if (!object || !object->IsA(AActor::StaticClass()))
-                {
-                    return LoopAction::Continue;
-                }
-                auto* actor = Cast<AActor>(object);
-                if (actor && is_probable_label_actor(actor) && extract_stable_id(actor) == rec.stable_id)
-                {
-                    applied_any = apply_text_to_actor_component(actor, rec.text) || applied_any;
-                }
-                return LoopAction::Continue;
-            });
-            if (applied_any)
+            const auto actor_it = actors_by_stable_id.find(rec.stable_id);
+            if (actor_it == actors_by_stable_id.end() || !actor_it->second)
             {
-                ++rendered;
+                continue;
+            }
+            if (apply_text_to_actor_component(actor_it->second, rec.text))
+            {
+                ++staged;
             }
         }
 
+        const auto [rendered, hidden] = flush_phase4_staged_swap_plans(
+            reason.empty() ? "cached_replay_after_ready" : reason);
+        m_phase4_batch_stage_mode = prior_batch_mode;
+
         log_line("[bridge] cached_replay_after_ready trigger=" + (reason.empty() ? "unknown" : reason) +
                  " candidates=" + std::to_string(candidates) +
+                 " staged=" + std::to_string(staged) +
                  " rendered=" + std::to_string(rendered) +
+                 " hidden=" + std::to_string(hidden) +
                  " worldId=" + (m_world_folder_id.empty() ? "unknown" : m_world_folder_id));
         return {candidates, rendered};
+    }
+
+    auto SignTextMod::flush_phase4_staged_swap_plans(const std::string& reason) -> std::pair<size_t, size_t>
+    {
+        if (m_phase4_staged_swap_plans.empty())
+        {
+            return {0, 0};
+        }
+
+        const auto started = std::chrono::steady_clock::now();
+        size_t rendered = 0;
+        size_t hidden = 0;
+
+        for (const auto& plan : m_phase4_staged_swap_plans)
+        {
+            std::unordered_set<uintptr_t> hidden_active_once{};
+            hidden_active_once.reserve(4);
+            for (int row_index = 0; row_index < 4; ++row_index)
+            {
+                auto* active_component = plan.active_row_components[static_cast<size_t>(row_index)];
+                if (!active_component)
+                {
+                    continue;
+                }
+                const auto ptr = reinterpret_cast<uintptr_t>(active_component);
+                if (!hidden_active_once.insert(ptr).second)
+                {
+                    continue;
+                }
+                (void)invoke_set_hidden_in_game(active_component, true);
+                (void)invoke_set_visibility(active_component, false);
+                (void)invoke_set_text(active_component, "");
+            }
+            hidden += hidden_active_once.size();
+
+            for (size_t row_index = 0; row_index < plan.staging_row_components.size(); ++row_index)
+            {
+                auto* row_component = plan.staging_row_components[row_index];
+                if (!row_component)
+                {
+                    continue;
+                }
+                (void)invoke_set_hidden_in_game(row_component, false);
+                (void)invoke_set_visibility(row_component, true);
+
+                const auto active_row_storage_key = make_managed_row_storage_key(plan.key, static_cast<int>(row_index));
+                m_component_name_cache[active_row_storage_key] = narrow_ascii(row_component->GetFullName());
+                m_component_name_cache.erase(active_row_storage_key + "|stage");
+                if (row_index == 0)
+                {
+                    m_component_name_cache[plan.key] = narrow_ascii(row_component->GetFullName());
+                }
+            }
+            for (int row_index = plan.row_count; row_index < 4; ++row_index)
+            {
+                const auto active_row_storage_key = make_managed_row_storage_key(plan.key, row_index);
+                m_component_name_cache.erase(active_row_storage_key);
+                m_component_name_cache.erase(active_row_storage_key + "|stage");
+            }
+            ++rendered;
+        }
+
+        const auto elapsed_ms =
+            std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - started).count();
+        log_line("[phase4-batch] commit reason=" + (reason.empty() ? "unknown" : reason) +
+                 " planned=" + std::to_string(m_phase4_staged_swap_plans.size()) +
+                 " rendered=" + std::to_string(rendered) +
+                 " hidden=" + std::to_string(hidden) +
+                 " elapsedMs=" + std::to_string(elapsed_ms));
+        m_phase4_staged_swap_plans.clear();
+        return {rendered, hidden};
     }
 
     auto SignTextMod::queue_first_authoritative_render_pass(const std::string& source, const std::string& world_id) -> void
@@ -15410,8 +15610,6 @@ namespace WindroseTextSigns
         bool colored = true;
         bool text_applied = true;
         bool any_reused_existing = false;
-        std::vector<UObject*> row_components_to_show{};
-        row_components_to_show.reserve(static_cast<size_t>(row_count));
 
         const auto schedule_create_retry = [&]() {
             m_phase4_last_failure_reason[key] = "CreateTextComponent";
@@ -15636,60 +15834,75 @@ namespace WindroseTextSigns
             return false;
         }
 
-        // One-step commit: hide old active, reveal fully prepared staging components.
-        std::unordered_set<uintptr_t> hidden_active_once{};
-        hidden_active_once.reserve(4);
-        for (int row_index = 0; row_index < 4; ++row_index)
+        if (m_phase4_batch_stage_mode)
         {
-            auto* active_component = active_row_components[static_cast<size_t>(row_index)];
-            if (!active_component)
-            {
-                continue;
-            }
-            const auto ptr = reinterpret_cast<uintptr_t>(active_component);
-            if (!hidden_active_once.insert(ptr).second)
-            {
-                continue;
-            }
-            (void)invoke_set_hidden_in_game(active_component, true);
-            (void)invoke_set_visibility(active_component, false);
-            (void)invoke_set_text(active_component, "");
+            Phase4StagedSwapPlan plan{};
+            plan.key = key;
+            plan.row_count = row_count;
+            plan.active_row_components = active_row_components;
+            plan.staging_row_components.assign(staging_row_components.begin(), staging_row_components.end());
+            m_phase4_staged_swap_plans.push_back(std::move(plan));
+            log_line("[phase4-stage] staging_queued key=" + key +
+                     " rows=" + std::to_string(row_count) +
+                     " stagedRows=" + std::to_string(staging_row_components.size()) +
+                     " batchQueued=" + std::to_string(m_phase4_staged_swap_plans.size()));
         }
-
-        for (size_t row_index = 0; row_index < staging_row_components.size(); ++row_index)
+        else
         {
-            auto* row_component = staging_row_components[row_index];
-            if (!row_component)
+            // One-step commit: hide old active, reveal fully prepared staging components.
+            std::unordered_set<uintptr_t> hidden_active_once{};
+            hidden_active_once.reserve(4);
+            for (int row_index = 0; row_index < 4; ++row_index)
             {
-                continue;
+                auto* active_component = active_row_components[static_cast<size_t>(row_index)];
+                if (!active_component)
+                {
+                    continue;
+                }
+                const auto ptr = reinterpret_cast<uintptr_t>(active_component);
+                if (!hidden_active_once.insert(ptr).second)
+                {
+                    continue;
+                }
+                (void)invoke_set_hidden_in_game(active_component, true);
+                (void)invoke_set_visibility(active_component, false);
+                (void)invoke_set_text(active_component, "");
             }
-            (void)invoke_set_hidden_in_game(row_component, false);
-            (void)invoke_set_visibility(row_component, true);
 
-            const auto active_row_storage_key = make_managed_row_storage_key(key, static_cast<int>(row_index));
-            m_component_name_cache[active_row_storage_key] = narrow_ascii(row_component->GetFullName());
-            m_component_name_cache.erase(make_staging_row_storage_key(static_cast<int>(row_index)));
-            if (row_index == 0)
+            for (size_t row_index = 0; row_index < staging_row_components.size(); ++row_index)
             {
-                m_component_name_cache[key] = narrow_ascii(row_component->GetFullName());
-            }
-        }
-        for (int row_index = row_count; row_index < 4; ++row_index)
-        {
-            m_component_name_cache.erase(make_managed_row_storage_key(key, row_index));
-            m_component_name_cache.erase(make_staging_row_storage_key(row_index));
-        }
+                auto* row_component = staging_row_components[row_index];
+                if (!row_component)
+                {
+                    continue;
+                }
+                (void)invoke_set_hidden_in_game(row_component, false);
+                (void)invoke_set_visibility(row_component, true);
 
-        log_line("[phase4-stage] staging_commit key=" + key +
-                 " rows=" + std::to_string(row_count) +
-                 " shownRows=" + std::to_string(staging_row_components.size()) +
-                 " activeRowsHidden=" + std::to_string(hidden_active_once.size()));
-        row_components_to_show.assign(staging_row_components.begin(), staging_row_components.end());
-        if (m_session_ready_latched && !m_first_authoritative_render_completed)
-        {
-            log_line("[phase4-stage] initial_restore_swap key=" + key +
-                     " epoch=" + std::to_string(m_session_epoch) +
-                     " worldId=" + world_id);
+                const auto active_row_storage_key = make_managed_row_storage_key(key, static_cast<int>(row_index));
+                m_component_name_cache[active_row_storage_key] = narrow_ascii(row_component->GetFullName());
+                m_component_name_cache.erase(make_staging_row_storage_key(static_cast<int>(row_index)));
+                if (row_index == 0)
+                {
+                    m_component_name_cache[key] = narrow_ascii(row_component->GetFullName());
+                }
+            }
+            for (int row_index = row_count; row_index < 4; ++row_index)
+            {
+                m_component_name_cache.erase(make_managed_row_storage_key(key, row_index));
+                m_component_name_cache.erase(make_staging_row_storage_key(row_index));
+            }
+
+            log_line("[phase4-stage] staging_commit key=" + key +
+                     " rows=" + std::to_string(row_count) +
+                     " shownRows=" + std::to_string(staging_row_components.size()) +
+                     " activeRowsHidden=" + std::to_string(hidden_active_once.size()));
+            if (m_session_ready_latched && !m_first_authoritative_render_completed)
+            {
+                log_line("[phase4-stage] initial_restore_swap key=" + key +
+                         " epoch=" + std::to_string(m_session_epoch) +
+                         " worldId=" + world_id);
+            }
         }
 
         m_phase4_last_failure_reason.erase(key);
@@ -17878,6 +18091,8 @@ namespace WindroseTextSigns
         m_restore_skip_guard_log_buckets.clear();
         m_phase4_last_failure_reason.clear();
         m_phase4_last_apply_success_at.clear();
+        m_phase4_batch_stage_mode = false;
+        m_phase4_staged_swap_plans.clear();
         m_create_null_retry_states.clear();
         m_hosted_authority_local_apply_deferred_keys.clear();
         m_bridge_route_retry_consumed = false;
@@ -18759,6 +18974,7 @@ namespace WindroseTextSigns
                 m_phase7_guard_hysteresis_logged = false;
                 tick_phase7_umg_open_pending();
                 tick_phase7_umg_editor();
+                maybe_run_deferred_editor_close_replay();
             }
             else
             {

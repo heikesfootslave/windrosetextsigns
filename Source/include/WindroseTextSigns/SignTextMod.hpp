@@ -114,6 +114,7 @@ namespace WindroseTextSigns
         auto tick_phase7_umg_open_pending() -> void;
         auto close_phase7_umg_editor(bool restore_game_input) -> void;
         auto maybe_replay_cached_text_after_editor_close(const char* source) -> void;
+        auto maybe_run_deferred_editor_close_replay() -> void;
         auto force_close_phase7_for_teardown(const std::string& reason) -> void;
         auto arm_phase7_definitive_teardown(const std::string& reason) -> void;
         auto maybe_run_phase7_bootstrap_sanitize() -> void;
@@ -246,6 +247,7 @@ namespace WindroseTextSigns
         auto apply_autosize_defaults_for_font_profile(bool has_override_pak, const std::string& reason) -> void;
         auto refresh_world_text_font_profile(const std::string& reason, bool force_recheck) -> void;
         auto replay_cached_label_text_after_ready(const std::string& reason) -> std::pair<size_t, size_t>;
+        auto flush_phase4_staged_swap_plans(const std::string& reason) -> std::pair<size_t, size_t>;
         auto queue_first_authoritative_render_pass(const std::string& source, const std::string& world_id) -> void;
         auto flush_deferred_bridge_payloads_after_world_bind(const std::string& reason) -> void;
         auto maybe_run_first_authoritative_render_pass(const std::string& trigger) -> void;
@@ -643,6 +645,9 @@ namespace WindroseTextSigns
         std::string m_phase7_last_status_role_text{};
         std::string m_phase7_last_status_network_text{};
         std::chrono::steady_clock::time_point m_phase7_last_status_log{};
+        bool m_phase7_editor_close_replay_pending{false};
+        std::string m_phase7_editor_close_replay_source{};
+        std::chrono::steady_clock::time_point m_phase7_editor_close_replay_not_before{};
 
         std::optional<SelectionCandidate> m_selected{};
         std::array<char, 257> m_text_buffer{};
@@ -657,6 +662,15 @@ namespace WindroseTextSigns
         std::unordered_map<std::string, std::string> m_phase4_last_failure_reason{};
         std::unordered_set<std::string> m_label_text_visual_logged_keys{};
         std::unordered_map<std::string, std::string> m_component_name_cache{};
+        struct Phase4StagedSwapPlan
+        {
+            std::string key{};
+            int row_count{0};
+            std::array<RC::Unreal::UObject*, 4> active_row_components{nullptr, nullptr, nullptr, nullptr};
+            std::vector<RC::Unreal::UObject*> staging_row_components{};
+        };
+        bool m_phase4_batch_stage_mode{false};
+        std::vector<Phase4StagedSwapPlan> m_phase4_staged_swap_plans{};
         std::unordered_map<std::string, int> m_last_row_count_by_key{};
         std::unordered_map<std::string, std::chrono::steady_clock::time_point> m_phase4_next_retry{};
         struct CreateNullRetryState
