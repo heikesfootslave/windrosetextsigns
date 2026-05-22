@@ -8251,15 +8251,17 @@ namespace WindroseTextSigns
             m_prune_deferred_logged = false;
             m_recent_destroy_guid_signals.clear();
             m_recent_destroy_slot_confirmations.clear();
-            m_destroy_signal_log_offset = 0;
-            m_destroy_signal_log_initialized = false;
-            m_destroy_signal_last_poll = {};
-            m_hosted_ready_world_client_seen = false;
-            m_hosted_ready_player_ready_seen = false;
-            m_hosted_ready_datakeeper_seen = false;
-            m_hosted_ready_hide_loading_seen = false;
-            m_hosted_ready_sequence_complete = false;
-            m_hosted_post_ready_reconcile_done = false;
+            const bool epoch_reset_route_change =
+                reason.rfind("session_reset_", 0) == 0;
+            if (epoch_reset_route_change)
+            {
+                m_hosted_ready_world_client_seen = false;
+                m_hosted_ready_player_ready_seen = false;
+                m_hosted_ready_datakeeper_seen = false;
+                m_hosted_ready_hide_loading_seen = false;
+                m_hosted_ready_sequence_complete = false;
+                m_hosted_post_ready_reconcile_done = false;
+            }
             m_pending_world_inactive_ignored_logged = false;
             m_locked_world_inactive_ignored_logged = false;
             m_world_inactive_since = {};
@@ -16725,9 +16727,26 @@ namespace WindroseTextSigns
 
         if (!m_destroy_signal_log_initialized || m_destroy_signal_log_offset > size)
         {
+            const auto prior_offset = m_destroy_signal_log_offset;
             m_destroy_signal_log_initialized = true;
             const uintmax_t backfill_bytes = server_runtime_process ? std::min<uintmax_t>(size, 512 * 1024) : 0;
-            m_destroy_signal_log_offset = size - backfill_bytes;
+            uintmax_t rearm_offset = size - backfill_bytes;
+            if (!server_runtime_process)
+            {
+                const auto same_log_window =
+                    m_session_window_open &&
+                    m_session_window_start_offset > 0 &&
+                    !m_session_window_log_path.empty() &&
+                    normalized_path_for_compare(m_session_window_log_path) ==
+                        normalized_path_for_compare(m_destroy_signal_log_path);
+                if (same_log_window)
+                {
+                    const auto previous_offset_clamped = std::min<uintmax_t>(prior_offset, size);
+                    const auto session_start_clamped = std::min<uintmax_t>(m_session_window_start_offset, size);
+                    rearm_offset = std::max<uintmax_t>(session_start_clamped, previous_offset_clamped);
+                }
+            }
+            m_destroy_signal_log_offset = rearm_offset;
             log_line("[save] destroy_signal_r5log armed path=" + m_destroy_signal_log_path.string() +
                      " offset=" + std::to_string(static_cast<unsigned long long>(m_destroy_signal_log_offset)));
             if (server_runtime_process)
