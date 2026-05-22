@@ -11241,6 +11241,9 @@ namespace WindroseTextSigns
             !render_suppressed_by_rebuild_guard &&
             !render_suppressed_pre_ready)
         {
+            const bool defer_immediate_apply_to_initial_batch =
+                !m_first_authoritative_render_completed &&
+                !snapshot_id.empty();
             if (duplicate_authoritative_delta)
             {
                 log_line("[bridge] delta_skip_duplicate key=" + key +
@@ -11253,6 +11256,13 @@ namespace WindroseTextSigns
                          " stableId=" + stable_id +
                          " incomingRevision=" + std::to_string(incoming_revision) +
                          " priorRevision=" + std::to_string(prior_delta_revision));
+            }
+            else if (defer_immediate_apply_to_initial_batch)
+            {
+                log_line("[bridge] initial_render_defer_to_batch key=" + key +
+                         " stableId=" + stable_id +
+                         " snapshotId=" + snapshot_id +
+                         " epoch=" + std::to_string(m_session_epoch));
             }
             else
             {
