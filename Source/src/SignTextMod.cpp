@@ -5921,6 +5921,7 @@ namespace WindroseTextSigns
         }
         m_phase7_native_widget = nullptr;
         m_phase7_native_editor_open = false;
+        maybe_replay_cached_text_after_editor_close("native");
     }
 
     auto SignTextMod::cache_phase7_umg_class_pointers() -> bool
@@ -6744,6 +6745,30 @@ namespace WindroseTextSigns
         m_phase7_watchdog_logged = false;
         m_phase7_status_dirty = true;
         m_phase7_last_status_ui_refresh = {};
+        maybe_replay_cached_text_after_editor_close("umg");
+    }
+
+    auto SignTextMod::maybe_replay_cached_text_after_editor_close(const char* source) -> void
+    {
+        if (!m_session_ready_latched)
+        {
+            return;
+        }
+
+        std::string world_bound_reason{};
+        if (!is_world_bound_operation_allowed("editor_close_cached_replay", &world_bound_reason))
+        {
+            log_line("[phase7] editor_close_replay_deferred source=" + std::string{source ? source : "unknown"} +
+                     " reason=" + world_bound_reason);
+            return;
+        }
+
+        const auto result = replay_cached_label_text_after_ready(
+            std::string{"editor_close_"} + (source ? source : "unknown"));
+        log_line("[phase7] editor_close_replay source=" + std::string{source ? source : "unknown"} +
+                 " candidates=" + std::to_string(result.first) +
+                 " rendered=" + std::to_string(result.second) +
+                 " worldId=" + (m_world_folder_id.empty() ? "unknown" : m_world_folder_id));
     }
 
     auto SignTextMod::reset_phase7_runtime_state() -> void
@@ -14451,6 +14476,96 @@ namespace WindroseTextSigns
                  " rendered=" + std::to_string(result.second));
     }
 
+    auto SignTextMod::schedule_post_ready_one_time_rerender(const std::string& world_id, const std::string& reason) -> void
+    {
+        if (!m_session_ready_latched || !is_worldid_bound_for_current_epoch())
+        {
+            return;
+        }
+
+        const auto normalized_world_id =
+            is_hex_world_id(world_id) ? world_id :
+            (is_hex_world_id(m_worldid_latched_id) ? m_worldid_latched_id :
+             (is_hex_world_id(m_world_folder_id) ? m_world_folder_id : std::string{}));
+        if (!is_hex_world_id(normalized_world_id))
+        {
+            return;
+        }
+
+        if (m_post_ready_one_time_rerender_scheduled &&
+            m_post_ready_one_time_rerender_epoch == m_session_epoch &&
+            lower_ascii(m_post_ready_one_time_rerender_world_id) == lower_ascii(normalized_world_id))
+        {
+            return;
+        }
+        if (m_post_ready_one_time_rerender_done &&
+            m_post_ready_one_time_rerender_epoch == m_session_epoch &&
+            lower_ascii(m_post_ready_one_time_rerender_world_id) == lower_ascii(normalized_world_id))
+        {
+            return;
+        }
+
+        m_post_ready_one_time_rerender_scheduled = true;
+        m_post_ready_one_time_rerender_done = false;
+        m_post_ready_one_time_rerender_epoch = m_session_epoch;
+        m_post_ready_one_time_rerender_world_id = normalized_world_id;
+        m_post_ready_one_time_rerender_due = std::chrono::steady_clock::now() + std::chrono::seconds(8);
+        m_post_ready_one_time_rerender_attempts = 0;
+
+        log_line("[render-init] post_ready_rerender_scheduled epoch=" + std::to_string(m_session_epoch) +
+                 " worldId=" + normalized_world_id +
+                 " delaySec=8 reason=" + (reason.empty() ? "unknown" : reason));
+    }
+
+    auto SignTextMod::maybe_run_post_ready_one_time_rerender(
+        const std::chrono::steady_clock::time_point now,
+        const std::string& trigger) -> void
+    {
+        if (!m_post_ready_one_time_rerender_scheduled)
+        {
+            return;
+        }
+        if (m_post_ready_one_time_rerender_epoch != m_session_epoch)
+        {
+            m_post_ready_one_time_rerender_scheduled = false;
+            m_post_ready_one_time_rerender_done = false;
+            return;
+        }
+        if (m_post_ready_one_time_rerender_done)
+        {
+            m_post_ready_one_time_rerender_scheduled = false;
+            return;
+        }
+        if (!m_session_ready_latched || !m_role_lock_acquired || !is_worldid_bound_for_current_epoch())
+        {
+            return;
+        }
+        if (m_post_ready_one_time_rerender_due.time_since_epoch().count() == 0 || now < m_post_ready_one_time_rerender_due)
+        {
+            return;
+        }
+        if (is_hex_world_id(m_post_ready_one_time_rerender_world_id) &&
+            is_hex_world_id(m_worldid_latched_id) &&
+            lower_ascii(m_post_ready_one_time_rerender_world_id) != lower_ascii(m_worldid_latched_id))
+        {
+            m_post_ready_one_time_rerender_scheduled = false;
+            m_post_ready_one_time_rerender_done = false;
+            return;
+        }
+
+        ++m_post_ready_one_time_rerender_attempts;
+        const auto result = replay_cached_label_text_after_ready(
+            "post_ready_one_time_rerender:" + (trigger.empty() ? "unknown" : trigger));
+        m_post_ready_one_time_rerender_done = true;
+        m_post_ready_one_time_rerender_scheduled = false;
+        log_line("[render-init] post_ready_rerender_done epoch=" + std::to_string(m_session_epoch) +
+                 " worldId=" + (m_worldid_latched_id.empty() ? "unknown" : m_worldid_latched_id) +
+                 " attempts=" + std::to_string(m_post_ready_one_time_rerender_attempts) +
+                 " candidates=" + std::to_string(result.first) +
+                 " rendered=" + std::to_string(result.second) +
+                 " trigger=" + (trigger.empty() ? "unknown" : trigger));
+    }
+
     auto SignTextMod::has_world_text_font_override_pak() -> bool
     {
         if (m_world_text_font_override_pak_checked)
@@ -15361,7 +15476,6 @@ namespace WindroseTextSigns
         };
 
         auto current_text_components = collect_text_components_sorted();
-
         const auto find_cached_component_only = [&](const std::string& storage_key) -> UObject* {
             const auto cached_it = m_component_name_cache.find(storage_key);
             if (cached_it == m_component_name_cache.end())
@@ -15385,136 +15499,44 @@ namespace WindroseTextSigns
             return nullptr;
         };
 
-        const int previous_row_count =
-            (m_last_row_count_by_key.find(key) != m_last_row_count_by_key.end())
-                ? m_last_row_count_by_key[key]
-                : row_count;
-        const bool row_layout_changed = previous_row_count != row_count;
-        if (row_layout_changed)
-        {
-            const auto clear_cached_slot = [&](const std::string& storage_key) {
-                if (auto* stale = find_cached_component_only(storage_key); stale)
-                {
-                    (void)invoke_set_hidden_in_game(stale, true);
-                    (void)invoke_set_visibility(stale, false);
-                    (void)invoke_set_text(stale, "");
-                }
-                m_component_name_cache.erase(storage_key);
-            };
-            clear_cached_slot(key);
-            for (int stale_row = 0; stale_row < 4; ++stale_row)
-            {
-                clear_cached_slot(make_managed_row_storage_key(key, stale_row));
-            }
-            current_text_components = collect_text_components_sorted();
-            log_line("[phase4] row_layout_changed_reset key=" + key +
-                     " previousRows=" + std::to_string(previous_row_count) +
-                     " nextRows=" + std::to_string(row_count));
-        }
-
-        const auto reseed_row_component_cache = [&]() {
-            bool reseeded = false;
-            std::unordered_set<std::string> used_component_full_names{};
-            used_component_full_names.reserve(4);
-
-            for (int row_index = 0; row_index < 4; ++row_index)
-            {
-                const auto row_storage_key = make_managed_row_storage_key(key, row_index);
-                if (auto* cached = find_cached_component_only(row_storage_key); cached)
-                {
-                    const auto cached_full_name = lower_ascii(narrow_ascii(cached->GetFullName()));
-                    if (used_component_full_names.insert(cached_full_name).second)
-                    {
-                        continue;
-                    }
-                }
-
-                if (row_index == 0)
-                {
-                    if (auto* base_cached = find_cached_component_only(key); base_cached)
-                    {
-                        const auto base_full_name = narrow_ascii(base_cached->GetFullName());
-                        const auto base_full_name_lower = lower_ascii(base_full_name);
-                        if (!used_component_full_names.contains(base_full_name_lower))
-                        {
-                            m_component_name_cache[row_storage_key] = base_full_name;
-                            m_component_name_cache.erase(key);
-                            used_component_full_names.insert(base_full_name_lower);
-                            reseeded = true;
-                            continue;
-                        }
-                    }
-                }
-
-                for (auto* component : current_text_components)
-                {
-                    if (!component)
-                    {
-                        continue;
-                    }
-                    const auto component_full_name = narrow_ascii(component->GetFullName());
-                    const auto component_full_name_lower = lower_ascii(component_full_name);
-                    if (used_component_full_names.contains(component_full_name_lower))
-                    {
-                        continue;
-                    }
-                    m_component_name_cache[row_storage_key] = component_full_name;
-                    used_component_full_names.insert(component_full_name_lower);
-                    reseeded = true;
-                    break;
-                }
-            }
-
-            if (reseeded)
-            {
-                log_line("[phase4] row_cache_reseeded key=" + key +
-                         " componentCandidates=" + std::to_string(current_text_components.size()));
-            }
+        const auto make_staging_row_storage_key = [&](const int row_index) {
+            return make_managed_row_storage_key(key, row_index) + "|stage";
         };
 
-        reseed_row_component_cache();
-
-        const auto clear_row_component = [&](const std::string& row_storage_key) {
-            auto* stale_row_component = find_cached_component_only(row_storage_key);
-            if (!stale_row_component)
-            {
-                return;
-            }
-            (void)invoke_set_hidden_in_game(stale_row_component, true);
-            (void)invoke_set_visibility(stale_row_component, false);
-            (void)invoke_set_text(stale_row_component, "");
-        };
-
-        for (int row_index = row_count; row_index < 4; ++row_index)
+        // Snapshot currently visible components. Keep these visible while staging builds.
+        std::array<UObject*, 4> active_row_components{nullptr, nullptr, nullptr, nullptr};
+        std::unordered_set<uintptr_t> active_component_ptrs{};
+        active_component_ptrs.reserve(4);
+        for (int row_index = 0; row_index < 4; ++row_index)
         {
-            clear_row_component(make_managed_row_storage_key(key, row_index));
-        }
-
-        for (int row_index = 0; row_index < row_count; ++row_index)
-        {
-            const auto row_storage_key = make_managed_row_storage_key(key, row_index);
-            if (auto* existing_component = find_cached_component_only(row_storage_key))
+            auto* active_component = find_cached_component_only(make_managed_row_storage_key(key, row_index));
+            if (!active_component && row_index == 0)
             {
-                (void)invoke_set_hidden_in_game(existing_component, true);
-                (void)invoke_set_visibility(existing_component, false);
-                continue;
+                active_component = find_cached_component_only(key);
             }
-            if (row_index == 0)
+            if (active_component)
             {
-                if (auto* base_component = find_cached_component_only(key))
+                const auto ptr = reinterpret_cast<uintptr_t>(active_component);
+                if (!active_component_ptrs.insert(ptr).second)
                 {
-                    (void)invoke_set_hidden_in_game(base_component, true);
-                    (void)invoke_set_visibility(base_component, false);
+                    active_component = nullptr;
                 }
             }
+            active_row_components[static_cast<size_t>(row_index)] = active_component;
         }
 
+        log_line("[phase4-stage] staging_begin key=" + key +
+                 " rows=" + std::to_string(row_count) +
+                 " activeRowsKnown=" + std::to_string(static_cast<int>(active_component_ptrs.size())));
+
+        std::vector<UObject*> staging_row_components{};
+        staging_row_components.reserve(static_cast<size_t>(row_count));
         std::unordered_set<uintptr_t> assigned_row_component_ptrs{};
         assigned_row_component_ptrs.reserve(static_cast<size_t>(row_count));
 
         for (int row_index = 0; row_index < row_count; ++row_index)
         {
-            const auto row_storage_key = make_managed_row_storage_key(key, row_index);
+            const auto staging_row_storage_key = make_staging_row_storage_key(row_index);
             const float row_offset = layout_offsets[static_cast<size_t>(row_index)];
             row_offsets.push_back(row_offset);
 
@@ -15523,92 +15545,48 @@ namespace WindroseTextSigns
                 relative_location.GetY(),
                 relative_location.GetZ() + row_offset);
 
-            auto* text_component = find_cached_component_only(row_storage_key);
+            auto* text_component = find_cached_component_only(staging_row_storage_key);
             bool reused_existing = text_component != nullptr;
-            if (!text_component && row_index == 0)
-            {
-                auto* base_component = find_cached_component_only(key);
-                if (base_component)
-                {
-                    text_component = base_component;
-                    reused_existing = true;
-                    m_component_name_cache[row_storage_key] = narrow_ascii(base_component->GetFullName());
-                    m_component_name_cache.erase(key);
-                }
-            }
-            if (text_component)
-            {
-                const auto component_ptr = reinterpret_cast<uintptr_t>(text_component);
-                if (assigned_row_component_ptrs.contains(component_ptr))
-                {
-                    text_component = nullptr;
-                    reused_existing = false;
-                }
-            }
             if (!text_component)
             {
-                text_component = create_managed_text_component(actor, row_storage_key, row_relative_location);
-                if (text_component)
-                {
-                    const auto component_ptr = reinterpret_cast<uintptr_t>(text_component);
-                    if (assigned_row_component_ptrs.contains(component_ptr))
-                    {
-                        // Defensive path: AddComponentByClass can occasionally hand back
-                        // an existing component during churn. Never allow the same pointer
-                        // to back multiple rows in a single apply pass.
-                        log_line("[phase4] row_component_collision key=" + key +
-                                 " row=" + std::to_string(row_index) +
-                                 " component=" + narrow_ascii(text_component->GetFullName()) +
-                                 " action=create_retry_once");
-                        auto* second_try_component = create_managed_text_component(actor, row_storage_key, row_relative_location);
-                        if (second_try_component && !assigned_row_component_ptrs.contains(reinterpret_cast<uintptr_t>(second_try_component)))
-                        {
-                            text_component = second_try_component;
-                        }
-                        else
-                        {
-                            text_component = nullptr;
-                        }
-                    }
-                }
+                text_component = create_managed_text_component(actor, staging_row_storage_key, row_relative_location);
             }
             if (!text_component)
             {
                 schedule_create_retry();
                 log_line("[phase4] apply_failed reason=CreateTextComponent actor=" + narrow_ascii(actor->GetFullName()) +
                          " key=" + key +
-                         " row=" + std::to_string(row_index));
+                         " row=" + std::to_string(row_index) +
+                         " mode=staging");
                 return false;
+            }
+
+            const auto component_ptr = reinterpret_cast<uintptr_t>(text_component);
+            if (assigned_row_component_ptrs.contains(component_ptr))
+            {
+                auto* second_try_component = create_managed_text_component(actor, staging_row_storage_key, row_relative_location);
+                if (second_try_component && !assigned_row_component_ptrs.contains(reinterpret_cast<uintptr_t>(second_try_component)))
+                {
+                    text_component = second_try_component;
+                }
+                else
+                {
+                    schedule_create_retry();
+                    log_line("[phase4] apply_failed reason=RowComponentCollision actor=" + narrow_ascii(actor->GetFullName()) +
+                             " key=" + key +
+                             " row=" + std::to_string(row_index) +
+                             " mode=staging");
+                    return false;
+                }
             }
 
             any_reused_existing = any_reused_existing || reused_existing;
             assigned_row_component_ptrs.insert(reinterpret_cast<uintptr_t>(text_component));
+
+            // Off-screen build: keep hidden until commit.
             (void)invoke_set_hidden_in_game(text_component, true);
             (void)invoke_set_visibility(text_component, false);
-            bool row_moved = invoke_set_relative_location(text_component, row_relative_location);
-            if (!row_moved && reused_existing)
-            {
-                auto* stale_component = text_component;
-                auto* recreated_component = create_managed_text_component(actor, row_storage_key, row_relative_location);
-                if (recreated_component)
-                {
-                    (void)invoke_set_hidden_in_game(stale_component, true);
-                    (void)invoke_set_visibility(stale_component, false);
-                    (void)invoke_set_text(stale_component, "");
-
-                    assigned_row_component_ptrs.erase(reinterpret_cast<uintptr_t>(stale_component));
-                    text_component = recreated_component;
-                    reused_existing = false;
-                    any_reused_existing = any_reused_existing || reused_existing;
-                    assigned_row_component_ptrs.insert(reinterpret_cast<uintptr_t>(text_component));
-                    (void)invoke_set_hidden_in_game(text_component, true);
-                    (void)invoke_set_visibility(text_component, false);
-                    row_moved = invoke_set_relative_location(text_component, row_relative_location);
-                    log_line("[phase4] row_component_recreated key=" + key +
-                             " row=" + std::to_string(row_index) +
-                             " reason=move_failed_reused_component");
-                }
-            }
+            const bool row_moved = invoke_set_relative_location(text_component, row_relative_location);
             moved = row_moved || moved;
             const bool row_sized = invoke_set_float_value(
                 text_component,
@@ -15633,16 +15611,18 @@ namespace WindroseTextSigns
             }
             const bool row_colored = invoke_set_text_render_color(text_component, desired_r, desired_g, desired_b, desired_a);
             const bool row_text_applied = invoke_set_text(text_component, rows[static_cast<size_t>(row_index)]);
-            if (row_text_applied)
-            {
-                row_components_to_show.push_back(text_component);
-            }
 
             sized = sized && row_sized;
             vcentered = vcentered && row_hcentered && row_vcentered;
             ufont_applied_all_rows = ufont_applied_all_rows && row_font_applied;
             colored = colored && row_colored;
             text_applied = text_applied && row_text_applied;
+
+            if (!row_text_applied)
+            {
+                break;
+            }
+            staging_row_components.push_back(text_component);
         }
 
         if (!text_applied)
@@ -15651,18 +15631,65 @@ namespace WindroseTextSigns
             m_phase4_next_retry[key] = std::chrono::steady_clock::now() + std::chrono::seconds(30);
             m_create_null_retry_states.erase(key);
             log_line("[phase4] apply_failed reason=SetTextFailed key=" + key +
-                     " rows=" + std::to_string(row_count));
+                     " rows=" + std::to_string(row_count) +
+                     " mode=staging");
             return false;
         }
 
-        for (auto* row_component : row_components_to_show)
+        // One-step commit: hide old active, reveal fully prepared staging components.
+        std::unordered_set<uintptr_t> hidden_active_once{};
+        hidden_active_once.reserve(4);
+        for (int row_index = 0; row_index < 4; ++row_index)
         {
+            auto* active_component = active_row_components[static_cast<size_t>(row_index)];
+            if (!active_component)
+            {
+                continue;
+            }
+            const auto ptr = reinterpret_cast<uintptr_t>(active_component);
+            if (!hidden_active_once.insert(ptr).second)
+            {
+                continue;
+            }
+            (void)invoke_set_hidden_in_game(active_component, true);
+            (void)invoke_set_visibility(active_component, false);
+            (void)invoke_set_text(active_component, "");
+        }
+
+        for (size_t row_index = 0; row_index < staging_row_components.size(); ++row_index)
+        {
+            auto* row_component = staging_row_components[row_index];
             if (!row_component)
             {
                 continue;
             }
             (void)invoke_set_hidden_in_game(row_component, false);
             (void)invoke_set_visibility(row_component, true);
+
+            const auto active_row_storage_key = make_managed_row_storage_key(key, static_cast<int>(row_index));
+            m_component_name_cache[active_row_storage_key] = narrow_ascii(row_component->GetFullName());
+            m_component_name_cache.erase(make_staging_row_storage_key(static_cast<int>(row_index)));
+            if (row_index == 0)
+            {
+                m_component_name_cache[key] = narrow_ascii(row_component->GetFullName());
+            }
+        }
+        for (int row_index = row_count; row_index < 4; ++row_index)
+        {
+            m_component_name_cache.erase(make_managed_row_storage_key(key, row_index));
+            m_component_name_cache.erase(make_staging_row_storage_key(row_index));
+        }
+
+        log_line("[phase4-stage] staging_commit key=" + key +
+                 " rows=" + std::to_string(row_count) +
+                 " shownRows=" + std::to_string(staging_row_components.size()) +
+                 " activeRowsHidden=" + std::to_string(hidden_active_once.size()));
+        row_components_to_show.assign(staging_row_components.begin(), staging_row_components.end());
+        if (m_session_ready_latched && !m_first_authoritative_render_completed)
+        {
+            log_line("[phase4-stage] initial_restore_swap key=" + key +
+                     " epoch=" + std::to_string(m_session_epoch) +
+                     " worldId=" + world_id);
         }
 
         m_phase4_last_failure_reason.erase(key);
@@ -15671,6 +15698,10 @@ namespace WindroseTextSigns
         m_last_row_count_by_key[key] = row_count;
         m_rendered_text_cache[key] = text_value;
         m_phase4_last_apply_success_at[key] = std::chrono::steady_clock::now();
+        if (m_session_ready_latched && is_worldid_bound_for_current_epoch())
+        {
+            schedule_post_ready_one_time_rerender(world_id, "first_apply_success_after_ready");
+        }
         std::ostringstream loc{};
         loc << std::fixed << std::setprecision(2)
             << relative_location.GetX() << ","
@@ -17795,6 +17826,12 @@ namespace WindroseTextSigns
         m_first_authoritative_render_attempts = 0;
         m_first_authoritative_render_last_log = {};
         m_first_authoritative_render_last_reason.clear();
+        m_post_ready_one_time_rerender_scheduled = false;
+        m_post_ready_one_time_rerender_done = false;
+        m_post_ready_one_time_rerender_epoch = 0;
+        m_post_ready_one_time_rerender_world_id.clear();
+        m_post_ready_one_time_rerender_due = {};
+        m_post_ready_one_time_rerender_attempts = 0;
         m_world_text_font_profile_ready_latched = false;
         m_world_text_font_override_pak_checked = false;
         m_world_text_font_override_pak_detected = false;
@@ -18875,6 +18912,7 @@ namespace WindroseTextSigns
                     m_remote_cached_replay_pending_after_ready = false;
                 }
                 maybe_run_first_authoritative_render_pass("ready_latch_followup");
+                maybe_run_post_ready_one_time_rerender(now, "ready_latch_followup");
                 if (!m_hosted_authority_local_apply_deferred_keys.empty() && should_render_world_text_components())
                 {
                     std::vector<std::string> flush_keys{};

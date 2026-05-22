@@ -113,6 +113,7 @@ namespace WindroseTextSigns
         auto open_phase7_umg_editor_for_selection() -> bool;
         auto tick_phase7_umg_open_pending() -> void;
         auto close_phase7_umg_editor(bool restore_game_input) -> void;
+        auto maybe_replay_cached_text_after_editor_close(const char* source) -> void;
         auto force_close_phase7_for_teardown(const std::string& reason) -> void;
         auto arm_phase7_definitive_teardown(const std::string& reason) -> void;
         auto maybe_run_phase7_bootstrap_sanitize() -> void;
@@ -248,6 +249,10 @@ namespace WindroseTextSigns
         auto queue_first_authoritative_render_pass(const std::string& source, const std::string& world_id) -> void;
         auto flush_deferred_bridge_payloads_after_world_bind(const std::string& reason) -> void;
         auto maybe_run_first_authoritative_render_pass(const std::string& trigger) -> void;
+        auto schedule_post_ready_one_time_rerender(const std::string& world_id, const std::string& reason) -> void;
+        auto maybe_run_post_ready_one_time_rerender(
+            const std::chrono::steady_clock::time_point now,
+            const std::string& trigger) -> void;
         auto resolve_world_text_font_size_limits() -> std::pair<float, float>;
         auto make_managed_component_name(const std::string& storage_key) const -> std::string;
         auto make_managed_row_storage_key(const std::string& storage_key, int row_index) const -> std::string;
@@ -758,6 +763,12 @@ namespace WindroseTextSigns
         uint32_t m_first_authoritative_render_attempts{0};
         std::chrono::steady_clock::time_point m_first_authoritative_render_last_log{};
         std::string m_first_authoritative_render_last_reason{};
+        bool m_post_ready_one_time_rerender_scheduled{false};
+        bool m_post_ready_one_time_rerender_done{false};
+        uint64_t m_post_ready_one_time_rerender_epoch{0};
+        std::string m_post_ready_one_time_rerender_world_id{};
+        std::chrono::steady_clock::time_point m_post_ready_one_time_rerender_due{};
+        uint32_t m_post_ready_one_time_rerender_attempts{0};
         uint32_t m_consecutive_empty_label_scans{0};
         bool m_restore_scan_has_seen_live_labels{false};
         bool m_restore_scan_wait_logged{false};
