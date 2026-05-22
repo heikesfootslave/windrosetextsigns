@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.1.9
+- Fixed an issue where network route discovery could fail and retry logic would not trigger.
+
 ## 0.1.8
 - Added WindroseTextSigns.ini option WTS_FORCE_LOCAL_ONLY default false.  This option forces local only sign text saves.
 - Fixed a false Solo status error where `Network: Error - Sign Text file not saved` could appear on fresh worlds even after a successful first save.

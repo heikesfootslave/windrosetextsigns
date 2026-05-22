@@ -433,6 +433,8 @@ namespace WindroseTextSigns
         bool m_bridge_route_gate_pending_logged{false};
         bool m_bridge_route_probe_active{false};
         bool m_bridge_route_probe_waiting_ack{false};
+        uint32_t m_bridge_route_post_ready_retry_stage{0};
+        std::chrono::steady_clock::time_point m_bridge_route_post_ready_next_probe_due{};
         std::vector<std::pair<std::string, std::string>> m_bridge_route_probe_candidates{};
         size_t m_bridge_route_probe_index{0};
         std::string m_bridge_route_probe_token{};

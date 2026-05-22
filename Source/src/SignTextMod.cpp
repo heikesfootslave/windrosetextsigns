@@ -11624,6 +11624,20 @@ namespace WindroseTextSigns
                 ack_runtime_role == "dedicatedserver" ||
                 ack_runtime_role == "hostedserver" ||
                 ack_bridge_role == "dedicatedserver";
+            const bool ack_epoch_match =
+                ack_epoch == 0 || ack_epoch == static_cast<uint64_t>(m_session_epoch);
+            bool ack_candidate_match = false;
+            if (!ack_probe_host.empty())
+            {
+                for (const auto& candidate : m_bridge_route_probe_candidates)
+                {
+                    if (lower_ascii(candidate.first) == lower_ascii(ack_probe_host))
+                    {
+                        ack_candidate_match = true;
+                        break;
+                    }
+                }
+            }
             const bool ack_identity_match =
                 m_bridge_route_probe_active &&
                 m_bridge_route_probe_waiting_ack &&
@@ -11632,10 +11646,14 @@ namespace WindroseTextSigns
                 !m_bridge_route_probe_host.empty() &&
                 !ack_probe_host.empty() &&
                 lower_ascii(ack_probe_host) == lower_ascii(m_bridge_route_probe_host);
-            if (m_bridge_route_probe_active &&
-                m_bridge_route_probe_waiting_ack &&
-                !m_bridge_route_probe_token.empty() &&
-                token == m_bridge_route_probe_token &&
+            const bool post_ready_retry_match =
+                m_session_ready_latched &&
+                !m_bridge_route_lock_acquired &&
+                m_bridge_role == BridgeRole::RemoteClient &&
+                m_bridge_route_gate_open &&
+                ack_epoch_match &&
+                ack_candidate_match;
+            if ((ack_identity_match || post_ready_retry_match) &&
                 !m_bridge_route_lock_acquired)
             {
                 const auto keys_runtime = field_with_alias(fields, {"runtimeRole", "runtime_role", "role"});
@@ -11656,7 +11674,7 @@ namespace WindroseTextSigns
                              (!ack_session.empty() && !m_session_id.empty() && ack_session != m_session_id) ? "true" : "false"} +
                          " epochMismatch=" + std::string{
                              (ack_epoch != 0 && ack_epoch != static_cast<uint64_t>(m_session_epoch)) ? "true" : "false"});
-                if (!ack_identity_match)
+                if (!ack_identity_match && !post_ready_retry_match)
                 {
                     log_line("[bridge-route] route_probe_result candidate=" + m_bridge_route_probe_host +
                              ":" + std::to_string(m_bridge_udp_port) +
@@ -11678,9 +11696,24 @@ namespace WindroseTextSigns
                 log_line("[bridge-route] route_probe_result candidate=" + m_bridge_route_probe_host +
                          ":" + std::to_string(m_bridge_udp_port) +
                          " result=success");
+                std::string lock_host = m_bridge_route_probe_host;
+                std::string lock_source = m_bridge_route_probe_source.empty() ? "unknown" : m_bridge_route_probe_source;
+                if (post_ready_retry_match && !ack_probe_host.empty())
+                {
+                    lock_host = ack_probe_host;
+                    lock_source = "post_ready_epoch_candidate_ack";
+                    for (const auto& candidate : m_bridge_route_probe_candidates)
+                    {
+                        if (lower_ascii(candidate.first) == lower_ascii(ack_probe_host))
+                        {
+                            lock_source = candidate.second.empty() ? lock_source : candidate.second;
+                            break;
+                        }
+                    }
+                }
                 commit_locked_route_from_probe(
-                    m_bridge_route_probe_host,
-                    m_bridge_route_probe_source.empty() ? "unknown" : m_bridge_route_probe_source);
+                    lock_host,
+                    lock_source);
             }
             return;
         }
@@ -12216,6 +12249,8 @@ namespace WindroseTextSigns
                 log_line("[bridge-route] route_lock_gate_pending reason=awaiting_coopconnectionverified");
             }
             m_bridge_route_probe_candidates = build_route_probe_candidates();
+            m_bridge_route_post_ready_retry_stage = 0;
+            m_bridge_route_post_ready_next_probe_due = {};
             return;
         }
 
@@ -12271,13 +12306,42 @@ namespace WindroseTextSigns
                 log_line("[bridge-route] route_lock_failed_no_reachable_endpoint details=final_check_after_ready_latched");
                 mark_phase7_status_dirty("route_lock_failed_no_reachable_endpoint");
             }
+            if (m_session_ready_latched)
+            {
+                static const std::array<std::chrono::seconds, 4> k_post_ready_retry_delays{
+                    std::chrono::seconds(1),
+                    std::chrono::seconds(3),
+                    std::chrono::seconds(8),
+                    std::chrono::seconds(15)};
+                const size_t stage_index = static_cast<size_t>(std::min<uint32_t>(
+                    m_bridge_route_post_ready_retry_stage,
+                    static_cast<uint32_t>(k_post_ready_retry_delays.size() - 1)));
+                const auto retry_delay = k_post_ready_retry_delays[stage_index];
+                m_bridge_route_post_ready_next_probe_due = now + retry_delay;
+                if (m_bridge_route_post_ready_retry_stage + 1 < k_post_ready_retry_delays.size())
+                {
+                    ++m_bridge_route_post_ready_retry_stage;
+                }
+                m_bridge_route_retry_consumed = false;
+                log_line("[bridge-route] post_ready_retry_cycle stageSec=" +
+                         std::to_string(static_cast<long long>(retry_delay.count())) +
+                         " candidates=" + std::to_string(m_bridge_route_probe_candidates.size()) +
+                         " epoch=" + std::to_string(m_session_epoch));
+            }
         };
 
         if (!m_bridge_route_probe_active)
         {
+            if (m_session_ready_latched &&
+                m_bridge_route_post_ready_next_probe_due.time_since_epoch().count() != 0 &&
+                now < m_bridge_route_post_ready_next_probe_due)
+            {
+                return;
+            }
             m_bridge_route_probe_candidates = build_route_probe_candidates();
             m_bridge_route_probe_index = 0;
             m_bridge_route_probe_active = true;
+            m_bridge_route_post_ready_next_probe_due = {};
             if (m_bridge_route_probe_candidates.empty())
             {
                 handle_probe_exhausted("no_candidates_after_gate_open");
@@ -12685,11 +12749,25 @@ namespace WindroseTextSigns
                 << "}";
         const bool sent = NativeBridge::instance().send_to_server(payload.str());
         m_bridge_route_probe_waiting_ack = sent;
-        m_bridge_route_probe_deadline = now + std::chrono::milliseconds(700);
+        std::chrono::milliseconds probe_wait_ms{700};
+        if (m_session_ready_latched)
+        {
+            static const std::array<std::chrono::seconds, 4> k_post_ready_retry_delays{
+                std::chrono::seconds(1),
+                std::chrono::seconds(3),
+                std::chrono::seconds(8),
+                std::chrono::seconds(15)};
+            const size_t stage_index = static_cast<size_t>(std::min<uint32_t>(
+                m_bridge_route_post_ready_retry_stage,
+                static_cast<uint32_t>(k_post_ready_retry_delays.size() - 1)));
+            probe_wait_ms = std::chrono::duration_cast<std::chrono::milliseconds>(k_post_ready_retry_delays[stage_index]);
+        }
+        m_bridge_route_probe_deadline = now + probe_wait_ms;
         log_line("[bridge-route] route_probe_start epoch=" + std::to_string(m_session_epoch) +
                  " candidate=" + host + ":" + std::to_string(m_bridge_udp_port) +
                  " class=" + source +
-                 " sent=" + std::string{sent ? "true" : "false"});
+                 " sent=" + std::string{sent ? "true" : "false"} +
+                 " waitMs=" + std::to_string(static_cast<long long>(probe_wait_ms.count())));
         if (!sent)
         {
             log_line("[bridge-route] route_probe_result candidate=" + host + ":" + std::to_string(m_bridge_udp_port) +
@@ -12720,6 +12798,8 @@ namespace WindroseTextSigns
         m_bridge_route_wait_last_log = {};
         m_bridge_route_probe_active = false;
         m_bridge_route_probe_waiting_ack = false;
+        m_bridge_route_post_ready_retry_stage = 0;
+        m_bridge_route_post_ready_next_probe_due = {};
         m_bridge_next_snapshot_request = std::chrono::steady_clock::now();
         m_bridge_snapshot_received = false;
         m_bridge_snapshot_retry_attempts = 0;
@@ -12816,6 +12896,8 @@ namespace WindroseTextSigns
         m_bridge_route_probe_token.clear();
         m_bridge_route_probe_host.clear();
         m_bridge_route_probe_source.clear();
+        m_bridge_route_post_ready_retry_stage = 0;
+        m_bridge_route_post_ready_next_probe_due = {};
         m_bridge_route_staged_active = false;
         m_bridge_route_staged_host.clear();
         m_bridge_route_staged_source.clear();
@@ -13139,6 +13221,8 @@ namespace WindroseTextSigns
                 m_bridge_route_probe_token.clear();
                 m_bridge_route_probe_host.clear();
                 m_bridge_route_probe_source.clear();
+                m_bridge_route_post_ready_retry_stage = 0;
+                m_bridge_route_post_ready_next_probe_due = {};
                 m_hosted_authority_route_active = false;
                 m_hosted_server_authority_route_configured = false;
                 mark_phase7_status_dirty("force_local_bridge_disable");
@@ -16729,12 +16813,16 @@ namespace WindroseTextSigns
                     {
                         m_bridge_route_gate_open = true;
                         m_bridge_route_gate_pending_logged = false;
+                        m_bridge_route_retry_consumed = false;
+                        m_route_lock_failed_no_reachable_endpoint = false;
                         m_bridge_route_probe_active = false;
                         m_bridge_route_probe_waiting_ack = false;
                         m_bridge_route_probe_index = 0;
                         m_bridge_route_probe_token.clear();
                         m_bridge_route_probe_host.clear();
                         m_bridge_route_probe_source.clear();
+                        m_bridge_route_post_ready_retry_stage = 0;
+                        m_bridge_route_post_ready_next_probe_due = {};
                         log_line("[bridge-route] route_lock_gate_open signal=verifying_to_coopconnectionverified epoch=" +
                                  std::to_string(m_session_epoch));
                     }
