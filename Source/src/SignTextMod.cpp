@@ -17,6 +17,7 @@
 #include <regex>
 #include <sstream>
 #include <thread>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -2010,17 +2011,316 @@ namespace
         return rows;
     }
 
-    auto fit_text_for_plaque(
+    auto treasure_map_deadhand_advance_norm(unsigned char ch) -> float
+    {
+        static const std::unordered_map<unsigned char, float> k_map = {
+            {' ', 0.313264f}, {'!', 0.260583f}, {'"', 0.327375f}, {'#', 0.520226f}, {'$', 0.461900f}, {'%', 0.537159f},
+            {'&', 0.424271f}, {'\'', 0.163688f}, {'(', 0.342427f}, {')', 0.424271f}, {'*', 0.298213f}, {'+', 0.300094f},
+            {',', 0.219191f}, {'-', 0.333960f}, {'.', 0.175917f}, {'/', 0.421449f}, {'0', 0.433678f}, {'1', 0.371590f},
+            {'2', 0.427093f}, {'3', 0.456256f}, {'4', 0.450611f}, {'5', 0.538100f}, {'6', 0.501411f}, {'7', 0.508937f},
+            {'8', 0.469426f}, {'9', 0.417686f}, {':', 0.254939f}, {';', 0.299153f}, {'<', 0.461900f}, {'=', 0.416745f},
+            {'>', 0.483537f}, {'?', 0.337723f}, {'@', 0.620884f}, {'A', 0.894638f}, {'B', 0.603010f}, {'C', 0.542803f},
+            {'D', 0.689558f}, {'E', 0.670743f}, {'F', 0.658514f}, {'G', 0.653810f}, {'H', 0.692380f}, {'I', 0.428975f},
+            {'J', 0.621825f}, {'K', 0.749765f}, {'L', 0.638758f}, {'M', 1.070555f}, {'N', 0.773283f}, {'O', 0.571966f},
+            {'P', 0.549389f}, {'Q', 0.656632f}, {'R', 0.635936f}, {'S', 0.529633f}, {'T', 0.626529f}, {'U', 0.691439f},
+            {'V', 0.612418f}, {'W', 0.777987f}, {'X', 0.614299f}, {'Y', 0.542803f}, {'Z', 0.723424f}, {'[', 0.397930f},
+            {'\\', 0.317968f}, {']', 0.436500f}, {'^', 0.235183f}, {'_', 0.650988f}, {'`', 0.148636f}, {'a', 0.336783f},
+            {'b', 0.304798f}, {'c', 0.322672f}, {'d', 0.469426f}, {'e', 0.286924f}, {'f', 0.399812f}, {'g', 0.454374f},
+            {'h', 0.375353f}, {'i', 0.232361f}, {'j', 0.363123f}, {'k', 0.359360f}, {'l', 0.243650f}, {'m', 0.572907f},
+            {'n', 0.412041f}, {'o', 0.269991f}, {'p', 0.354657f}, {'q', 0.307620f}, {'r', 0.319849f}, {'s', 0.404516f},
+            {'t', 0.284102f}, {'u', 0.391345f}, {'v', 0.431797f}, {'w', 0.469426f}, {'x', 0.465663f}, {'y', 0.362183f},
+            {'z', 0.423330f}, {'{', 0.299153f}, {'|', 0.271872f}, {'}', 0.290687f}, {'~', 0.395108f},
+        };
+
+        if (ch == '\t')
+        {
+            return k_map.at(' ') * 4.0f;
+        }
+        if (ch < 32)
+        {
+            return 0.0f;
+        }
+        if (const auto it = k_map.find(ch); it != k_map.end())
+        {
+            return it->second;
+        }
+        if (std::isupper(ch) != 0)
+        {
+            return 0.62f;
+        }
+        if (std::islower(ch) != 0)
+        {
+            return 0.36f;
+        }
+        if (std::isdigit(ch) != 0)
+        {
+            return 0.46f;
+        }
+        return 0.40f;
+    }
+
+    auto estimate_treasure_map_line_width(std::string_view text, float font, float width_factor) -> float
+    {
+        const float effective_font = std::max(0.001f, font);
+        const float factor = std::clamp(width_factor, 0.20f, 2.00f);
+        float sum_norm = 0.0f;
+        for (unsigned char ch : text)
+        {
+            sum_norm += treasure_map_deadhand_advance_norm(ch);
+        }
+        return std::max(0.0f, sum_norm * effective_font * factor);
+    }
+
+    auto fit_text_for_plaque_pak_weighted(
         std::string_view input_text,
         float char_width_factor,
         float font_min,
-        float font_max) -> AutoSizeResult
+        float font_max,
+        float horizontal_budget) -> AutoSizeResult
     {
         const float k_font_min = std::clamp(font_min, 1.0f, 512.0f);
         const float k_font_max = std::max(k_font_min, std::clamp(font_max, 1.0f, 512.0f));
         constexpr int k_rows_min = 1;
         constexpr int k_rows_max = 4;
-        constexpr float k_horizontal_budget = 140.0f;
+        const float k_horizontal_budget = std::clamp(horizontal_budget, 80.0f, 220.0f);
+        constexpr float k_line_step_factor = 0.40f;
+        constexpr float k_vertical_budget = 24.0f;
+
+        AutoSizeResult best{};
+        best.font_size = k_font_min;
+        best.rows = 1;
+        best.char_limit = 1;
+        best.truncated = false;
+
+        const auto input_lines = split_lines_preserve_breaks(input_text);
+        const bool has_explicit_line_breaks = (input_lines.size() > 1);
+        const bool single_line_single_word_input =
+            input_lines.size() == 1 &&
+            split_words(input_lines.front()).size() == 1;
+
+        int input_total_chars = 0;
+        for (const auto& line : input_lines)
+        {
+            input_total_chars += static_cast<int>(line.size());
+        }
+        const int explicit_rows = static_cast<int>(input_lines.size());
+
+        bool found_valid = false;
+        AutoSizeResult best_valid{};
+        int best_valid_coverage = -1;
+        float best_valid_font = k_font_min;
+        int best_valid_added_rows = 999;
+
+        AutoSizeResult best_fallback{};
+        bool found_fallback = false;
+        int best_fallback_coverage = -1;
+        float best_fallback_font = k_font_min;
+
+        for (float font = k_font_max; font >= k_font_min; font -= 0.5f)
+        {
+            AutoSizeResult candidate{};
+            candidate.font_size = font;
+            candidate.char_limit = std::max(1, static_cast<int>(std::floor(k_horizontal_budget / std::max(0.001f, font * std::clamp(char_width_factor, 0.20f, 2.00f)))));
+            candidate.truncated = false;
+
+            std::vector<std::string> rows{};
+            rows.reserve(4);
+            int remaining_rows = k_rows_max;
+
+            for (const auto& raw_line : input_lines)
+            {
+                if (remaining_rows <= 0)
+                {
+                    candidate.truncated = true;
+                    break;
+                }
+                if (raw_line.empty())
+                {
+                    rows.push_back("");
+                    --remaining_rows;
+                    continue;
+                }
+
+                auto words = split_words(raw_line);
+                const bool single_word_line = words.size() == 1;
+                const bool preserve_single_word_line =
+                    single_word_line && (has_explicit_line_breaks || single_line_single_word_input);
+                if (preserve_single_word_line)
+                {
+                    const float one_word_width = estimate_treasure_map_line_width(words.front(), font, char_width_factor);
+                    if (one_word_width > (k_horizontal_budget + 0.01f) && font > (k_font_min + 0.001f))
+                    {
+                        candidate.truncated = true;
+                        break;
+                    }
+                }
+
+                std::string line{};
+                float line_width = 0.0f;
+                for (size_t i = 0; i < words.size(); ++i)
+                {
+                    const auto& word = words[i];
+                    const float word_width = estimate_treasure_map_line_width(word, font, char_width_factor);
+                    if (word_width > (k_horizontal_budget + 0.01f))
+                    {
+                        candidate.truncated = true;
+                        break;
+                    }
+
+                    if (line.empty())
+                    {
+                        line = word;
+                        line_width = word_width;
+                        continue;
+                    }
+
+                    std::string merged = line;
+                    merged += " ";
+                    merged += word;
+                    const float merged_width = estimate_treasure_map_line_width(merged, font, char_width_factor);
+                    if (merged_width <= (k_horizontal_budget + 0.01f))
+                    {
+                        line = std::move(merged);
+                        line_width = merged_width;
+                    }
+                    else
+                    {
+                        rows.push_back(line);
+                        --remaining_rows;
+                        if (remaining_rows <= 0)
+                        {
+                            candidate.truncated = true;
+                            break;
+                        }
+                        line = word;
+                        line_width = word_width;
+                    }
+                }
+
+                if (candidate.truncated)
+                {
+                    break;
+                }
+                if (!line.empty())
+                {
+                    rows.push_back(line);
+                    --remaining_rows;
+                }
+            }
+
+            if (rows.empty())
+            {
+                rows.push_back("");
+            }
+
+            candidate.rows = static_cast<int>(rows.size());
+            candidate.wrapped_text.clear();
+            int candidate_coverage_chars = 0;
+            for (size_t i = 0; i < rows.size(); ++i)
+            {
+                if (i > 0)
+                {
+                    candidate.wrapped_text.push_back('\n');
+                }
+                candidate.wrapped_text += rows[i];
+                candidate_coverage_chars += static_cast<int>(rows[i].size());
+            }
+
+            const float vertical_usage = static_cast<float>(candidate.rows) * (font * k_line_step_factor);
+            const bool candidate_valid =
+                !candidate.truncated &&
+                candidate.rows >= k_rows_min &&
+                candidate.rows <= k_rows_max &&
+                vertical_usage <= k_vertical_budget;
+
+            if (candidate_valid)
+            {
+                const int added_rows = std::max(0, candidate.rows - explicit_rows);
+                bool better_valid = false;
+                if (!found_valid ||
+                    candidate_coverage_chars > best_valid_coverage ||
+                    (candidate_coverage_chars == best_valid_coverage && font > best_valid_font))
+                {
+                    better_valid = true;
+                }
+                else if (candidate_coverage_chars == best_valid_coverage && font == best_valid_font)
+                {
+                    if (has_explicit_line_breaks)
+                    {
+                        if (added_rows < best_valid_added_rows || (added_rows == best_valid_added_rows && candidate.rows < best_valid.rows))
+                        {
+                            better_valid = true;
+                        }
+                    }
+                    else if (candidate.rows < best_valid.rows)
+                    {
+                        better_valid = true;
+                    }
+                }
+
+                if (better_valid)
+                {
+                    found_valid = true;
+                    best_valid = candidate;
+                    best_valid_coverage = candidate_coverage_chars;
+                    best_valid_font = font;
+                    best_valid_added_rows = added_rows;
+                }
+            }
+
+            bool better_fallback = false;
+            if (!found_fallback ||
+                candidate_coverage_chars > best_fallback_coverage ||
+                (candidate_coverage_chars == best_fallback_coverage && font > best_fallback_font))
+            {
+                better_fallback = true;
+            }
+            else if (candidate_coverage_chars == best_fallback_coverage && font == best_fallback_font)
+            {
+                const bool candidate_full_coverage = (candidate_coverage_chars >= input_total_chars);
+                const bool best_fallback_full_coverage = (best_fallback_coverage >= input_total_chars);
+                if (candidate_full_coverage && !best_fallback_full_coverage)
+                {
+                    better_fallback = true;
+                }
+            }
+
+            if (better_fallback)
+            {
+                found_fallback = true;
+                best_fallback = candidate;
+                best_fallback_coverage = candidate_coverage_chars;
+                best_fallback_font = font;
+            }
+        }
+
+        if (found_valid)
+        {
+            best = best_valid;
+        }
+        else if (found_fallback)
+        {
+            best = best_fallback;
+        }
+        else
+        {
+            best.font_size = k_font_min;
+        }
+        return best;
+    }
+
+    auto fit_text_for_plaque(
+        std::string_view input_text,
+        float char_width_factor,
+        float font_min,
+        float font_max,
+        float horizontal_budget) -> AutoSizeResult
+    {
+        const float k_font_min = std::clamp(font_min, 1.0f, 512.0f);
+        const float k_font_max = std::max(k_font_min, std::clamp(font_max, 1.0f, 512.0f));
+        constexpr int k_rows_min = 1;
+        constexpr int k_rows_max = 4;
+        const float k_horizontal_budget = std::clamp(horizontal_budget, 80.0f, 220.0f);
         constexpr float k_line_step_factor = 0.40f;
         constexpr float k_vertical_budget = 24.0f;
         const float width_factor = std::clamp(char_width_factor, 0.20f, 2.00f);
@@ -2284,191 +2584,6 @@ namespace
             best.font_size = k_font_min;
         }
         return best;
-    }
-
-    auto fit_text_for_plaque_measured(
-        std::string_view input_text,
-        float font_min,
-        float font_max,
-        const std::function<std::optional<float>(float, std::string_view)>& measure_line_width,
-        float* out_max_line_width = nullptr) -> std::optional<AutoSizeResult>
-    {
-        if (!measure_line_width)
-        {
-            return std::nullopt;
-        }
-
-        const float k_font_min = std::clamp(font_min, 1.0f, 512.0f);
-        const float k_font_max = std::max(k_font_min, std::clamp(font_max, 1.0f, 512.0f));
-        constexpr int k_rows_min = 1;
-        constexpr int k_rows_max = 4;
-        constexpr float k_horizontal_budget = 140.0f;
-        constexpr float k_line_step_factor = 0.40f;
-        constexpr float k_vertical_budget = 24.0f;
-
-        const auto input_lines = split_lines_preserve_breaks(input_text);
-        if (input_lines.empty())
-        {
-            AutoSizeResult empty{};
-            empty.wrapped_text.clear();
-            empty.font_size = k_font_min;
-            empty.rows = 1;
-            empty.char_limit = 1;
-            empty.truncated = false;
-            if (out_max_line_width)
-            {
-                *out_max_line_width = 0.0f;
-            }
-            return empty;
-        }
-
-        for (float font = k_font_max; font >= k_font_min; font -= 0.5f)
-        {
-            std::vector<std::string> rows{};
-            rows.reserve(4);
-            std::vector<float> row_widths{};
-            row_widths.reserve(4);
-            int remaining_rows = k_rows_max;
-            bool measurement_failed = false;
-            bool truncated = false;
-
-            for (const auto& raw_line : input_lines)
-            {
-                if (remaining_rows <= 0)
-                {
-                    truncated = true;
-                    break;
-                }
-
-                if (raw_line.empty())
-                {
-                    rows.push_back("");
-                    row_widths.push_back(0.0f);
-                    --remaining_rows;
-                    continue;
-                }
-
-                const auto words = split_words(raw_line);
-                if (words.empty())
-                {
-                    rows.push_back("");
-                    row_widths.push_back(0.0f);
-                    --remaining_rows;
-                    continue;
-                }
-
-                std::string line{};
-                float line_width = 0.0f;
-                for (size_t i = 0; i < words.size(); ++i)
-                {
-                    const auto& word = words[i];
-                    const auto word_width_opt = measure_line_width(font, word);
-                    if (!word_width_opt.has_value())
-                    {
-                        measurement_failed = true;
-                        break;
-                    }
-                    const float word_width = *word_width_opt;
-                    if (word_width > k_horizontal_budget + 0.01f)
-                    {
-                        truncated = true;
-                        break;
-                    }
-
-                    if (line.empty())
-                    {
-                        line = word;
-                        line_width = word_width;
-                        continue;
-                    }
-
-                    std::string candidate = line;
-                    candidate += " ";
-                    candidate += word;
-                    const auto candidate_width_opt = measure_line_width(font, candidate);
-                    if (!candidate_width_opt.has_value())
-                    {
-                        measurement_failed = true;
-                        break;
-                    }
-                    const float candidate_width = *candidate_width_opt;
-
-                    if (candidate_width <= k_horizontal_budget + 0.01f)
-                    {
-                        line = std::move(candidate);
-                        line_width = candidate_width;
-                        continue;
-                    }
-
-                    rows.push_back(line);
-                    row_widths.push_back(line_width);
-                    --remaining_rows;
-                    if (remaining_rows <= 0)
-                    {
-                        truncated = true;
-                        break;
-                    }
-
-                    line = word;
-                    line_width = word_width;
-                }
-
-                if (measurement_failed || truncated)
-                {
-                    break;
-                }
-
-                if (!line.empty())
-                {
-                    rows.push_back(line);
-                    row_widths.push_back(line_width);
-                    --remaining_rows;
-                }
-            }
-
-            if (measurement_failed || truncated || rows.empty())
-            {
-                continue;
-            }
-
-            const int row_count = static_cast<int>(rows.size());
-            const float vertical_usage = static_cast<float>(row_count) * (font * k_line_step_factor);
-            if (row_count < k_rows_min || row_count > k_rows_max || vertical_usage > k_vertical_budget)
-            {
-                continue;
-            }
-
-            float max_width = 0.0f;
-            for (float width : row_widths)
-            {
-                max_width = std::max(max_width, width);
-            }
-            if (max_width > k_horizontal_budget + 0.01f)
-            {
-                continue;
-            }
-
-            AutoSizeResult out{};
-            out.font_size = font;
-            out.rows = row_count;
-            out.char_limit = 0;
-            out.truncated = false;
-            for (size_t i = 0; i < rows.size(); ++i)
-            {
-                if (i > 0)
-                {
-                    out.wrapped_text.push_back('\n');
-                }
-                out.wrapped_text += rows[i];
-            }
-            if (out_max_line_width)
-            {
-                *out_max_line_width = max_width;
-            }
-            return out;
-        }
-
-        return std::nullopt;
     }
 
     auto count_wrapped_rows(std::string_view text_value) -> int
@@ -6546,10 +6661,21 @@ namespace WindroseTextSigns
         const bool status_color =
             invoke_set_rgba_value(status, STR("SetColorAndOpacity"), nullptr, 0.82f, 0.80f, 0.75f, 1.0f) ||
             invoke_set_rgba_value(status, STR("SetForegroundColor"), nullptr, 0.82f, 0.80f, 0.75f, 1.0f);
-        const bool refresh_button_color = true;
+        const bool refresh_button_color =
+            (refresh_all_button &&
+             (invoke_set_rgba_value(
+                  refresh_all_button,
+                  STR("SetBackgroundColor"),
+                  STR("/Script/UMG.Button:SetBackgroundColor"),
+                  0.74f, 0.74f, 0.74f, 1.0f) ||
+              invoke_set_rgba_value(
+                  refresh_all_button,
+                  STR("SetColorAndOpacity"),
+                  nullptr,
+                  0.74f, 0.74f, 0.74f, 1.0f)));
         const bool refresh_label_color =
-            invoke_set_rgba_value(refresh_all_label, STR("SetColorAndOpacity"), nullptr, 0.50f, 0.50f, 0.50f, 1.0f) ||
-            invoke_set_rgba_value(refresh_all_label, STR("SetForegroundColor"), nullptr, 0.50f, 0.50f, 0.50f, 1.0f);
+            invoke_set_rgba_value(refresh_all_label, STR("SetColorAndOpacity"), nullptr, 0.44f, 0.44f, 0.44f, 1.0f) ||
+            invoke_set_rgba_value(refresh_all_label, STR("SetForegroundColor"), nullptr, 0.44f, 0.44f, 0.44f, 1.0f);
         const bool refresh_label_justify = invoke_set_byte_value(
             refresh_all_label,
             STR("SetJustification"),
@@ -8293,138 +8419,6 @@ namespace WindroseTextSigns
         out_x = captured[0];
         out_y = captured[1];
         return true;
-    }
-
-    auto invoke_get_local_bounds(UObject* component, FVector& out_min, FVector& out_max) -> bool
-    {
-        if (!component || !is_uobject_reflection_safe(component))
-        {
-            return false;
-        }
-        auto* fn = find_function_by_chain_or_path(
-            component,
-            STR("GetLocalBounds"),
-            STR("/Script/Engine.PrimitiveComponent:GetLocalBounds"));
-        if (!fn || !is_uobject_reflection_safe(component))
-        {
-            return false;
-        }
-
-        std::vector<uint8_t> params(static_cast<size_t>(std::max<int32_t>(fn->GetStructureSize(), 128)), 0);
-        component->ProcessEvent(fn, params.data());
-
-        bool found_min = false;
-        bool found_max = false;
-        for_each_property_in_chain_compat(fn, [&](FProperty* prop) {
-            if (!prop || !prop->HasAnyPropertyFlags(CPF_OutParm))
-            {
-                return;
-            }
-            if (prop->GetClass().HashObject() != FStructProperty::StaticClass().HashObject())
-            {
-                return;
-            }
-            if (prop->GetSize() < FVector::StaticSize())
-            {
-                return;
-            }
-            auto* value_ptr = prop->ContainerPtrToValuePtr<FVector>(params.data());
-            if (!value_ptr)
-            {
-                return;
-            }
-            const auto name = lower_copy_ascii(RC::to_string(prop->GetName()));
-            if (!found_min && name.find("min") != std::string::npos)
-            {
-                out_min = *value_ptr;
-                found_min = true;
-                return;
-            }
-            if (!found_max && name.find("max") != std::string::npos)
-            {
-                out_max = *value_ptr;
-                found_max = true;
-                return;
-            }
-            if (!found_min)
-            {
-                out_min = *value_ptr;
-                found_min = true;
-                return;
-            }
-            if (!found_max)
-            {
-                out_max = *value_ptr;
-                found_max = true;
-            }
-        });
-        return found_min && found_max;
-    }
-
-    auto invoke_get_component_bounds(UObject* component, FVector& out_origin, FVector& out_box_extent) -> bool
-    {
-        if (!component || !is_uobject_reflection_safe(component))
-        {
-            return false;
-        }
-        auto* fn = find_function_by_chain_or_path(
-            component,
-            STR("GetComponentBounds"),
-            STR("/Script/Engine.PrimitiveComponent:GetComponentBounds"));
-        if (!fn || !is_uobject_reflection_safe(component))
-        {
-            return false;
-        }
-
-        std::vector<uint8_t> params(static_cast<size_t>(std::max<int32_t>(fn->GetStructureSize(), 128)), 0);
-        component->ProcessEvent(fn, params.data());
-
-        bool found_origin = false;
-        bool found_extent = false;
-        for_each_property_in_chain_compat(fn, [&](FProperty* prop) {
-            if (!prop || !prop->HasAnyPropertyFlags(CPF_OutParm))
-            {
-                return;
-            }
-            if (prop->GetClass().HashObject() != FStructProperty::StaticClass().HashObject())
-            {
-                return;
-            }
-            if (prop->GetSize() < FVector::StaticSize())
-            {
-                return;
-            }
-            auto* value_ptr = prop->ContainerPtrToValuePtr<FVector>(params.data());
-            if (!value_ptr)
-            {
-                return;
-            }
-            const auto name = lower_copy_ascii(RC::to_string(prop->GetName()));
-            if (!found_origin && name.find("origin") != std::string::npos)
-            {
-                out_origin = *value_ptr;
-                found_origin = true;
-                return;
-            }
-            if (!found_extent && (name.find("boxextent") != std::string::npos || name.find("extent") != std::string::npos))
-            {
-                out_box_extent = *value_ptr;
-                found_extent = true;
-                return;
-            }
-            if (!found_origin)
-            {
-                out_origin = *value_ptr;
-                found_origin = true;
-                return;
-            }
-            if (!found_extent)
-            {
-                out_box_extent = *value_ptr;
-                found_extent = true;
-            }
-        });
-        return found_origin && found_extent;
     }
 
     auto read_text_property_value_no_process_event(UObject* context, std::string& out_text) -> bool
@@ -16124,16 +16118,29 @@ namespace WindroseTextSigns
         // Runtime font size is intentionally recomputed per-client from local
         // font profile/layout settings. Stored/synced fontSize remains legacy
         // compatibility data and is not used for rendering.
+        const bool fonted = m_autosize_profile_initialized && m_autosize_profile_has_override_pak;
         const auto normalized_for_fit = strip_terminal_line_breaks(text_value);
         const auto [font_min, font_max] = resolve_world_text_font_size_limits();
-        AutoSizeResult runtime_fit = fit_text_for_plaque(
-            normalized_for_fit,
-            m_autosize_char_width_factor,
-            font_min,
-            font_max);
-        float autosize_measured_max_width = 0.0f;
+        AutoSizeResult runtime_fit = fonted
+            ? fit_text_for_plaque_pak_weighted(
+                  normalized_for_fit,
+                  m_autosize_char_width_factor,
+                  font_min,
+                  font_max,
+                  m_autosize_horizontal_budget)
+            : fit_text_for_plaque(
+                  normalized_for_fit,
+                  m_autosize_char_width_factor,
+                  font_min,
+                  font_max,
+                  m_autosize_horizontal_budget);
         desired_font_size = std::clamp(runtime_fit.font_size, font_min, font_max);
         std::string render_text_for_rows = runtime_fit.wrapped_text.empty() ? text_value : runtime_fit.wrapped_text;
+        log_line("[autosize-widthmap] key=" + key +
+                 " source=" + std::string{fonted ? "pak" : "fallback"} +
+                 " rows=" + std::to_string(runtime_fit.rows) +
+                 " fontSize=" + std::to_string(desired_font_size) +
+                 " budget=" + std::to_string(m_autosize_horizontal_budget));
 
         auto rows = split_rows(render_text_for_rows);
         if (rows.empty())
@@ -16199,7 +16206,6 @@ namespace WindroseTextSigns
 
         std::vector<float> row_offsets{};
         row_offsets.reserve(static_cast<size_t>(row_count));
-        const bool fonted = m_autosize_profile_initialized && m_autosize_profile_has_override_pak;
         bool moved = false;
         bool sized = true;
         bool vcentered = true;
@@ -16292,141 +16298,6 @@ namespace WindroseTextSigns
             m_component_name_cache.erase(storage_key);
             return nullptr;
         };
-
-        // Prefer measured autosize/wrap using one hidden probe component so
-        // proportional font glyph widths are respected at runtime.
-        const std::string probe_storage_key = key + "|measure";
-        UObject* probe_component = find_cached_component_only(probe_storage_key);
-        if (!probe_component)
-        {
-            probe_component = create_managed_text_component(actor, probe_storage_key, relative_location);
-        }
-
-        if (probe_component)
-        {
-            (void)invoke_set_hidden_in_game(probe_component, true);
-            (void)invoke_set_visibility(probe_component, false);
-
-            bool logged_measure_fail_no_probe = false;
-            bool logged_measure_fail_set_world_size = false;
-            bool logged_measure_fail_set_text = false;
-            bool logged_measure_fail_local_bounds = false;
-            bool logged_measure_fail_component_bounds = false;
-            const auto log_measure_fail_once = [&](bool& already_logged, std::string_view step, const float font, std::string_view line) {
-                if (already_logged)
-                {
-                    return;
-                }
-                already_logged = true;
-                log_line("[autosize-measured] fail_step=" + std::string{step} +
-                         " key=" + key +
-                         " fontSize=" + std::to_string(font) +
-                         " textChars=" + std::to_string(line.size()));
-            };
-
-            const auto measure_line_width = [&](const float font, std::string_view line) -> std::optional<float> {
-                if (!probe_component)
-                {
-                    log_measure_fail_once(logged_measure_fail_no_probe, "probe_component_null", font, line);
-                    return std::nullopt;
-                }
-                if (!invoke_set_float_value(
-                        probe_component,
-                        STR("SetWorldSize"),
-                        STR("/Script/Engine.TextRenderComponent:SetWorldSize"),
-                        font))
-                {
-                    log_measure_fail_once(logged_measure_fail_set_world_size, "SetWorldSize_failed", font, line);
-                    return std::nullopt;
-                }
-                if (!invoke_set_text(probe_component, std::string{line}))
-                {
-                    log_measure_fail_once(logged_measure_fail_set_text, "SetText_failed", font, line);
-                    return std::nullopt;
-                }
-
-                FVector bounds_min{};
-                FVector bounds_max{};
-                if (invoke_get_local_bounds(probe_component, bounds_min, bounds_max))
-                {
-                    const double dx = std::abs(bounds_max.GetX() - bounds_min.GetX());
-                    const double dy = std::abs(bounds_max.GetY() - bounds_min.GetY());
-                    const float width = static_cast<float>(std::max(dx, dy));
-                    return std::max(0.0f, width);
-                }
-                log_measure_fail_once(logged_measure_fail_local_bounds, "GetLocalBounds_failed", font, line);
-
-                FVector origin{};
-                FVector extent{};
-                if (invoke_get_component_bounds(probe_component, origin, extent))
-                {
-                    const float width = static_cast<float>(std::max(
-                        std::abs(extent.GetX() * 2.0),
-                        std::abs(extent.GetY() * 2.0)));
-                    return std::max(0.0f, width);
-                }
-                log_measure_fail_once(logged_measure_fail_component_bounds, "GetComponentBounds_failed", font, line);
-                return std::nullopt;
-            };
-
-            if (const auto measured_fit = fit_text_for_plaque_measured(
-                    normalized_for_fit,
-                    font_min,
-                    font_max,
-                    measure_line_width,
-                    &autosize_measured_max_width);
-                measured_fit.has_value())
-            {
-                runtime_fit = *measured_fit;
-                desired_font_size = std::clamp(runtime_fit.font_size, font_min, font_max);
-                render_text_for_rows = runtime_fit.wrapped_text.empty() ? text_value : runtime_fit.wrapped_text;
-                rows = split_rows(render_text_for_rows);
-                log_line("[autosize-measured] key=" + key +
-                         " source=probe" +
-                         " rows=" + std::to_string(runtime_fit.rows) +
-                         " fontSize=" + std::to_string(desired_font_size) +
-                         " maxWidth=" + std::to_string(autosize_measured_max_width) +
-                         " budget=140.00");
-            }
-            else
-            {
-                bool measurement_ok = false;
-                if (const auto test_width = measure_line_width(desired_font_size, "WTSprobe"); test_width.has_value())
-                {
-                    measurement_ok = true;
-                }
-                if (!measurement_ok)
-                {
-                    static bool s_logged_bounds_unavailable = false;
-                    if (!s_logged_bounds_unavailable)
-                    {
-                        log_line("[autosize-measured] bounds_unavailable source=fallback reason=see_fail_step_logs");
-                        s_logged_bounds_unavailable = true;
-                    }
-                }
-                log_line("[autosize-measured] key=" + key +
-                         " source=fallback" +
-                         " rows=" + std::to_string(runtime_fit.rows) +
-                         " fontSize=" + std::to_string(desired_font_size) +
-                         " maxWidth=unknown" +
-                         " budget=140.00");
-            }
-
-            m_component_name_cache[probe_storage_key] = narrow_ascii(probe_component->GetFullName());
-            (void)invoke_set_text(probe_component, "");
-            (void)invoke_set_hidden_in_game(probe_component, true);
-            (void)invoke_set_visibility(probe_component, false);
-        }
-        else
-        {
-            log_line("[autosize-measured] fail_step=probe_component_create_failed key=" + key);
-            log_line("[autosize-measured] key=" + key +
-                     " source=fallback" +
-                     " rows=" + std::to_string(runtime_fit.rows) +
-                     " fontSize=" + std::to_string(desired_font_size) +
-                     " maxWidth=unknown" +
-                     " budget=140.00");
-        }
 
         const auto make_staging_row_storage_key = [&](const int row_index) {
             return make_managed_row_storage_key(key, row_index) + "|stage";
@@ -16722,11 +16593,20 @@ namespace WindroseTextSigns
         rec.world_id = world_id;
         const auto normalized_text_value = strip_terminal_line_breaks(text_value);
         const auto [font_min, font_max] = resolve_world_text_font_size_limits();
-        const auto fit = fit_text_for_plaque(
-            normalized_text_value,
-            m_autosize_char_width_factor,
-            font_min,
-            font_max);
+        const bool fonted = m_autosize_profile_initialized && m_autosize_profile_has_override_pak;
+        const auto fit = fonted
+            ? fit_text_for_plaque_pak_weighted(
+                  normalized_text_value,
+                  m_autosize_char_width_factor,
+                  font_min,
+                  font_max,
+                  m_autosize_horizontal_budget)
+            : fit_text_for_plaque(
+                  normalized_text_value,
+                  m_autosize_char_width_factor,
+                  font_min,
+                  font_max,
+                  m_autosize_horizontal_budget);
         rec.text = fit.wrapped_text;
         rec.font_size = std::clamp(fit.font_size, font_min, font_max);
         rec.asset = m_selected->asset.empty() ? detect_label_asset(actor) : m_selected->asset;
@@ -21036,6 +20916,7 @@ namespace WindroseTextSigns
         {
             static bool live_surface_tune = true;
             float autosize_char_width_factor_value = std::clamp(m_autosize_char_width_factor, 0.20f, 2.00f);
+            float autosize_horizontal_budget_value = std::clamp(m_autosize_horizontal_budget, 80.0f, 220.0f);
             float row_gap_factor_2_value = std::clamp(m_row_gap_factor_2, 0.00f, 3.00f);
             float row_gap_factor_3_value = std::clamp(m_row_gap_factor_3, 0.00f, 3.00f);
             float row_gap_factor_4_value = std::clamp(m_row_gap_factor_4, 0.00f, 3.00f);
@@ -21062,6 +20943,17 @@ namespace WindroseTextSigns
             {
                 m_autosize_char_width_factor = std::clamp(autosize_char_width_factor_value, 0.20f, 2.00f);
                 log_line("[autosize] char_width_factor_updated value=" + std::to_string(m_autosize_char_width_factor));
+            }
+            if (ImGui::DragFloat("Autosize Horizontal Budget", &autosize_horizontal_budget_value, 1.0f, 80.0f, 220.0f, "%.0f"))
+            {
+                m_autosize_horizontal_budget = std::clamp(autosize_horizontal_budget_value, 80.0f, 220.0f);
+                log_line("[autosize] horizontal_budget_updated value=" + std::to_string(m_autosize_horizontal_budget));
+                if (live_surface_tune)
+                {
+                    const bool rendered = apply_text_to_actor_component(m_selected->actor, found->second.text);
+                    log_line("[phase4] autosize_budget_tune_live key=" + key +
+                             " rendered=" + std::string{rendered ? "true" : "false"});
+                }
             }
             bool row_gap_factors_changed = false;
             row_gap_factors_changed = ImGui::DragFloat("Row Gap Factor (2 rows)", &row_gap_factor_2_value, 0.01f, 0.00f, 3.00f, "%.2f") || row_gap_factors_changed;

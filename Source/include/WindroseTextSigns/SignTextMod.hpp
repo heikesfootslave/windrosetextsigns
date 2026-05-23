@@ -811,6 +811,7 @@ namespace WindroseTextSigns
         bool m_autosize_profile_initialized{false};
         bool m_autosize_profile_has_override_pak{false};
         float m_autosize_char_width_factor{0.85f};
+        float m_autosize_horizontal_budget{140.0f};
         float m_row_gap_factor{1.50f};
         float m_row_gap_factor_2{1.50f};
         float m_row_gap_factor_3{1.25f};
