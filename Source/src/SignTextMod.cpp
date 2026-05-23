@@ -4682,6 +4682,66 @@ namespace
         return true;
     }
 
+    auto sync_button_hover_with_normal_style(UObject* button) -> bool
+    {
+        if (!button || !button->GetClassPrivate())
+        {
+            return false;
+        }
+
+        bool copied = false;
+        for_each_property_in_chain_compat(button->GetClassPrivate(), [&](FProperty* prop) {
+            if (!prop || copied || prop->GetClass().HashObject() != FStructProperty::StaticClass().HashObject())
+            {
+                return;
+            }
+            const auto prop_name = lower_copy_ascii(RC::to_string(prop->GetName()));
+            if (prop_name != "widgetstyle" && prop_name != "style")
+            {
+                return;
+            }
+
+            auto* style_prop = static_cast<FStructProperty*>(prop);
+            auto* style_storage = style_prop->ContainerPtrToValuePtr<void>(button);
+            RC::Unreal::UScriptStruct* style_struct = style_prop->GetStruct().Get();
+            if (!style_storage || !style_struct)
+            {
+                return;
+            }
+
+            void* normal_storage = nullptr;
+            void* hovered_storage = nullptr;
+            int32_t normal_size = 0;
+            int32_t hovered_size = 0;
+
+            for_each_property_in_chain_compat(style_struct, [&](FProperty* inner_prop) {
+                if (!inner_prop || inner_prop->GetClass().HashObject() != FStructProperty::StaticClass().HashObject())
+                {
+                    return;
+                }
+                const auto inner_name = lower_copy_ascii(RC::to_string(inner_prop->GetName()));
+                if (inner_name == "normal")
+                {
+                    normal_storage = inner_prop->ContainerPtrToValuePtr<void>(style_storage);
+                    normal_size = inner_prop->GetSize();
+                }
+                else if (inner_name == "hovered")
+                {
+                    hovered_storage = inner_prop->ContainerPtrToValuePtr<void>(style_storage);
+                    hovered_size = inner_prop->GetSize();
+                }
+            });
+
+            if (normal_storage && hovered_storage && normal_size > 0 && normal_size == hovered_size)
+            {
+                std::memcpy(hovered_storage, normal_storage, static_cast<size_t>(normal_size));
+                copied = true;
+            }
+        });
+
+        return copied;
+    }
+
     auto invoke_set_byte_value(UObject* context, const TCHAR* in_chain_name, const TCHAR* path_name, uint8_t value) -> bool
     {
         auto* fn = find_function_by_chain_or_path(context, in_chain_name, path_name);
@@ -6268,6 +6328,18 @@ namespace WindroseTextSigns
         const bool status_ok = invoke_set_vector2d_value(
             m_phase7_umg_status, STR("SetRenderScale"), STR("/Script/UMG.Widget:SetRenderScale"),
             m_phase7_debug_status_render_scale, m_phase7_debug_status_render_scale);
+        m_phase7_debug_refresh_label_offset_x = std::clamp(m_phase7_debug_refresh_label_offset_x, -60.0f, 60.0f);
+        m_phase7_debug_refresh_label_offset_y = std::clamp(m_phase7_debug_refresh_label_offset_y, -60.0f, 60.0f);
+        bool refresh_label_offset_ok = false;
+        if (m_phase7_umg_refresh_all_label && is_uobject_reflection_safe(m_phase7_umg_refresh_all_label))
+        {
+            refresh_label_offset_ok = invoke_set_vector2d_value(
+                m_phase7_umg_refresh_all_label,
+                STR("SetRenderTranslation"),
+                STR("/Script/UMG.Widget:SetRenderTranslation"),
+                m_phase7_debug_refresh_label_offset_x,
+                m_phase7_debug_refresh_label_offset_y);
+        }
 
         if (reason)
         {
@@ -6275,11 +6347,18 @@ namespace WindroseTextSigns
             hint_text << std::fixed << std::setprecision(2) << m_phase7_debug_hint_render_scale;
             std::ostringstream status_text{};
             status_text << std::fixed << std::setprecision(2) << m_phase7_debug_status_render_scale;
+            std::ostringstream refresh_x{};
+            refresh_x << std::fixed << std::setprecision(2) << m_phase7_debug_refresh_label_offset_x;
+            std::ostringstream refresh_y{};
+            refresh_y << std::fixed << std::setprecision(2) << m_phase7_debug_refresh_label_offset_y;
             log_line("[phase7-umg] debug_render_scale_apply reason=" + std::string{reason} +
                      " hint=" + hint_text.str() +
                      " status=" + status_text.str() +
+                     " refreshTextOffsetX=" + refresh_x.str() +
+                     " refreshTextOffsetY=" + refresh_y.str() +
                      " hintOk=" + std::string{hint_ok ? "true" : "false"} +
-                     " statusOk=" + std::string{status_ok ? "true" : "false"});
+                     " statusOk=" + std::string{status_ok ? "true" : "false"} +
+                     " refreshTextOffsetOk=" + std::string{refresh_label_offset_ok ? "true" : "false"});
         }
     }
 
@@ -6320,6 +6399,7 @@ namespace WindroseTextSigns
         m_phase7_umg_hint = nullptr;
         m_phase7_umg_status = nullptr;
         m_phase7_umg_refresh_all_button = nullptr;
+        m_phase7_umg_refresh_all_label = nullptr;
         m_phase7_umg_apply_button = nullptr;
         m_phase7_umg_clear_button = nullptr;
         m_phase7_umg_cancel_button = nullptr;
@@ -6418,11 +6498,9 @@ namespace WindroseTextSigns
         auto* refresh_all_button = m_phase7_class_button
             ? create_umg_widget_object(tree, m_phase7_class_button, "WTS_RefreshAllButton")
             : nullptr;
-        auto* refresh_all_visual = create_umg_widget_object(tree, m_phase7_class_border, "WTS_RefreshAllVisual");
-        auto* refresh_all_label_box = create_umg_widget_object(tree, m_phase7_class_size_box, "WTS_RefreshAllLabelBox");
         auto* refresh_all_label = create_umg_widget_object(tree, m_phase7_class_text_block, "WTS_RefreshAllLabel");
 
-        if (!root || !frame || !background || !panel || !title || !divider || !input_frame || !input_background || !editor || !text_box || !hint || !status || !refresh_all_visual || !refresh_all_label_box || !refresh_all_label)
+        if (!root || !frame || !background || !panel || !title || !divider || !input_frame || !input_background || !editor || !text_box || !hint || !status || !refresh_all_label)
         {
             log_line("[phase7-umg] open_failed reason=construct_children root=" + std::string{root ? "1" : "0"} +
                      " frame=" + std::string{frame ? "1" : "0"} +
@@ -6437,8 +6515,6 @@ namespace WindroseTextSigns
                      " hint=" + std::string{hint ? "1" : "0"} +
                      " status=" + std::string{status ? "1" : "0"} +
                      " refreshButton=" + std::string{refresh_all_button ? "1" : "0"} +
-                     " refreshVisual=" + std::string{refresh_all_visual ? "1" : "0"} +
-                     " refreshLabelBox=" + std::string{refresh_all_label_box ? "1" : "0"} +
                      " refreshLabel=" + std::string{refresh_all_label ? "1" : "0"});
             return false;
         }
@@ -6470,20 +6546,7 @@ namespace WindroseTextSigns
         const bool status_color =
             invoke_set_rgba_value(status, STR("SetColorAndOpacity"), nullptr, 0.82f, 0.80f, 0.75f, 1.0f) ||
             invoke_set_rgba_value(status, STR("SetForegroundColor"), nullptr, 0.82f, 0.80f, 0.75f, 1.0f);
-        const bool refresh_visual_color = invoke_set_rgba_value(
-            refresh_all_visual,
-            STR("SetBrushColor"),
-            STR("/Script/UMG.Border:SetBrushColor"),
-            0.72f, 0.72f, 0.72f, 1.0f);
-        const bool refresh_visual_padding = invoke_set_margin_value(
-            refresh_all_visual,
-            STR("SetPadding"),
-            STR("/Script/UMG.Border:SetPadding"),
-            0.0f, 0.0f, 0.0f, 0.0f);
-        const bool refresh_button_color =
-            (refresh_all_button &&
-             (invoke_set_rgba_value(refresh_all_button, STR("SetBackgroundColor"), STR("/Script/UMG.Button:SetBackgroundColor"), 0.0f, 0.0f, 0.0f, 0.0f) ||
-              invoke_set_rgba_value(refresh_all_button, STR("SetColorAndOpacity"), nullptr, 0.0f, 0.0f, 0.0f, 0.0f)));
+        const bool refresh_button_color = true;
         const bool refresh_label_color =
             invoke_set_rgba_value(refresh_all_label, STR("SetColorAndOpacity"), nullptr, 0.50f, 0.50f, 0.50f, 1.0f) ||
             invoke_set_rgba_value(refresh_all_label, STR("SetForegroundColor"), nullptr, 0.50f, 0.50f, 0.50f, 1.0f);
@@ -6502,26 +6565,6 @@ namespace WindroseTextSigns
             STR("SetRenderTransformPivot"),
             STR("/Script/UMG.Widget:SetRenderTransformPivot"),
             0.5f, 0.5f);
-        const bool refresh_label_box_width = invoke_set_float_value(
-            refresh_all_label_box,
-            STR("SetWidthOverride"),
-            STR("/Script/UMG.SizeBox:SetWidthOverride"),
-            104.0f);
-        const bool refresh_label_box_height = invoke_set_float_value(
-            refresh_all_label_box,
-            STR("SetHeightOverride"),
-            STR("/Script/UMG.SizeBox:SetHeightOverride"),
-            44.0f);
-        const bool refresh_label_box_halign = invoke_set_byte_value(
-            refresh_all_label_box,
-            STR("SetHAlign"),
-            STR("/Script/UMG.SizeBox:SetHAlign"),
-            3);
-        const bool refresh_label_box_valign = invoke_set_byte_value(
-            refresh_all_label_box,
-            STR("SetVAlign"),
-            STR("/Script/UMG.SizeBox:SetVAlign"),
-            3);
         const bool refresh_button_halign = refresh_all_button && invoke_set_byte_value(
             refresh_all_button,
             STR("SetHorizontalAlignment"),
@@ -6587,9 +6630,8 @@ namespace WindroseTextSigns
         auto* refresh_all_button_slot = refresh_all_button ? invoke_add_child(panel, refresh_all_button) : nullptr;
         const bool refresh_all_button_pos = invoke_set_vector2d_value(refresh_all_button_slot, STR("SetPosition"), nullptr, 52.0f, 352.0f);
         const bool refresh_all_button_size = invoke_set_vector2d_value(refresh_all_button_slot, STR("SetSize"), nullptr, 104.0f, 44.0f);
-        const bool refresh_all_label_box_content = invoke_set_content(refresh_all_label_box, refresh_all_label);
-        const bool refresh_all_visual_content = invoke_set_content(refresh_all_visual, refresh_all_label_box);
-        const bool refresh_all_button_content = refresh_all_button && invoke_set_content(refresh_all_button, refresh_all_visual);
+        const bool refresh_all_button_content = refresh_all_button && invoke_set_content(refresh_all_button, refresh_all_label);
+        const bool refresh_hover_matches_normal = !refresh_all_button || sync_button_hover_with_normal_style(refresh_all_button);
 
         const bool input_frame_content = invoke_set_content(input_frame, input_background);
         const bool input_background_content = invoke_set_content(input_background, editor);
@@ -6603,7 +6645,7 @@ namespace WindroseTextSigns
             hint_slot && hint_pos && hint_size &&
             status_slot && status_pos && status_size &&
             refresh_all_button_slot && refresh_all_button_pos && refresh_all_button_size &&
-            refresh_all_label_box_content && refresh_all_visual_content && refresh_all_button_content &&
+            refresh_all_button_content &&
             input_frame_content && input_background_content && set_content;
         if (!layout_ok)
         {
@@ -6615,7 +6657,7 @@ namespace WindroseTextSigns
                      " input=" + std::string{(input_slot && input_pos && input_size) ? "true" : "false"} +
                      " hint=" + std::string{(hint_slot && hint_pos && hint_size) ? "true" : "false"} +
                      " status=" + std::string{(status_slot && status_pos && status_size) ? "true" : "false"} +
-                     " refreshButton=" + std::string{(refresh_all_button_slot && refresh_all_button_pos && refresh_all_button_size && refresh_all_label_box_content && refresh_all_visual_content && refresh_all_button_content) ? "true" : "false"});
+                     " refreshButton=" + std::string{(refresh_all_button_slot && refresh_all_button_pos && refresh_all_button_size && refresh_all_button_content) ? "true" : "false"});
             return false;
         }
 
@@ -6625,6 +6667,7 @@ namespace WindroseTextSigns
         m_phase7_umg_hint = hint;
         m_phase7_umg_status = status;
         m_phase7_umg_refresh_all_button = refresh_all_button;
+        m_phase7_umg_refresh_all_label = refresh_all_label;
         m_phase7_umg_refresh_all_was_pressed = false;
         m_phase7_umg_refresh_all_clicked_once = false;
         cache_phase7_umg_function_pointers();
@@ -6635,15 +6678,14 @@ namespace WindroseTextSigns
         log_line(std::string{"[phase7-umg] prewarm_result built=true added=false collapsed=true focus=false"} +
                  " style=" + std::string{(title_text && hint_text && status_text && refresh_button_text && input_text && title_color && hint_color && status_color && refresh_label_color && input_color &&
                                           status_pivot &&
-                                          frame_color && background_color && divider_color && input_frame_color && input_background_color &&
-                                          frame_padding && background_padding && input_frame_padding && input_background_padding &&
+                                         frame_color && background_color && divider_color && input_frame_color && input_background_color &&
+                                         frame_padding && background_padding && input_frame_padding && input_background_padding &&
                                          editor_width && editor_height && root_opacity && frame_opacity && background_opacity &&
                                          editor_opacity && input_opacity && frame_scale && title_scale && hint_scale && status_scale && refresh_label_scale && input_scale &&
-                                         refresh_visual_color && refresh_visual_padding &&
                                          refresh_label_justify && refresh_label_nowrap && refresh_label_pivot &&
-                                         refresh_label_box_width && refresh_label_box_height && refresh_label_box_halign && refresh_label_box_valign &&
                                          refresh_button_halign && refresh_button_valign &&
-                                         refresh_button_color) ? "true" : "false"});
+                                         refresh_button_color &&
+                                         refresh_hover_matches_normal) ? "true" : "false"});
         return true;
     }
 
@@ -7237,6 +7279,7 @@ namespace WindroseTextSigns
         m_phase7_umg_hint = nullptr;
         m_phase7_umg_status = nullptr;
         m_phase7_umg_refresh_all_button = nullptr;
+        m_phase7_umg_refresh_all_label = nullptr;
         m_phase7_umg_apply_button = nullptr;
         m_phase7_umg_clear_button = nullptr;
         m_phase7_umg_cancel_button = nullptr;
@@ -15757,8 +15800,6 @@ namespace WindroseTextSigns
         (void)invoke_set_visibility(created_component, false);
         (void)invoke_set_text(created_component, "");
         (void)invoke_set_relative_location(created_component, relative_location);
-        const bool font_applied = apply_world_text_font(created_component);
-
         (void)invoke_set_float_value(
             created_component,
             STR("SetWorldSize"),
@@ -15774,8 +15815,6 @@ namespace WindroseTextSigns
             STR("SetVerticalAlignment"),
             STR("/Script/Engine.TextRenderComponent:SetVerticalAlignment"),
             1);
-        log_line("[phase4-font] create_component_font component=" + narrow_ascii(created_component->GetFullName()) +
-                 " applied=" + std::string{font_applied ? "true" : "false"});
         return created_component;
     }
 
@@ -16164,8 +16203,6 @@ namespace WindroseTextSigns
         bool moved = false;
         bool sized = true;
         bool vcentered = true;
-        bool ufont_applied_all_rows = true;
-        bool ufont_apply_attempted = false;
         bool colored = true;
         bool text_applied = true;
         bool any_reused_existing = false;
@@ -16270,9 +16307,27 @@ namespace WindroseTextSigns
             (void)invoke_set_hidden_in_game(probe_component, true);
             (void)invoke_set_visibility(probe_component, false);
 
+            bool logged_measure_fail_no_probe = false;
+            bool logged_measure_fail_set_world_size = false;
+            bool logged_measure_fail_set_text = false;
+            bool logged_measure_fail_local_bounds = false;
+            bool logged_measure_fail_component_bounds = false;
+            const auto log_measure_fail_once = [&](bool& already_logged, std::string_view step, const float font, std::string_view line) {
+                if (already_logged)
+                {
+                    return;
+                }
+                already_logged = true;
+                log_line("[autosize-measured] fail_step=" + std::string{step} +
+                         " key=" + key +
+                         " fontSize=" + std::to_string(font) +
+                         " textChars=" + std::to_string(line.size()));
+            };
+
             const auto measure_line_width = [&](const float font, std::string_view line) -> std::optional<float> {
                 if (!probe_component)
                 {
+                    log_measure_fail_once(logged_measure_fail_no_probe, "probe_component_null", font, line);
                     return std::nullopt;
                 }
                 if (!invoke_set_float_value(
@@ -16281,14 +16336,12 @@ namespace WindroseTextSigns
                         STR("/Script/Engine.TextRenderComponent:SetWorldSize"),
                         font))
                 {
-                    return std::nullopt;
-                }
-                if (fonted && !apply_world_text_font(probe_component))
-                {
+                    log_measure_fail_once(logged_measure_fail_set_world_size, "SetWorldSize_failed", font, line);
                     return std::nullopt;
                 }
                 if (!invoke_set_text(probe_component, std::string{line}))
                 {
+                    log_measure_fail_once(logged_measure_fail_set_text, "SetText_failed", font, line);
                     return std::nullopt;
                 }
 
@@ -16301,6 +16354,7 @@ namespace WindroseTextSigns
                     const float width = static_cast<float>(std::max(dx, dy));
                     return std::max(0.0f, width);
                 }
+                log_measure_fail_once(logged_measure_fail_local_bounds, "GetLocalBounds_failed", font, line);
 
                 FVector origin{};
                 FVector extent{};
@@ -16311,6 +16365,7 @@ namespace WindroseTextSigns
                         std::abs(extent.GetY() * 2.0)));
                     return std::max(0.0f, width);
                 }
+                log_measure_fail_once(logged_measure_fail_component_bounds, "GetComponentBounds_failed", font, line);
                 return std::nullopt;
             };
 
@@ -16345,7 +16400,7 @@ namespace WindroseTextSigns
                     static bool s_logged_bounds_unavailable = false;
                     if (!s_logged_bounds_unavailable)
                     {
-                        log_line("[autosize-measured] bounds_unavailable source=fallback reason=reflection_or_bounds_read_failed");
+                        log_line("[autosize-measured] bounds_unavailable source=fallback reason=see_fail_step_logs");
                         s_logged_bounds_unavailable = true;
                     }
                 }
@@ -16364,6 +16419,7 @@ namespace WindroseTextSigns
         }
         else
         {
+            log_line("[autosize-measured] fail_step=probe_component_create_failed key=" + key);
             log_line("[autosize-measured] key=" + key +
                      " source=fallback" +
                      " rows=" + std::to_string(runtime_fit.rows) +
@@ -16478,18 +16534,11 @@ namespace WindroseTextSigns
                 STR("SetVerticalAlignment"),
                 STR("/Script/Engine.TextRenderComponent:SetVerticalAlignment"),
                 1);
-            bool row_font_applied = true;
-            if (fonted)
-            {
-                ufont_apply_attempted = true;
-                row_font_applied = apply_world_text_font(text_component);
-            }
             const bool row_colored = invoke_set_text_render_color(text_component, desired_r, desired_g, desired_b, desired_a);
             const bool row_text_applied = invoke_set_text(text_component, rows[static_cast<size_t>(row_index)]);
 
             sized = sized && row_sized;
             vcentered = vcentered && row_hcentered && row_vcentered;
-            ufont_applied_all_rows = ufont_applied_all_rows && row_font_applied;
             colored = colored && row_colored;
             text_applied = text_applied && row_text_applied;
 
@@ -16627,8 +16676,6 @@ namespace WindroseTextSigns
                  " sized=" + std::string{sized ? "true" : "false"} +
                  " vcentered=" + std::string{vcentered ? "true" : "false"} +
                  " fonted=" + std::string{fonted ? "true" : "false"} +
-                 " ufontApplyAttempted=" + std::string{ufont_apply_attempted ? "true" : "false"} +
-                 " ufontAppliedAllRows=" + std::string{ufont_applied_all_rows ? "true" : "false"} +
                  " colored=" + std::string{colored ? "true" : "false"} +
                  " relLoc=" + loc.str() +
                  " textChars=" + std::to_string(text_value.size()));
@@ -20930,12 +20977,18 @@ namespace WindroseTextSigns
         ImGui::Text("Phase 7 UMG Debug (Temporary)");
         float status_scale_value = m_phase7_debug_status_render_scale;
         float hint_scale_value = m_phase7_debug_hint_render_scale;
+        float refresh_text_offset_x = m_phase7_debug_refresh_label_offset_x;
+        float refresh_text_offset_y = m_phase7_debug_refresh_label_offset_y;
         bool status_scale_changed = ImGui::DragFloat("Status Render Scale", &status_scale_value, 0.01f, 0.25f, 2.00f, "%.2f");
         bool hint_scale_changed = ImGui::DragFloat("Hint Render Scale", &hint_scale_value, 0.01f, 0.25f, 2.00f, "%.2f");
-        if (status_scale_changed || hint_scale_changed)
+        bool refresh_text_x_changed = ImGui::DragFloat("Refresh Text Align X", &refresh_text_offset_x, 0.25f, -60.0f, 60.0f, "%.2f");
+        bool refresh_text_y_changed = ImGui::DragFloat("Refresh Text Align Y", &refresh_text_offset_y, 0.25f, -60.0f, 60.0f, "%.2f");
+        if (status_scale_changed || hint_scale_changed || refresh_text_x_changed || refresh_text_y_changed)
         {
             m_phase7_debug_status_render_scale = std::clamp(status_scale_value, 0.25f, 2.00f);
             m_phase7_debug_hint_render_scale = std::clamp(hint_scale_value, 0.25f, 2.00f);
+            m_phase7_debug_refresh_label_offset_x = std::clamp(refresh_text_offset_x, -60.0f, 60.0f);
+            m_phase7_debug_refresh_label_offset_y = std::clamp(refresh_text_offset_y, -60.0f, 60.0f);
             apply_phase7_umg_debug_scales("imgui_debug_tune");
         }
 

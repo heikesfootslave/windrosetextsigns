@@ -597,6 +597,7 @@ namespace WindroseTextSigns
         RC::Unreal::UObject* m_phase7_umg_hint{};
         RC::Unreal::UObject* m_phase7_umg_status{};
         RC::Unreal::UObject* m_phase7_umg_refresh_all_button{};
+        RC::Unreal::UObject* m_phase7_umg_refresh_all_label{};
         RC::Unreal::UObject* m_phase7_umg_apply_button{};
         RC::Unreal::UObject* m_phase7_umg_clear_button{};
         RC::Unreal::UObject* m_phase7_umg_cancel_button{};
@@ -615,6 +616,8 @@ namespace WindroseTextSigns
         RC::Unreal::UFunction* m_phase7_fn_set_visibility{};
         float m_phase7_debug_status_render_scale{0.45f};
         float m_phase7_debug_hint_render_scale{0.4f};
+        float m_phase7_debug_refresh_label_offset_x{0.0f};
+        float m_phase7_debug_refresh_label_offset_y{0.0f};
         bool m_phase7_umg_prewarm_attempted{false};
         bool m_phase7_umg_prewarm_succeeded{false};
         bool m_phase7_umg_in_viewport{false};
