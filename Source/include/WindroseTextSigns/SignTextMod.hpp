@@ -672,6 +672,7 @@ namespace WindroseTextSigns
             int row_count{0};
             std::array<RC::Unreal::UObject*, 4> active_row_components{nullptr, nullptr, nullptr, nullptr};
             std::vector<RC::Unreal::UObject*> staging_row_components{};
+            std::vector<RC::Unreal::FVector> expected_row_relative_locations{};
         };
         bool m_phase4_batch_stage_mode{false};
         std::vector<Phase4StagedSwapPlan> m_phase4_staged_swap_plans{};

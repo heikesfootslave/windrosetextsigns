@@ -6228,7 +6228,7 @@ namespace WindroseTextSigns
         const bool title_text = invoke_umg_set_text(title, "Sign Text");
         const bool hint_text = invoke_umg_set_text(hint, "Enter  Apply\nShift+Enter  New line\nEsc  Cancel");
         const bool status_text = invoke_umg_set_text(status, "Status\nRole: Error: Not locked\nNetwork: Error - Not connected to Server");
-        const bool refresh_button_text = invoke_umg_set_text(refresh_all_label, "Refresh All Signs");
+        const bool refresh_button_text = invoke_umg_set_text(refresh_all_label, "Refresh\nAll Signs");
         const bool input_text = invoke_umg_set_text(text_box, "");
         const bool title_color =
             invoke_set_rgba_value(title, STR("SetColorAndOpacity"), nullptr, 0.91f, 0.88f, 0.81f, 1.0f) ||
@@ -6249,6 +6249,21 @@ namespace WindroseTextSigns
         const bool refresh_label_color =
             invoke_set_rgba_value(refresh_all_label, STR("SetColorAndOpacity"), nullptr, 0.50f, 0.50f, 0.50f, 1.0f) ||
             invoke_set_rgba_value(refresh_all_label, STR("SetForegroundColor"), nullptr, 0.50f, 0.50f, 0.50f, 1.0f);
+        const bool refresh_label_justify = invoke_set_byte_value(
+            refresh_all_label,
+            STR("SetJustification"),
+            STR("/Script/UMG.TextBlock:SetJustification"),
+            1);
+        const bool refresh_button_halign = refresh_all_button && invoke_set_byte_value(
+            refresh_all_button,
+            STR("SetHorizontalAlignment"),
+            STR("/Script/UMG.Button:SetHorizontalAlignment"),
+            1);
+        const bool refresh_button_valign = refresh_all_button && invoke_set_byte_value(
+            refresh_all_button,
+            STR("SetVerticalAlignment"),
+            STR("/Script/UMG.Button:SetVerticalAlignment"),
+            1);
         const bool status_pivot = invoke_set_vector2d_value(
             status, STR("SetRenderTransformPivot"), STR("/Script/UMG.Widget:SetRenderTransformPivot"),
             0.0f, 0.0f);
@@ -6353,6 +6368,7 @@ namespace WindroseTextSigns
                                           frame_padding && background_padding && input_frame_padding && input_background_padding &&
                                           editor_width && editor_height && root_opacity && frame_opacity && background_opacity &&
                                           editor_opacity && input_opacity && frame_scale && title_scale && hint_scale && status_scale && refresh_label_scale && input_scale &&
+                                          refresh_label_justify && refresh_button_halign && refresh_button_valign &&
                                           refresh_button_color) ? "true" : "false"});
         return true;
     }
@@ -7356,30 +7372,6 @@ namespace WindroseTextSigns
         if (m_phase7_umg_refresh_all_button &&
             is_uobject_reflection_safe(m_phase7_umg_refresh_all_button))
         {
-            bool refresh_button_hovered = false;
-            const bool refresh_button_hover_ok = invoke_bool_return_no_param(
-                m_phase7_umg_refresh_all_button,
-                STR("IsHovered"),
-                STR("/Script/UMG.Widget:IsHovered"),
-                refresh_button_hovered);
-            if (m_phase7_umg_refresh_all_clicked_once && refresh_button_hover_ok)
-            {
-                const float hover_r = refresh_button_hovered ? 0.95f : 0.72f;
-                const float hover_g = refresh_button_hovered ? 0.95f : 0.72f;
-                const float hover_b = refresh_button_hovered ? 0.95f : 0.72f;
-                (void)(
-                    invoke_set_rgba_value(
-                        m_phase7_umg_refresh_all_button,
-                        STR("SetBackgroundColor"),
-                        STR("/Script/UMG.Button:SetBackgroundColor"),
-                        hover_r, hover_g, hover_b, 1.0f) ||
-                    invoke_set_rgba_value(
-                        m_phase7_umg_refresh_all_button,
-                        STR("SetColorAndOpacity"),
-                        nullptr,
-                        hover_r, hover_g, hover_b, 1.0f));
-            }
-
             bool refresh_button_pressed = false;
             const bool refresh_button_state_ok = invoke_bool_return_no_param(
                 m_phase7_umg_refresh_all_button,
@@ -14540,9 +14532,12 @@ namespace WindroseTextSigns
         const auto started = std::chrono::steady_clock::now();
         size_t rendered = 0;
         size_t hidden = 0;
+        size_t transform_repaired_rows = 0;
+        size_t transform_repaired_keys = 0;
 
         for (const auto& plan : m_phase4_staged_swap_plans)
         {
+            bool key_had_transform_repair = false;
             std::unordered_set<uintptr_t> hidden_active_once{};
             hidden_active_once.reserve(4);
             for (int row_index = 0; row_index < 4; ++row_index)
@@ -14573,6 +14568,36 @@ namespace WindroseTextSigns
                 (void)invoke_set_hidden_in_game(row_component, false);
                 (void)invoke_set_visibility(row_component, true);
 
+                if (row_index < plan.expected_row_relative_locations.size())
+                {
+                    auto expected_location = plan.expected_row_relative_locations[row_index];
+                    FVector observed_location{};
+                    const bool read_ok = invoke_vector_return_no_param(
+                        row_component,
+                        STR("GetRelativeLocation"),
+                        STR("/Script/Engine.SceneComponent:GetRelativeLocation"),
+                        observed_location);
+                    bool needs_repair = !read_ok;
+                    if (read_ok)
+                    {
+                        const auto same = [](const double a, const double b) {
+                            return std::abs(a - b) <= 0.10;
+                        };
+                        needs_repair =
+                            !same(observed_location.GetX(), expected_location.GetX()) ||
+                            !same(observed_location.GetY(), expected_location.GetY()) ||
+                            !same(observed_location.GetZ(), expected_location.GetZ());
+                    }
+                    if (needs_repair)
+                    {
+                        if (invoke_set_relative_location(row_component, expected_location))
+                        {
+                            ++transform_repaired_rows;
+                            key_had_transform_repair = true;
+                        }
+                    }
+                }
+
                 const auto active_row_storage_key = make_managed_row_storage_key(plan.key, static_cast<int>(row_index));
                 m_component_name_cache[active_row_storage_key] = narrow_ascii(row_component->GetFullName());
                 m_component_name_cache.erase(active_row_storage_key + "|stage");
@@ -14587,6 +14612,10 @@ namespace WindroseTextSigns
                 m_component_name_cache.erase(active_row_storage_key);
                 m_component_name_cache.erase(active_row_storage_key + "|stage");
             }
+            if (key_had_transform_repair)
+            {
+                ++transform_repaired_keys;
+            }
             ++rendered;
         }
 
@@ -14597,6 +14626,12 @@ namespace WindroseTextSigns
                  " rendered=" + std::to_string(rendered) +
                  " hidden=" + std::to_string(hidden) +
                  " elapsedMs=" + std::to_string(elapsed_ms));
+        if (transform_repaired_rows > 0)
+        {
+            log_line("[phase4] row_transform_repair reason=" + (reason.empty() ? "unknown" : reason) +
+                     " repairedRows=" + std::to_string(transform_repaired_rows) +
+                     " repairedKeys=" + std::to_string(transform_repaired_keys));
+        }
         m_phase4_staged_swap_plans.clear();
         return {rendered, hidden};
     }
@@ -15843,6 +15878,8 @@ namespace WindroseTextSigns
 
         std::vector<UObject*> staging_row_components{};
         staging_row_components.reserve(static_cast<size_t>(row_count));
+        std::vector<FVector> staging_row_expected_relative_locations{};
+        staging_row_expected_relative_locations.reserve(static_cast<size_t>(row_count));
         std::unordered_set<uintptr_t> assigned_row_component_ptrs{};
         assigned_row_component_ptrs.reserve(static_cast<size_t>(row_count));
 
@@ -15935,6 +15972,7 @@ namespace WindroseTextSigns
                 break;
             }
             staging_row_components.push_back(text_component);
+            staging_row_expected_relative_locations.push_back(row_relative_location);
         }
 
         if (!text_applied)
@@ -15955,6 +15993,9 @@ namespace WindroseTextSigns
             plan.row_count = row_count;
             plan.active_row_components = active_row_components;
             plan.staging_row_components.assign(staging_row_components.begin(), staging_row_components.end());
+            plan.expected_row_relative_locations.assign(
+                staging_row_expected_relative_locations.begin(),
+                staging_row_expected_relative_locations.end());
             m_phase4_staged_swap_plans.push_back(std::move(plan));
             log_line("[phase4-stage] staging_queued key=" + key +
                      " rows=" + std::to_string(row_count) +
@@ -15992,6 +16033,14 @@ namespace WindroseTextSigns
                 }
                 (void)invoke_set_hidden_in_game(row_component, false);
                 (void)invoke_set_visibility(row_component, true);
+                if (row_index < staging_row_expected_relative_locations.size())
+                {
+                    // One extra placement after reveal to harden against occasional
+                    // transform writes that do not stick during staging.
+                    (void)invoke_set_relative_location(
+                        row_component,
+                        staging_row_expected_relative_locations[row_index]);
+                }
 
                 const auto active_row_storage_key = make_managed_row_storage_key(key, static_cast<int>(row_index));
                 m_component_name_cache[active_row_storage_key] = narrow_ascii(row_component->GetFullName());
