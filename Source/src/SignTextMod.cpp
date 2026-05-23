@@ -1,4 +1,4 @@
-#include <WindroseTextSigns/SignTextMod.hpp>
+﻿#include <WindroseTextSigns/SignTextMod.hpp>
 #include <WindroseTextSigns/UpnpNat.hpp>
 
 #include <algorithm>
@@ -2020,7 +2020,7 @@ namespace
         const float k_font_max = std::max(k_font_min, std::clamp(font_max, 1.0f, 512.0f));
         constexpr int k_rows_min = 1;
         constexpr int k_rows_max = 4;
-        constexpr float k_horizontal_budget = 150.0f;
+        constexpr float k_horizontal_budget = 140.0f;
         constexpr float k_line_step_factor = 0.40f;
         constexpr float k_vertical_budget = 24.0f;
         const float width_factor = std::clamp(char_width_factor, 0.20f, 2.00f);
@@ -2302,7 +2302,7 @@ namespace
         const float k_font_max = std::max(k_font_min, std::clamp(font_max, 1.0f, 512.0f));
         constexpr int k_rows_min = 1;
         constexpr int k_rows_max = 4;
-        constexpr float k_horizontal_budget = 150.0f;
+        constexpr float k_horizontal_budget = 140.0f;
         constexpr float k_line_step_factor = 0.40f;
         constexpr float k_vertical_budget = 24.0f;
 
@@ -6418,9 +6418,11 @@ namespace WindroseTextSigns
         auto* refresh_all_button = m_phase7_class_button
             ? create_umg_widget_object(tree, m_phase7_class_button, "WTS_RefreshAllButton")
             : nullptr;
+        auto* refresh_all_visual = create_umg_widget_object(tree, m_phase7_class_border, "WTS_RefreshAllVisual");
+        auto* refresh_all_label_box = create_umg_widget_object(tree, m_phase7_class_size_box, "WTS_RefreshAllLabelBox");
         auto* refresh_all_label = create_umg_widget_object(tree, m_phase7_class_text_block, "WTS_RefreshAllLabel");
 
-        if (!root || !frame || !background || !panel || !title || !divider || !input_frame || !input_background || !editor || !text_box || !hint || !status || !refresh_all_label)
+        if (!root || !frame || !background || !panel || !title || !divider || !input_frame || !input_background || !editor || !text_box || !hint || !status || !refresh_all_visual || !refresh_all_label_box || !refresh_all_label)
         {
             log_line("[phase7-umg] open_failed reason=construct_children root=" + std::string{root ? "1" : "0"} +
                      " frame=" + std::string{frame ? "1" : "0"} +
@@ -6435,6 +6437,8 @@ namespace WindroseTextSigns
                      " hint=" + std::string{hint ? "1" : "0"} +
                      " status=" + std::string{status ? "1" : "0"} +
                      " refreshButton=" + std::string{refresh_all_button ? "1" : "0"} +
+                     " refreshVisual=" + std::string{refresh_all_visual ? "1" : "0"} +
+                     " refreshLabelBox=" + std::string{refresh_all_label_box ? "1" : "0"} +
                      " refreshLabel=" + std::string{refresh_all_label ? "1" : "0"});
             return false;
         }
@@ -6466,10 +6470,20 @@ namespace WindroseTextSigns
         const bool status_color =
             invoke_set_rgba_value(status, STR("SetColorAndOpacity"), nullptr, 0.82f, 0.80f, 0.75f, 1.0f) ||
             invoke_set_rgba_value(status, STR("SetForegroundColor"), nullptr, 0.82f, 0.80f, 0.75f, 1.0f);
+        const bool refresh_visual_color = invoke_set_rgba_value(
+            refresh_all_visual,
+            STR("SetBrushColor"),
+            STR("/Script/UMG.Border:SetBrushColor"),
+            0.72f, 0.72f, 0.72f, 1.0f);
+        const bool refresh_visual_padding = invoke_set_margin_value(
+            refresh_all_visual,
+            STR("SetPadding"),
+            STR("/Script/UMG.Border:SetPadding"),
+            0.0f, 0.0f, 0.0f, 0.0f);
         const bool refresh_button_color =
             (refresh_all_button &&
-             (invoke_set_rgba_value(refresh_all_button, STR("SetBackgroundColor"), STR("/Script/UMG.Button:SetBackgroundColor"), 0.72f, 0.72f, 0.72f, 1.0f) ||
-              invoke_set_rgba_value(refresh_all_button, STR("SetColorAndOpacity"), nullptr, 0.72f, 0.72f, 0.72f, 1.0f)));
+             (invoke_set_rgba_value(refresh_all_button, STR("SetBackgroundColor"), STR("/Script/UMG.Button:SetBackgroundColor"), 0.0f, 0.0f, 0.0f, 0.0f) ||
+              invoke_set_rgba_value(refresh_all_button, STR("SetColorAndOpacity"), nullptr, 0.0f, 0.0f, 0.0f, 0.0f)));
         const bool refresh_label_color =
             invoke_set_rgba_value(refresh_all_label, STR("SetColorAndOpacity"), nullptr, 0.50f, 0.50f, 0.50f, 1.0f) ||
             invoke_set_rgba_value(refresh_all_label, STR("SetForegroundColor"), nullptr, 0.50f, 0.50f, 0.50f, 1.0f);
@@ -6478,11 +6492,36 @@ namespace WindroseTextSigns
             STR("SetJustification"),
             STR("/Script/UMG.TextBlock:SetJustification"),
             1);
+        const bool refresh_label_nowrap = invoke_with_bool_param(
+            refresh_all_label,
+            STR("SetAutoWrapText"),
+            STR("/Script/UMG.TextBlock:SetAutoWrapText"),
+            false);
         const bool refresh_label_pivot = invoke_set_vector2d_value(
             refresh_all_label,
             STR("SetRenderTransformPivot"),
             STR("/Script/UMG.Widget:SetRenderTransformPivot"),
             0.5f, 0.5f);
+        const bool refresh_label_box_width = invoke_set_float_value(
+            refresh_all_label_box,
+            STR("SetWidthOverride"),
+            STR("/Script/UMG.SizeBox:SetWidthOverride"),
+            104.0f);
+        const bool refresh_label_box_height = invoke_set_float_value(
+            refresh_all_label_box,
+            STR("SetHeightOverride"),
+            STR("/Script/UMG.SizeBox:SetHeightOverride"),
+            44.0f);
+        const bool refresh_label_box_halign = invoke_set_byte_value(
+            refresh_all_label_box,
+            STR("SetHAlign"),
+            STR("/Script/UMG.SizeBox:SetHAlign"),
+            3);
+        const bool refresh_label_box_valign = invoke_set_byte_value(
+            refresh_all_label_box,
+            STR("SetVAlign"),
+            STR("/Script/UMG.SizeBox:SetVAlign"),
+            3);
         const bool refresh_button_halign = refresh_all_button && invoke_set_byte_value(
             refresh_all_button,
             STR("SetHorizontalAlignment"),
@@ -6548,7 +6587,9 @@ namespace WindroseTextSigns
         auto* refresh_all_button_slot = refresh_all_button ? invoke_add_child(panel, refresh_all_button) : nullptr;
         const bool refresh_all_button_pos = invoke_set_vector2d_value(refresh_all_button_slot, STR("SetPosition"), nullptr, 52.0f, 352.0f);
         const bool refresh_all_button_size = invoke_set_vector2d_value(refresh_all_button_slot, STR("SetSize"), nullptr, 104.0f, 44.0f);
-        const bool refresh_all_button_content = refresh_all_button && invoke_set_content(refresh_all_button, refresh_all_label);
+        const bool refresh_all_label_box_content = invoke_set_content(refresh_all_label_box, refresh_all_label);
+        const bool refresh_all_visual_content = invoke_set_content(refresh_all_visual, refresh_all_label_box);
+        const bool refresh_all_button_content = refresh_all_button && invoke_set_content(refresh_all_button, refresh_all_visual);
 
         const bool input_frame_content = invoke_set_content(input_frame, input_background);
         const bool input_background_content = invoke_set_content(input_background, editor);
@@ -6561,7 +6602,8 @@ namespace WindroseTextSigns
             input_slot && input_pos && input_size &&
             hint_slot && hint_pos && hint_size &&
             status_slot && status_pos && status_size &&
-            refresh_all_button_slot && refresh_all_button_pos && refresh_all_button_size && refresh_all_button_content &&
+            refresh_all_button_slot && refresh_all_button_pos && refresh_all_button_size &&
+            refresh_all_label_box_content && refresh_all_visual_content && refresh_all_button_content &&
             input_frame_content && input_background_content && set_content;
         if (!layout_ok)
         {
@@ -6573,7 +6615,7 @@ namespace WindroseTextSigns
                      " input=" + std::string{(input_slot && input_pos && input_size) ? "true" : "false"} +
                      " hint=" + std::string{(hint_slot && hint_pos && hint_size) ? "true" : "false"} +
                      " status=" + std::string{(status_slot && status_pos && status_size) ? "true" : "false"} +
-                     " refreshButton=" + std::string{(refresh_all_button_slot && refresh_all_button_pos && refresh_all_button_size && refresh_all_button_content) ? "true" : "false"});
+                     " refreshButton=" + std::string{(refresh_all_button_slot && refresh_all_button_pos && refresh_all_button_size && refresh_all_label_box_content && refresh_all_visual_content && refresh_all_button_content) ? "true" : "false"});
             return false;
         }
 
@@ -6597,7 +6639,10 @@ namespace WindroseTextSigns
                                           frame_padding && background_padding && input_frame_padding && input_background_padding &&
                                          editor_width && editor_height && root_opacity && frame_opacity && background_opacity &&
                                          editor_opacity && input_opacity && frame_scale && title_scale && hint_scale && status_scale && refresh_label_scale && input_scale &&
-                                         refresh_label_justify && refresh_label_pivot && refresh_button_halign && refresh_button_valign &&
+                                         refresh_visual_color && refresh_visual_padding &&
+                                         refresh_label_justify && refresh_label_nowrap && refresh_label_pivot &&
+                                         refresh_label_box_width && refresh_label_box_height && refresh_label_box_halign && refresh_label_box_valign &&
+                                         refresh_button_halign && refresh_button_valign &&
                                          refresh_button_color) ? "true" : "false"});
         return true;
     }
@@ -7609,21 +7654,6 @@ namespace WindroseTextSigns
                 refresh_button_pressed);
             if (refresh_button_state_ok)
             {
-                // Keep button color driven strictly by LMB down/up state.
-                // This suppresses hover-only style brightening.
-                const float button_color = refresh_button_pressed ? 0.62f : 0.72f;
-                (void)(
-                    invoke_set_rgba_value(
-                        m_phase7_umg_refresh_all_button,
-                        STR("SetBackgroundColor"),
-                        STR("/Script/UMG.Button:SetBackgroundColor"),
-                        button_color, button_color, button_color, 1.0f) ||
-                    invoke_set_rgba_value(
-                        m_phase7_umg_refresh_all_button,
-                        STR("SetColorAndOpacity"),
-                        nullptr,
-                        button_color, button_color, button_color, 1.0f));
-
                 if (refresh_button_pressed)
                 {
                     m_phase7_umg_refresh_all_was_pressed = true;
@@ -16301,7 +16331,7 @@ namespace WindroseTextSigns
                          " rows=" + std::to_string(runtime_fit.rows) +
                          " fontSize=" + std::to_string(desired_font_size) +
                          " maxWidth=" + std::to_string(autosize_measured_max_width) +
-                         " budget=150.00");
+                         " budget=140.00");
             }
             else
             {
@@ -16324,7 +16354,7 @@ namespace WindroseTextSigns
                          " rows=" + std::to_string(runtime_fit.rows) +
                          " fontSize=" + std::to_string(desired_font_size) +
                          " maxWidth=unknown" +
-                         " budget=150.00");
+                         " budget=140.00");
             }
 
             m_component_name_cache[probe_storage_key] = narrow_ascii(probe_component->GetFullName());
@@ -16339,7 +16369,7 @@ namespace WindroseTextSigns
                      " rows=" + std::to_string(runtime_fit.rows) +
                      " fontSize=" + std::to_string(desired_font_size) +
                      " maxWidth=unknown" +
-                     " budget=150.00");
+                     " budget=140.00");
         }
 
         const auto make_staging_row_storage_key = [&](const int row_index) {
