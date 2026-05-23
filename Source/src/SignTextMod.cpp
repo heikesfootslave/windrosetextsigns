@@ -2085,6 +2085,7 @@ namespace
         const float k_horizontal_budget = std::clamp(horizontal_budget, 80.0f, 220.0f);
         constexpr float k_line_step_factor = 0.40f;
         constexpr float k_vertical_budget = 24.0f;
+        constexpr float k_pak_width_calibration = 1.50f;
 
         AutoSizeResult best{};
         best.font_size = k_font_min;
@@ -2103,24 +2104,18 @@ namespace
         {
             input_total_chars += static_cast<int>(line.size());
         }
-        const int explicit_rows = static_cast<int>(input_lines.size());
-
-        bool found_valid = false;
-        AutoSizeResult best_valid{};
-        int best_valid_coverage = -1;
-        float best_valid_font = k_font_min;
-        int best_valid_added_rows = 999;
-
         AutoSizeResult best_fallback{};
         bool found_fallback = false;
         int best_fallback_coverage = -1;
         float best_fallback_font = k_font_min;
+        const float effective_width_factor =
+            std::clamp(char_width_factor, 0.20f, 2.00f) * k_pak_width_calibration;
 
         for (float font = k_font_max; font >= k_font_min; font -= 0.5f)
         {
             AutoSizeResult candidate{};
             candidate.font_size = font;
-            candidate.char_limit = std::max(1, static_cast<int>(std::floor(k_horizontal_budget / std::max(0.001f, font * std::clamp(char_width_factor, 0.20f, 2.00f)))));
+            candidate.char_limit = std::max(1, static_cast<int>(std::floor(k_horizontal_budget / std::max(0.001f, font * effective_width_factor))));
             candidate.truncated = false;
 
             std::vector<std::string> rows{};
@@ -2147,7 +2142,7 @@ namespace
                     single_word_line && (has_explicit_line_breaks || single_line_single_word_input);
                 if (preserve_single_word_line)
                 {
-                    const float one_word_width = estimate_treasure_map_line_width(words.front(), font, char_width_factor);
+                    const float one_word_width = estimate_treasure_map_line_width(words.front(), font, effective_width_factor);
                     if (one_word_width > (k_horizontal_budget + 0.01f) && font > (k_font_min + 0.001f))
                     {
                         candidate.truncated = true;
@@ -2160,9 +2155,11 @@ namespace
                 for (size_t i = 0; i < words.size(); ++i)
                 {
                     const auto& word = words[i];
-                    const float word_width = estimate_treasure_map_line_width(word, font, char_width_factor);
+                    const float word_width = estimate_treasure_map_line_width(word, font, effective_width_factor);
                     if (word_width > (k_horizontal_budget + 0.01f))
                     {
+                        // Keep whole words intact. If one word cannot fit even at this
+                        // font size candidate, use a smaller font candidate.
                         candidate.truncated = true;
                         break;
                     }
@@ -2177,7 +2174,7 @@ namespace
                     std::string merged = line;
                     merged += " ";
                     merged += word;
-                    const float merged_width = estimate_treasure_map_line_width(merged, font, char_width_factor);
+                    const float merged_width = estimate_treasure_map_line_width(merged, font, effective_width_factor);
                     if (merged_width <= (k_horizontal_budget + 0.01f))
                     {
                         line = std::move(merged);
@@ -2235,37 +2232,12 @@ namespace
 
             if (candidate_valid)
             {
-                const int added_rows = std::max(0, candidate.rows - explicit_rows);
-                bool better_valid = false;
-                if (!found_valid ||
-                    candidate_coverage_chars > best_valid_coverage ||
-                    (candidate_coverage_chars == best_valid_coverage && font > best_valid_font))
-                {
-                    better_valid = true;
-                }
-                else if (candidate_coverage_chars == best_valid_coverage && font == best_valid_font)
-                {
-                    if (has_explicit_line_breaks)
-                    {
-                        if (added_rows < best_valid_added_rows || (added_rows == best_valid_added_rows && candidate.rows < best_valid.rows))
-                        {
-                            better_valid = true;
-                        }
-                    }
-                    else if (candidate.rows < best_valid.rows)
-                    {
-                        better_valid = true;
-                    }
-                }
-
-                if (better_valid)
-                {
-                    found_valid = true;
-                    best_valid = candidate;
-                    best_valid_coverage = candidate_coverage_chars;
-                    best_valid_font = font;
-                    best_valid_added_rows = added_rows;
-                }
+                // Priority rule:
+                // 1) keep whole words
+                // 2) use largest font that fits
+                // 3) wrap across lines
+                // Because we iterate font high->low, first valid is the winner.
+                return candidate;
             }
 
             bool better_fallback = false;
@@ -2294,11 +2266,7 @@ namespace
             }
         }
 
-        if (found_valid)
-        {
-            best = best_valid;
-        }
-        else if (found_fallback)
+        if (found_fallback)
         {
             best = best_fallback;
         }
@@ -6674,8 +6642,8 @@ namespace WindroseTextSigns
                   nullptr,
                   0.74f, 0.74f, 0.74f, 1.0f)));
         const bool refresh_label_color =
-            invoke_set_rgba_value(refresh_all_label, STR("SetColorAndOpacity"), nullptr, 0.44f, 0.44f, 0.44f, 1.0f) ||
-            invoke_set_rgba_value(refresh_all_label, STR("SetForegroundColor"), nullptr, 0.44f, 0.44f, 0.44f, 1.0f);
+            invoke_set_rgba_value(refresh_all_label, STR("SetColorAndOpacity"), nullptr, 0.045f, 0.050f, 0.055f, 1.0f) ||
+            invoke_set_rgba_value(refresh_all_label, STR("SetForegroundColor"), nullptr, 0.045f, 0.050f, 0.055f, 1.0f);
         const bool refresh_label_justify = invoke_set_byte_value(
             refresh_all_label,
             STR("SetJustification"),
