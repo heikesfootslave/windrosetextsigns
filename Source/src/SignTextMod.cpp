@@ -5921,7 +5921,6 @@ namespace WindroseTextSigns
         }
         m_phase7_native_widget = nullptr;
         m_phase7_native_editor_open = false;
-        maybe_replay_cached_text_after_editor_close("native");
     }
 
     auto SignTextMod::cache_phase7_umg_class_pointers() -> bool
@@ -5945,6 +5944,10 @@ namespace WindroseTextSigns
         if (!m_phase7_class_size_box)
         {
             m_phase7_class_size_box = find_uclass_by_path(STR("/Script/UMG.SizeBox"));
+        }
+        if (!m_phase7_class_button)
+        {
+            m_phase7_class_button = find_uclass_by_path(STR("/Script/UMG.Button"));
         }
         if (!m_phase7_class_text_block)
         {
@@ -5971,6 +5974,7 @@ namespace WindroseTextSigns
                m_phase7_class_canvas_panel &&
                m_phase7_class_border &&
                m_phase7_class_size_box &&
+               m_phase7_class_button &&
                m_phase7_class_text_block &&
                m_phase7_class_text_box;
     }
@@ -6091,6 +6095,7 @@ namespace WindroseTextSigns
         m_phase7_umg_title = nullptr;
         m_phase7_umg_hint = nullptr;
         m_phase7_umg_status = nullptr;
+        m_phase7_umg_refresh_all_button = nullptr;
         m_phase7_umg_apply_button = nullptr;
         m_phase7_umg_clear_button = nullptr;
         m_phase7_umg_cancel_button = nullptr;
@@ -6114,6 +6119,7 @@ namespace WindroseTextSigns
         m_phase7_last_status_network_text.clear();
         m_phase7_last_status_log = {};
         m_phase7_last_close_removed = false;
+        m_phase7_umg_refresh_all_was_pressed = false;
         m_phase7_guard_fail_started = {};
         m_phase7_guard_fail_reason.clear();
         m_phase7_guard_hysteresis_logged = false;
@@ -6149,6 +6155,7 @@ namespace WindroseTextSigns
                      " canvas=" + std::string{m_phase7_class_canvas_panel ? "1" : "0"} +
                      " border=" + std::string{m_phase7_class_border ? "1" : "0"} +
                      " sizeBox=" + std::string{m_phase7_class_size_box ? "1" : "0"} +
+                     " button=" + std::string{m_phase7_class_button ? "1" : "0"} +
                      " textBlock=" + std::string{m_phase7_class_text_block ? "1" : "0"} +
                      " textBox=" + std::string{m_phase7_class_text_box ? "1" : "0"});
             return false;
@@ -6183,8 +6190,12 @@ namespace WindroseTextSigns
         auto* text_box = create_umg_widget_object(tree, m_phase7_class_text_box, "WTS_TextBox");
         auto* hint = create_umg_widget_object(tree, m_phase7_class_text_block, "WTS_KeyHints");
         auto* status = create_umg_widget_object(tree, m_phase7_class_text_block, "WTS_Status");
+        auto* refresh_all_button = m_phase7_class_button
+            ? create_umg_widget_object(tree, m_phase7_class_button, "WTS_RefreshAllButton")
+            : nullptr;
+        auto* refresh_all_label = create_umg_widget_object(tree, m_phase7_class_text_block, "WTS_RefreshAllLabel");
 
-        if (!root || !frame || !background || !panel || !title || !divider || !input_frame || !input_background || !editor || !text_box || !hint || !status)
+        if (!root || !frame || !background || !panel || !title || !divider || !input_frame || !input_background || !editor || !text_box || !hint || !status || !refresh_all_label)
         {
             log_line("[phase7-umg] open_failed reason=construct_children root=" + std::string{root ? "1" : "0"} +
                      " frame=" + std::string{frame ? "1" : "0"} +
@@ -6197,7 +6208,9 @@ namespace WindroseTextSigns
                      " editor=" + std::string{editor ? "1" : "0"} +
                      " textBox=" + std::string{text_box ? "1" : "0"} +
                      " hint=" + std::string{hint ? "1" : "0"} +
-                     " status=" + std::string{status ? "1" : "0"});
+                     " status=" + std::string{status ? "1" : "0"} +
+                     " refreshButton=" + std::string{refresh_all_button ? "1" : "0"} +
+                     " refreshLabel=" + std::string{refresh_all_label ? "1" : "0"});
             return false;
         }
         log_line("[phase7-umg] construct_children_ok rootClass=" +
@@ -6214,6 +6227,7 @@ namespace WindroseTextSigns
         const bool title_text = invoke_umg_set_text(title, "Sign Text");
         const bool hint_text = invoke_umg_set_text(hint, "Enter  Apply\nShift+Enter  New line\nEsc  Cancel");
         const bool status_text = invoke_umg_set_text(status, "Status\nRole: Error: Not locked\nNetwork: Error - Not connected to Server");
+        const bool refresh_button_text = invoke_umg_set_text(refresh_all_label, "Force Refresh\nSigns");
         const bool input_text = invoke_umg_set_text(text_box, "");
         const bool title_color =
             invoke_set_rgba_value(title, STR("SetColorAndOpacity"), nullptr, 0.91f, 0.88f, 0.81f, 1.0f) ||
@@ -6227,6 +6241,13 @@ namespace WindroseTextSigns
         const bool status_color =
             invoke_set_rgba_value(status, STR("SetColorAndOpacity"), nullptr, 0.82f, 0.80f, 0.75f, 1.0f) ||
             invoke_set_rgba_value(status, STR("SetForegroundColor"), nullptr, 0.82f, 0.80f, 0.75f, 1.0f);
+        const bool refresh_button_color =
+            (refresh_all_button &&
+             (invoke_set_rgba_value(refresh_all_button, STR("SetBackgroundColor"), STR("/Script/UMG.Button:SetBackgroundColor"), 0.72f, 0.72f, 0.72f, 1.0f) ||
+              invoke_set_rgba_value(refresh_all_button, STR("SetColorAndOpacity"), nullptr, 0.72f, 0.72f, 0.72f, 1.0f)));
+        const bool refresh_label_color =
+            invoke_set_rgba_value(refresh_all_label, STR("SetColorAndOpacity"), nullptr, 0.50f, 0.50f, 0.50f, 1.0f) ||
+            invoke_set_rgba_value(refresh_all_label, STR("SetForegroundColor"), nullptr, 0.50f, 0.50f, 0.50f, 1.0f);
         const bool status_pivot = invoke_set_vector2d_value(
             status, STR("SetRenderTransformPivot"), STR("/Script/UMG.Widget:SetRenderTransformPivot"),
             0.0f, 0.0f);
@@ -6254,6 +6275,7 @@ namespace WindroseTextSigns
         const bool status_scale = invoke_set_vector2d_value(
             status, STR("SetRenderScale"), STR("/Script/UMG.Widget:SetRenderScale"),
             m_phase7_debug_status_render_scale, m_phase7_debug_status_render_scale);
+        const bool refresh_label_scale = invoke_set_vector2d_value(refresh_all_label, STR("SetRenderScale"), STR("/Script/UMG.Widget:SetRenderScale"), 0.90f, 0.90f);
         const bool input_scale = invoke_set_vector2d_value(text_box, STR("SetRenderScale"), STR("/Script/UMG.Widget:SetRenderScale"), 1.0f, 1.0f);
 
         auto* frame_slot = invoke_add_child(root, frame);
@@ -6278,6 +6300,10 @@ namespace WindroseTextSigns
         auto* status_slot = invoke_add_child(panel, status);
         const bool status_pos = invoke_set_vector2d_value(status_slot, STR("SetPosition"), nullptr, 52.0f, 292.0f);
         const bool status_size = invoke_set_vector2d_value(status_slot, STR("SetSize"), nullptr, 320.0f, 56.0f);
+        auto* refresh_all_button_slot = refresh_all_button ? invoke_add_child(panel, refresh_all_button) : nullptr;
+        const bool refresh_all_button_pos = invoke_set_vector2d_value(refresh_all_button_slot, STR("SetPosition"), nullptr, 52.0f, 352.0f);
+        const bool refresh_all_button_size = invoke_set_vector2d_value(refresh_all_button_slot, STR("SetSize"), nullptr, 104.0f, 44.0f);
+        const bool refresh_all_button_content = refresh_all_button && invoke_set_content(refresh_all_button, refresh_all_label);
 
         const bool input_frame_content = invoke_set_content(input_frame, input_background);
         const bool input_background_content = invoke_set_content(input_background, editor);
@@ -6290,6 +6316,7 @@ namespace WindroseTextSigns
             input_slot && input_pos && input_size &&
             hint_slot && hint_pos && hint_size &&
             status_slot && status_pos && status_size &&
+            refresh_all_button_slot && refresh_all_button_pos && refresh_all_button_size && refresh_all_button_content &&
             input_frame_content && input_background_content && set_content;
         if (!layout_ok)
         {
@@ -6300,7 +6327,8 @@ namespace WindroseTextSigns
                      " divider=" + std::string{(divider_slot && divider_pos && divider_size) ? "true" : "false"} +
                      " input=" + std::string{(input_slot && input_pos && input_size) ? "true" : "false"} +
                      " hint=" + std::string{(hint_slot && hint_pos && hint_size) ? "true" : "false"} +
-                     " status=" + std::string{(status_slot && status_pos && status_size) ? "true" : "false"});
+                     " status=" + std::string{(status_slot && status_pos && status_size) ? "true" : "false"} +
+                     " refreshButton=" + std::string{(refresh_all_button_slot && refresh_all_button_pos && refresh_all_button_size && refresh_all_button_content) ? "true" : "false"});
             return false;
         }
 
@@ -6309,18 +6337,21 @@ namespace WindroseTextSigns
         m_phase7_umg_title = title;
         m_phase7_umg_hint = hint;
         m_phase7_umg_status = status;
+        m_phase7_umg_refresh_all_button = refresh_all_button;
+        m_phase7_umg_refresh_all_was_pressed = false;
         cache_phase7_umg_function_pointers();
         apply_phase7_umg_debug_scales("prewarm_init");
 
         // Prewarm should build the widget tree only; do not add/show during loading/bootstrap.
         m_phase7_umg_in_viewport = false;
         log_line(std::string{"[phase7-umg] prewarm_result built=true added=false collapsed=true focus=false"} +
-                 " style=" + std::string{(title_text && hint_text && status_text && input_text && title_color && hint_color && status_color && input_color &&
+                 " style=" + std::string{(title_text && hint_text && status_text && refresh_button_text && input_text && title_color && hint_color && status_color && refresh_label_color && input_color &&
                                           status_pivot &&
                                           frame_color && background_color && divider_color && input_frame_color && input_background_color &&
                                           frame_padding && background_padding && input_frame_padding && input_background_padding &&
                                           editor_width && editor_height && root_opacity && frame_opacity && background_opacity &&
-                                          editor_opacity && input_opacity && frame_scale && title_scale && hint_scale && status_scale && input_scale) ? "true" : "false"});
+                                          editor_opacity && input_opacity && frame_scale && title_scale && hint_scale && status_scale && refresh_label_scale && input_scale &&
+                                          refresh_button_color) ? "true" : "false"});
         return true;
     }
 
@@ -6753,6 +6784,7 @@ namespace WindroseTextSigns
         m_phase7_open_sla_violation_logged = false;
         m_phase7_open_pending_since = {};
         m_phase7_last_close_removed = false;
+        m_phase7_umg_refresh_all_was_pressed = false;
         if (m_phase7_umg_widget)
         {
             bool hidden = false;
@@ -6812,9 +6844,9 @@ namespace WindroseTextSigns
         m_phase7_umg_last_text.clear();
         m_phase7_active_epoch = 0;
         m_phase7_watchdog_logged = false;
+        m_phase7_umg_refresh_all_was_pressed = false;
         m_phase7_status_dirty = true;
         m_phase7_last_status_ui_refresh = {};
-        maybe_replay_cached_text_after_editor_close("umg");
     }
 
     auto SignTextMod::maybe_replay_cached_text_after_editor_close(const char* source) -> void
@@ -6910,6 +6942,7 @@ namespace WindroseTextSigns
         m_phase7_umg_title = nullptr;
         m_phase7_umg_hint = nullptr;
         m_phase7_umg_status = nullptr;
+        m_phase7_umg_refresh_all_button = nullptr;
         m_phase7_umg_apply_button = nullptr;
         m_phase7_umg_clear_button = nullptr;
         m_phase7_umg_cancel_button = nullptr;
@@ -6924,6 +6957,7 @@ namespace WindroseTextSigns
         m_phase7_definitive_teardown_armed = false;
         m_phase7_definitive_teardown_reason.clear();
         m_phase7_watchdog_logged = false;
+        m_phase7_umg_refresh_all_was_pressed = false;
         m_phase7_guard_fail_started = {};
         m_phase7_guard_fail_reason.clear();
         m_phase7_guard_hysteresis_logged = false;
@@ -7313,6 +7347,44 @@ namespace WindroseTextSigns
         }
 
         refresh_phase7_umg_status(false, "tick");
+
+        if (m_phase7_umg_refresh_all_button &&
+            is_uobject_reflection_safe(m_phase7_umg_refresh_all_button))
+        {
+            bool refresh_button_pressed = false;
+            const bool refresh_button_state_ok = invoke_bool_return_no_param(
+                m_phase7_umg_refresh_all_button,
+                STR("IsPressed"),
+                STR("/Script/UMG.Button:IsPressed"),
+                refresh_button_pressed);
+            if (refresh_button_state_ok)
+            {
+                if (refresh_button_pressed)
+                {
+                    m_phase7_umg_refresh_all_was_pressed = true;
+                }
+                else if (m_phase7_umg_refresh_all_was_pressed)
+                {
+                    m_phase7_umg_refresh_all_was_pressed = false;
+                    std::string world_bound_reason{};
+                    if (!is_world_bound_operation_allowed("phase7_force_refresh_signs_button", &world_bound_reason))
+                    {
+                        log_line("[phase7-umg] force_refresh_signs_blocked reason=" + world_bound_reason);
+                    }
+                    else
+                    {
+                        const auto result = replay_cached_label_text_after_ready("phase7_force_refresh_signs_button");
+                        log_line("[phase7-umg] force_refresh_signs_clicked candidates=" + std::to_string(result.first) +
+                                 " rendered=" + std::to_string(result.second) +
+                                 " worldId=" + (m_world_folder_id.empty() ? "unknown" : m_world_folder_id));
+                    }
+                }
+            }
+            else
+            {
+                m_phase7_umg_refresh_all_was_pressed = false;
+            }
+        }
 
         const short enter_state = GetAsyncKeyState(k_vk_return);
         const short escape_state = GetAsyncKeyState(k_vk_escape);
@@ -19003,7 +19075,6 @@ namespace WindroseTextSigns
                 m_phase7_guard_hysteresis_logged = false;
                 tick_phase7_umg_open_pending();
                 tick_phase7_umg_editor();
-                maybe_run_deferred_editor_close_replay();
             }
             else
             {

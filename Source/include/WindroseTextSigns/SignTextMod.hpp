@@ -596,6 +596,7 @@ namespace WindroseTextSigns
         RC::Unreal::UObject* m_phase7_umg_title{};
         RC::Unreal::UObject* m_phase7_umg_hint{};
         RC::Unreal::UObject* m_phase7_umg_status{};
+        RC::Unreal::UObject* m_phase7_umg_refresh_all_button{};
         RC::Unreal::UObject* m_phase7_umg_apply_button{};
         RC::Unreal::UObject* m_phase7_umg_clear_button{};
         RC::Unreal::UObject* m_phase7_umg_cancel_button{};
@@ -604,6 +605,7 @@ namespace WindroseTextSigns
         RC::Unreal::UClass* m_phase7_class_canvas_panel{};
         RC::Unreal::UClass* m_phase7_class_border{};
         RC::Unreal::UClass* m_phase7_class_size_box{};
+        RC::Unreal::UClass* m_phase7_class_button{};
         RC::Unreal::UClass* m_phase7_class_text_block{};
         RC::Unreal::UClass* m_phase7_class_text_box{};
         RC::Unreal::UFunction* m_phase7_fn_add_to_viewport{};
@@ -617,6 +619,7 @@ namespace WindroseTextSigns
         bool m_phase7_umg_prewarm_succeeded{false};
         bool m_phase7_umg_in_viewport{false};
         bool m_phase7_umg_open_pending{false};
+        bool m_phase7_umg_refresh_all_was_pressed{false};
         bool m_phase7_open_sla_violation_logged{false};
         bool m_phase7_set_visibility_param_unhandled_logged{false};
         bool m_phase7_teardown_skip_logged{false};
