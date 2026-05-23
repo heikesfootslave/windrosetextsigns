@@ -620,6 +620,7 @@ namespace WindroseTextSigns
         bool m_phase7_umg_in_viewport{false};
         bool m_phase7_umg_open_pending{false};
         bool m_phase7_umg_refresh_all_was_pressed{false};
+        bool m_phase7_umg_refresh_all_clicked_once{false};
         bool m_phase7_open_sla_violation_logged{false};
         bool m_phase7_set_visibility_param_unhandled_logged{false};
         bool m_phase7_teardown_skip_logged{false};

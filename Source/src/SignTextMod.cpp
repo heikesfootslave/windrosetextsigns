@@ -6120,6 +6120,7 @@ namespace WindroseTextSigns
         m_phase7_last_status_log = {};
         m_phase7_last_close_removed = false;
         m_phase7_umg_refresh_all_was_pressed = false;
+        m_phase7_umg_refresh_all_clicked_once = false;
         m_phase7_guard_fail_started = {};
         m_phase7_guard_fail_reason.clear();
         m_phase7_guard_hysteresis_logged = false;
@@ -6227,7 +6228,7 @@ namespace WindroseTextSigns
         const bool title_text = invoke_umg_set_text(title, "Sign Text");
         const bool hint_text = invoke_umg_set_text(hint, "Enter  Apply\nShift+Enter  New line\nEsc  Cancel");
         const bool status_text = invoke_umg_set_text(status, "Status\nRole: Error: Not locked\nNetwork: Error - Not connected to Server");
-        const bool refresh_button_text = invoke_umg_set_text(refresh_all_label, "Force Refresh\nSigns");
+        const bool refresh_button_text = invoke_umg_set_text(refresh_all_label, "Refresh All Signs");
         const bool input_text = invoke_umg_set_text(text_box, "");
         const bool title_color =
             invoke_set_rgba_value(title, STR("SetColorAndOpacity"), nullptr, 0.91f, 0.88f, 0.81f, 1.0f) ||
@@ -6275,7 +6276,7 @@ namespace WindroseTextSigns
         const bool status_scale = invoke_set_vector2d_value(
             status, STR("SetRenderScale"), STR("/Script/UMG.Widget:SetRenderScale"),
             m_phase7_debug_status_render_scale, m_phase7_debug_status_render_scale);
-        const bool refresh_label_scale = invoke_set_vector2d_value(refresh_all_label, STR("SetRenderScale"), STR("/Script/UMG.Widget:SetRenderScale"), 0.90f, 0.90f);
+        const bool refresh_label_scale = invoke_set_vector2d_value(refresh_all_label, STR("SetRenderScale"), STR("/Script/UMG.Widget:SetRenderScale"), 0.45f, 0.45f);
         const bool input_scale = invoke_set_vector2d_value(text_box, STR("SetRenderScale"), STR("/Script/UMG.Widget:SetRenderScale"), 1.0f, 1.0f);
 
         auto* frame_slot = invoke_add_child(root, frame);
@@ -6339,6 +6340,7 @@ namespace WindroseTextSigns
         m_phase7_umg_status = status;
         m_phase7_umg_refresh_all_button = refresh_all_button;
         m_phase7_umg_refresh_all_was_pressed = false;
+        m_phase7_umg_refresh_all_clicked_once = false;
         cache_phase7_umg_function_pointers();
         apply_phase7_umg_debug_scales("prewarm_init");
 
@@ -6785,6 +6787,7 @@ namespace WindroseTextSigns
         m_phase7_open_pending_since = {};
         m_phase7_last_close_removed = false;
         m_phase7_umg_refresh_all_was_pressed = false;
+        m_phase7_umg_refresh_all_clicked_once = false;
         if (m_phase7_umg_widget)
         {
             bool hidden = false;
@@ -6845,6 +6848,7 @@ namespace WindroseTextSigns
         m_phase7_active_epoch = 0;
         m_phase7_watchdog_logged = false;
         m_phase7_umg_refresh_all_was_pressed = false;
+        m_phase7_umg_refresh_all_clicked_once = false;
         m_phase7_status_dirty = true;
         m_phase7_last_status_ui_refresh = {};
     }
@@ -6958,6 +6962,7 @@ namespace WindroseTextSigns
         m_phase7_definitive_teardown_reason.clear();
         m_phase7_watchdog_logged = false;
         m_phase7_umg_refresh_all_was_pressed = false;
+        m_phase7_umg_refresh_all_clicked_once = false;
         m_phase7_guard_fail_started = {};
         m_phase7_guard_fail_reason.clear();
         m_phase7_guard_hysteresis_logged = false;
@@ -7351,6 +7356,30 @@ namespace WindroseTextSigns
         if (m_phase7_umg_refresh_all_button &&
             is_uobject_reflection_safe(m_phase7_umg_refresh_all_button))
         {
+            bool refresh_button_hovered = false;
+            const bool refresh_button_hover_ok = invoke_bool_return_no_param(
+                m_phase7_umg_refresh_all_button,
+                STR("IsHovered"),
+                STR("/Script/UMG.Widget:IsHovered"),
+                refresh_button_hovered);
+            if (m_phase7_umg_refresh_all_clicked_once && refresh_button_hover_ok)
+            {
+                const float hover_r = refresh_button_hovered ? 0.95f : 0.72f;
+                const float hover_g = refresh_button_hovered ? 0.95f : 0.72f;
+                const float hover_b = refresh_button_hovered ? 0.95f : 0.72f;
+                (void)(
+                    invoke_set_rgba_value(
+                        m_phase7_umg_refresh_all_button,
+                        STR("SetBackgroundColor"),
+                        STR("/Script/UMG.Button:SetBackgroundColor"),
+                        hover_r, hover_g, hover_b, 1.0f) ||
+                    invoke_set_rgba_value(
+                        m_phase7_umg_refresh_all_button,
+                        STR("SetColorAndOpacity"),
+                        nullptr,
+                        hover_r, hover_g, hover_b, 1.0f));
+            }
+
             bool refresh_button_pressed = false;
             const bool refresh_button_state_ok = invoke_bool_return_no_param(
                 m_phase7_umg_refresh_all_button,
@@ -7366,15 +7395,16 @@ namespace WindroseTextSigns
                 else if (m_phase7_umg_refresh_all_was_pressed)
                 {
                     m_phase7_umg_refresh_all_was_pressed = false;
+                    m_phase7_umg_refresh_all_clicked_once = true;
                     std::string world_bound_reason{};
                     if (!is_world_bound_operation_allowed("phase7_force_refresh_signs_button", &world_bound_reason))
                     {
-                        log_line("[phase7-umg] force_refresh_signs_blocked reason=" + world_bound_reason);
+                        log_line("[phase7-umg] refresh_all_signs_button_click outcome=blocked reason=" + world_bound_reason);
                     }
                     else
                     {
                         const auto result = replay_cached_label_text_after_ready("phase7_force_refresh_signs_button");
-                        log_line("[phase7-umg] force_refresh_signs_clicked candidates=" + std::to_string(result.first) +
+                        log_line("[phase7-umg] refresh_all_signs_button_click outcome=applied candidates=" + std::to_string(result.first) +
                                  " rendered=" + std::to_string(result.second) +
                                  " worldId=" + (m_world_folder_id.empty() ? "unknown" : m_world_folder_id));
                     }
