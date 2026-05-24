@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.10
+- Improved custom font autosizing and wrapping for sign text so long words and mixed-case text fit more consistently.
+- Fixed an edge case where a very long single word could clear the sign; overlong words are now truncated while preserving the rest of the text.
+- Updated default text layout tuning values (row offsets and horizontal fit budget) for more reliable on-sign placement and wrap behavior.
+
 ## 0.1.9
 - Fixed an issue where network route discovery could fail and retry logic would not trigger.
 
