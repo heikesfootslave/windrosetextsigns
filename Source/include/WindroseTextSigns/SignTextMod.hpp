@@ -811,14 +811,14 @@ namespace WindroseTextSigns
         bool m_autosize_profile_initialized{false};
         bool m_autosize_profile_has_override_pak{false};
         float m_autosize_char_width_factor{0.85f};
-        float m_autosize_horizontal_budget{140.0f};
+        float m_autosize_horizontal_budget{90.0f};
         float m_row_gap_factor{1.50f};
         float m_row_gap_factor_2{1.50f};
         float m_row_gap_factor_3{1.25f};
         float m_row_gap_factor_4{1.00f};
-        std::array<float, 1> m_row_offsets_1{{0.0f}};
+        std::array<float, 1> m_row_offsets_1{{1.0f}};
         std::array<float, 2> m_row_offsets_2{{8.0f, -5.0f}};
-        std::array<float, 3> m_row_offsets_3{{12.0f, 2.0f, -8.0f}};
+        std::array<float, 3> m_row_offsets_3{{11.0f, 1.0f, -9.0f}};
         std::array<float, 4> m_row_offsets_4{{17.0f, 7.0f, -3.0f, -13.0f}};
         float m_localclient_controller_probe_interval_sec{0.2f};
         std::chrono::steady_clock::time_point m_localclient_controller_probe_last{};

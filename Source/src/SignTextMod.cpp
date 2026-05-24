@@ -2110,6 +2110,25 @@ namespace
         float best_fallback_font = k_font_min;
         const float effective_width_factor =
             std::clamp(char_width_factor, 0.20f, 2.00f) * k_pak_width_calibration;
+        const auto truncate_word_to_budget = [&](std::string_view word, const float font) -> std::string {
+            std::string out{};
+            out.reserve(word.size());
+            for (char ch : word)
+            {
+                std::string candidate = out;
+                candidate.push_back(ch);
+                if (estimate_treasure_map_line_width(candidate, font, effective_width_factor) > (k_horizontal_budget + 0.01f))
+                {
+                    break;
+                }
+                out = std::move(candidate);
+            }
+            if (out.empty() && !word.empty())
+            {
+                out.push_back(word.front());
+            }
+            return out;
+        };
 
         for (float font = k_font_max; font >= k_font_min; font -= 0.5f)
         {
@@ -2143,10 +2162,14 @@ namespace
                 if (preserve_single_word_line)
                 {
                     const float one_word_width = estimate_treasure_map_line_width(words.front(), font, effective_width_factor);
-                    if (one_word_width > (k_horizontal_budget + 0.01f) && font > (k_font_min + 0.001f))
+                    if (one_word_width > (k_horizontal_budget + 0.01f))
                     {
-                        candidate.truncated = true;
-                        break;
+                        if (font > (k_font_min + 0.001f))
+                        {
+                            candidate.truncated = true;
+                            break;
+                        }
+                        words.front() = truncate_word_to_budget(words.front(), font);
                     }
                 }
 
@@ -2154,14 +2177,24 @@ namespace
                 float line_width = 0.0f;
                 for (size_t i = 0; i < words.size(); ++i)
                 {
-                    const auto& word = words[i];
-                    const float word_width = estimate_treasure_map_line_width(word, font, effective_width_factor);
+                    std::string word = words[i];
+                    float word_width = estimate_treasure_map_line_width(word, font, effective_width_factor);
                     if (word_width > (k_horizontal_budget + 0.01f))
                     {
                         // Keep whole words intact. If one word cannot fit even at this
                         // font size candidate, use a smaller font candidate.
-                        candidate.truncated = true;
-                        break;
+                        if (font > (k_font_min + 0.001f))
+                        {
+                            candidate.truncated = true;
+                            break;
+                        }
+                        word = truncate_word_to_budget(word, font);
+                        word_width = estimate_treasure_map_line_width(word, font, effective_width_factor);
+                        if (word.empty())
+                        {
+                            candidate.truncated = true;
+                            break;
+                        }
                     }
 
                     if (line.empty())
@@ -14806,9 +14839,9 @@ namespace WindroseTextSigns
             m_row_gap_factor_2 = 1.50f;
             m_row_gap_factor_3 = 1.25f;
             m_row_gap_factor_4 = 1.00f;
-            m_row_offsets_1 = {0.0f};
+            m_row_offsets_1 = {1.0f};
             m_row_offsets_2 = {8.0f, -5.0f};
-            m_row_offsets_3 = {12.0f, 2.0f, -8.0f};
+            m_row_offsets_3 = {11.0f, 1.0f, -9.0f};
             m_row_offsets_4 = {17.0f, 7.0f, -3.0f, -13.0f};
         }
         else
@@ -14819,8 +14852,8 @@ namespace WindroseTextSigns
             m_row_gap_factor_2 = 1.50f;
             m_row_gap_factor_3 = 1.25f;
             m_row_gap_factor_4 = 1.00f;
-            m_row_offsets_1 = {0.0f};
-            m_row_offsets_2 = {6.0f, -6.0f};
+            m_row_offsets_1 = {1.0f};
+            m_row_offsets_2 = {8.0f, -5.0f};
             m_row_offsets_3 = {11.0f, 1.0f, -9.0f};
             m_row_offsets_4 = {16.0f, 6.0f, -4.0f, -14.0f};
         }
