@@ -12556,6 +12556,8 @@ namespace WindroseTextSigns
                 !ack_requester_session.empty() && !m_session_id.empty() && ack_requester_session != m_session_id;
             const bool ack_requester_epoch_mismatch =
                 ack_requester_epoch != 0 && ack_requester_epoch != static_cast<uint64_t>(m_session_epoch);
+            const bool ack_has_requester_identity =
+                !ack_requester_session.empty() || ack_requester_epoch != 0;
             bool ack_candidate_match = false;
             if (!ack_probe_host.empty())
             {
@@ -12621,11 +12623,13 @@ namespace WindroseTextSigns
                              " localEpoch=" + std::to_string(m_session_epoch));
                     return;
                 }
-                if (ack_epoch_mismatch || (ack_session_mismatch && is_hosted_client_authority_context()))
+                if (!ack_has_requester_identity &&
+                    is_hosted_client_authority_context() &&
+                    (ack_session_mismatch || ack_epoch_mismatch))
                 {
                     log_line("[bridge-route] route_probe_result candidate=" + result_candidate +
                              ":" + std::to_string(m_bridge_udp_port) +
-                             " result=rejected_session_epoch_mismatch token=" + (token.empty() ? "none" : token) +
+                             " result=rejected_legacy_hosted_session_epoch_mismatch token=" + (token.empty() ? "none" : token) +
                              " epoch=" + std::to_string(ack_epoch) +
                              " session=" + (ack_session.empty() ? "none" : ack_session) +
                              " localEpoch=" + std::to_string(m_session_epoch) +
