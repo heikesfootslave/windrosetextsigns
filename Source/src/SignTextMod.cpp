@@ -4026,6 +4026,36 @@ namespace
         return true;
     }
 
+    auto invoke_with_bool_param_cached(UObject* context, UFunction* fn, bool value) -> bool
+    {
+        if (!context || !fn)
+        {
+            return false;
+        }
+        std::vector<uint8_t> params(static_cast<size_t>(std::max<int32_t>(fn->GetStructureSize(), 16)), 0);
+        bool assigned = false;
+        for_each_property_in_chain_compat(fn, [&](FProperty* prop) {
+            if (!prop || prop->HasAnyPropertyFlags(CPF_ReturnParm) || prop->HasAnyPropertyFlags(CPF_OutParm))
+            {
+                return;
+            }
+            if (prop->GetClass().HashObject() == FBoolProperty::StaticClass().HashObject())
+            {
+                if (auto* bool_ptr = prop->ContainerPtrToValuePtr<bool>(params.data()))
+                {
+                    *bool_ptr = value;
+                    assigned = true;
+                }
+            }
+        });
+        if (!assigned)
+        {
+            return false;
+        }
+        context->ProcessEvent(fn, params.data());
+        return true;
+    }
+
     auto invoke_add_to_viewport(UObject* widget, int32 z_order) -> bool
     {
         if (!widget)
@@ -6132,8 +6162,20 @@ namespace WindroseTextSigns
 
     auto SignTextMod::set_phase7_game_and_ui_input_mode(bool enable_ui_mode) -> bool
     {
+        // BEGIN TEMP PHASE7 TIMING BREAKDOWN
+        // Remove this block and the [phase7-timing] log when Phase 7 input timing is no longer needed.
+        const auto phase7_input_timing_start = std::chrono::steady_clock::now();
+        auto phase7_input_timing_ms = [](std::chrono::steady_clock::time_point begin,
+                                         std::chrono::steady_clock::time_point end) -> long long {
+            return std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count();
+        };
+        // END TEMP PHASE7 TIMING BREAKDOWN
+
         if (m_phase7_ui_input_mode_active == enable_ui_mode)
         {
+            // BEGIN TEMP PHASE7 TIMING BREAKDOWN
+            const auto phase7_cached_focus_begin = std::chrono::steady_clock::now();
+            // END TEMP PHASE7 TIMING BREAKDOWN
             if (enable_ui_mode)
             {
                 install_phase7_keyboard_capture_hook();
@@ -6146,13 +6188,73 @@ namespace WindroseTextSigns
                 m_phase7_mouse_first_down_consumed.store(false);
                 m_phase7_force_full_mouse_consume.store(false);
             }
+            // BEGIN TEMP PHASE7 TIMING BREAKDOWN
+            const auto phase7_cached_focus_end = std::chrono::steady_clock::now();
+            log_line("[phase7-timing] input_mode_breakdown enable=" + std::string{enable_ui_mode ? "true" : "false"} +
+                     " cached=true controllerLookupMs=0 functionLookupMs=0 setInputModeUiOnlyCallMs=0 setInputModeGameAndUiCallMs=0 setInputModeGameOnlyCallMs=0 cursorFlagMs=0 ignoreLookMoveMs=0 focusPrepMs=" +
+                     std::to_string(phase7_input_timing_ms(phase7_cached_focus_begin, phase7_cached_focus_end)) +
+                     " totalMs=" + std::to_string(phase7_input_timing_ms(phase7_input_timing_start, phase7_cached_focus_end)));
+            // END TEMP PHASE7 TIMING BREAKDOWN
             return true;
         }
+        // BEGIN TEMP PHASE7 TIMING BREAKDOWN
+        const auto phase7_controller_lookup_begin = std::chrono::steady_clock::now();
+        // END TEMP PHASE7 TIMING BREAKDOWN
         auto* controller = try_get_primary_player_controller();
+        // BEGIN TEMP PHASE7 TIMING BREAKDOWN
+        const auto phase7_controller_lookup_end = std::chrono::steady_clock::now();
+        // END TEMP PHASE7 TIMING BREAKDOWN
         if (!controller)
         {
+            // BEGIN TEMP PHASE7 TIMING BREAKDOWN
+            log_line("[phase7-timing] input_mode_breakdown enable=" + std::string{enable_ui_mode ? "true" : "false"} +
+                     " cached=false controllerLookupMs=" +
+                     std::to_string(phase7_input_timing_ms(phase7_controller_lookup_begin, phase7_controller_lookup_end)) +
+                     " functionLookupMs=0 setInputModeUiOnlyCallMs=0 setInputModeGameAndUiCallMs=0 setInputModeGameOnlyCallMs=0 cursorFlagMs=0 ignoreLookMoveMs=0 focusPrepMs=0 totalMs=" +
+                     std::to_string(phase7_input_timing_ms(phase7_input_timing_start, phase7_controller_lookup_end)) +
+                     " result=no_controller");
+            // END TEMP PHASE7 TIMING BREAKDOWN
             return false;
         }
+
+        // BEGIN TEMP PHASE7 TIMING BREAKDOWN
+        const auto phase7_function_lookup_begin = std::chrono::steady_clock::now();
+        UFunction* phase7_fn_input_ui_only = nullptr;
+        UFunction* phase7_fn_input_game_and_ui = nullptr;
+        UFunction* phase7_fn_input_game_only = nullptr;
+        UFunction* phase7_fn_ignore_look = nullptr;
+        UFunction* phase7_fn_ignore_move = nullptr;
+        if (enable_ui_mode)
+        {
+            phase7_fn_input_ui_only = find_function_by_chain_or_path(
+                controller,
+                STR("SetInputModeUIOnly"),
+                STR("/Script/Engine.PlayerController:SetInputModeUIOnly"));
+            phase7_fn_input_game_and_ui = find_function_by_chain_or_path(
+                controller,
+                STR("SetInputModeGameAndUI"),
+                STR("/Script/Engine.PlayerController:SetInputModeGameAndUI"));
+        }
+        else
+        {
+            phase7_fn_input_game_only = find_function_by_chain_or_path(
+                controller,
+                STR("SetInputModeGameOnly"),
+                STR("/Script/Engine.PlayerController:SetInputModeGameOnly"));
+        }
+        phase7_fn_ignore_look = find_function_by_chain_or_path(
+            controller,
+            STR("SetIgnoreLookInput"),
+            STR("/Script/Engine.Controller:SetIgnoreLookInput"));
+        phase7_fn_ignore_move = find_function_by_chain_or_path(
+            controller,
+            STR("SetIgnoreMoveInput"),
+            STR("/Script/Engine.Controller:SetIgnoreMoveInput"));
+        const auto phase7_function_lookup_end = std::chrono::steady_clock::now();
+        long long phase7_ui_only_call_ms = 0;
+        long long phase7_game_and_ui_call_ms = 0;
+        long long phase7_game_only_call_ms = 0;
+        // END TEMP PHASE7 TIMING BREAKDOWN
 
         bool input_mode_applied = false;
         std::string applied_mode_name = "none";
@@ -6160,20 +6262,28 @@ namespace WindroseTextSigns
         {
             // Prefer UIOnly so mouse clicks stay owned by the editor widget and do not
             // pass through to gameplay bindings underneath.
-            input_mode_applied = invoke_no_param(
-                controller,
-                STR("SetInputModeUIOnly"),
-                STR("/Script/Engine.PlayerController:SetInputModeUIOnly"));
+            // BEGIN TEMP PHASE7 TIMING BREAKDOWN
+            const auto phase7_ui_only_call_begin = std::chrono::steady_clock::now();
+            // END TEMP PHASE7 TIMING BREAKDOWN
+            input_mode_applied = invoke_no_param_cached(controller, phase7_fn_input_ui_only);
+            // BEGIN TEMP PHASE7 TIMING BREAKDOWN
+            const auto phase7_ui_only_call_end = std::chrono::steady_clock::now();
+            phase7_ui_only_call_ms = phase7_input_timing_ms(phase7_ui_only_call_begin, phase7_ui_only_call_end);
+            // END TEMP PHASE7 TIMING BREAKDOWN
             if (input_mode_applied)
             {
                 applied_mode_name = "UIOnly";
             }
             else
             {
-                input_mode_applied = invoke_no_param(
-                    controller,
-                    STR("SetInputModeGameAndUI"),
-                    STR("/Script/Engine.PlayerController:SetInputModeGameAndUI"));
+                // BEGIN TEMP PHASE7 TIMING BREAKDOWN
+                const auto phase7_game_and_ui_call_begin = std::chrono::steady_clock::now();
+                // END TEMP PHASE7 TIMING BREAKDOWN
+                input_mode_applied = invoke_no_param_cached(controller, phase7_fn_input_game_and_ui);
+                // BEGIN TEMP PHASE7 TIMING BREAKDOWN
+                const auto phase7_game_and_ui_call_end = std::chrono::steady_clock::now();
+                phase7_game_and_ui_call_ms = phase7_input_timing_ms(phase7_game_and_ui_call_begin, phase7_game_and_ui_call_end);
+                // END TEMP PHASE7 TIMING BREAKDOWN
                 if (input_mode_applied)
                 {
                     applied_mode_name = "GameAndUI";
@@ -6182,19 +6292,34 @@ namespace WindroseTextSigns
         }
         else
         {
-            input_mode_applied = invoke_no_param(
-                controller,
-                STR("SetInputModeGameOnly"),
-                STR("/Script/Engine.PlayerController:SetInputModeGameOnly"));
+            // BEGIN TEMP PHASE7 TIMING BREAKDOWN
+            const auto phase7_game_only_call_begin = std::chrono::steady_clock::now();
+            // END TEMP PHASE7 TIMING BREAKDOWN
+            input_mode_applied = invoke_no_param_cached(controller, phase7_fn_input_game_only);
+            // BEGIN TEMP PHASE7 TIMING BREAKDOWN
+            const auto phase7_game_only_call_end = std::chrono::steady_clock::now();
+            phase7_game_only_call_ms = phase7_input_timing_ms(phase7_game_only_call_begin, phase7_game_only_call_end);
+            // END TEMP PHASE7 TIMING BREAKDOWN
             if (input_mode_applied)
             {
                 applied_mode_name = "GameOnly";
             }
         }
 
+        // BEGIN TEMP PHASE7 TIMING BREAKDOWN
+        const auto phase7_cursor_flag_begin = std::chrono::steady_clock::now();
+        // END TEMP PHASE7 TIMING BREAKDOWN
         const bool cursor_set = set_bool_property_if_present(controller, "bshowmousecursor", enable_ui_mode);
-        const bool look_ignored = invoke_with_bool_param(controller, STR("SetIgnoreLookInput"), STR("/Script/Engine.Controller:SetIgnoreLookInput"), enable_ui_mode);
-        const bool move_ignored = invoke_with_bool_param(controller, STR("SetIgnoreMoveInput"), STR("/Script/Engine.Controller:SetIgnoreMoveInput"), enable_ui_mode);
+        // BEGIN TEMP PHASE7 TIMING BREAKDOWN
+        const auto phase7_cursor_flag_end = std::chrono::steady_clock::now();
+        const auto phase7_ignore_look_move_begin = std::chrono::steady_clock::now();
+        // END TEMP PHASE7 TIMING BREAKDOWN
+        const bool look_ignored = invoke_with_bool_param_cached(controller, phase7_fn_ignore_look, enable_ui_mode);
+        const bool move_ignored = invoke_with_bool_param_cached(controller, phase7_fn_ignore_move, enable_ui_mode);
+        // BEGIN TEMP PHASE7 TIMING BREAKDOWN
+        const auto phase7_ignore_look_move_end = std::chrono::steady_clock::now();
+        const auto phase7_focus_prep_begin = std::chrono::steady_clock::now();
+        // END TEMP PHASE7 TIMING BREAKDOWN
 
         if (enable_ui_mode)
         {
@@ -6219,6 +6344,9 @@ namespace WindroseTextSigns
             m_phase7_mouse_first_down_consumed.store(false);
             m_phase7_force_full_mouse_consume.store(false);
         }
+        // BEGIN TEMP PHASE7 TIMING BREAKDOWN
+        const auto phase7_focus_prep_end = std::chrono::steady_clock::now();
+        // END TEMP PHASE7 TIMING BREAKDOWN
 
         const bool ll_hook_installed = m_phase7_keyboard_hook_installed.load(std::memory_order_relaxed);
         const bool ll_hook_active = enable_ui_mode && ll_hook_installed;
@@ -6237,6 +6365,26 @@ namespace WindroseTextSigns
         {
             m_phase7_ui_input_mode_active = enable_ui_mode;
         }
+        // BEGIN TEMP PHASE7 TIMING BREAKDOWN
+        const auto phase7_input_timing_end = std::chrono::steady_clock::now();
+        log_line("[phase7-timing] input_mode_breakdown enable=" + std::string{enable_ui_mode ? "true" : "false"} +
+                 " cached=false controllerLookupMs=" +
+                 std::to_string(phase7_input_timing_ms(phase7_controller_lookup_begin, phase7_controller_lookup_end)) +
+                 " functionLookupMs=" +
+                 std::to_string(phase7_input_timing_ms(phase7_function_lookup_begin, phase7_function_lookup_end)) +
+                 " setInputModeUiOnlyCallMs=" + std::to_string(phase7_ui_only_call_ms) +
+                 " setInputModeGameAndUiCallMs=" + std::to_string(phase7_game_and_ui_call_ms) +
+                 " setInputModeGameOnlyCallMs=" + std::to_string(phase7_game_only_call_ms) +
+                 " cursorFlagMs=" +
+                 std::to_string(phase7_input_timing_ms(phase7_cursor_flag_begin, phase7_cursor_flag_end)) +
+                 " ignoreLookMoveMs=" +
+                 std::to_string(phase7_input_timing_ms(phase7_ignore_look_move_begin, phase7_ignore_look_move_end)) +
+                 " focusPrepMs=" +
+                 std::to_string(phase7_input_timing_ms(phase7_focus_prep_begin, phase7_focus_prep_end)) +
+                 " totalMs=" + std::to_string(phase7_input_timing_ms(phase7_input_timing_start, phase7_input_timing_end)) +
+                 " appliedMode=" + applied_mode_name +
+                 " result=" + std::string{applied ? "applied" : "not_applied"});
+        // END TEMP PHASE7 TIMING BREAKDOWN
         return applied;
     }
 
@@ -12998,13 +13146,15 @@ namespace WindroseTextSigns
             {
                 return false;
             }
+            const auto bridge_port = static_cast<uint16_t>(std::clamp(m_bridge_udp_port, 1, 65535));
             log_line("[bridge-route] definitive_endpoint_candidate host=" + endpoint->host +
-                     " port=" + std::to_string(static_cast<unsigned int>(endpoint->port)) +
+                     " gamePort=" + std::to_string(static_cast<unsigned int>(endpoint->port)) +
+                     " bridgePort=" + std::to_string(static_cast<unsigned int>(bridge_port)) +
                      " source=" + endpoint->source +
                      " reason=" + reason_tag);
             return apply_bridge_remote_endpoint(
                 endpoint->host,
-                endpoint->port,
+                bridge_port,
                 "definitive_endpoint_" + endpoint->source + "_" + reason_tag);
         };
 
@@ -17585,6 +17735,8 @@ namespace WindroseTextSigns
             return true;
         };
 
+        const auto active_parse_log_path = m_destroy_signal_log_path;
+        const auto active_parse_log_path_normalized = normalized_path_for_compare(active_parse_log_path);
         while (m_destroy_signal_log_offset < size && chunks_processed < max_chunks_this_tick)
         {
             if (bootstrap_catchup_mode &&
@@ -17767,7 +17919,8 @@ namespace WindroseTextSigns
                 if (!definitive_start_signal.empty() &&
                     !server_runtime_process &&
                     m_definitive_session_last_end_seen.time_since_epoch().count() != 0 &&
-                    m_definitive_session_last_end_log_path == m_destroy_signal_log_path)
+                    !active_parse_log_path.empty() &&
+                    normalized_path_for_compare(m_definitive_session_last_end_log_path) == active_parse_log_path_normalized)
                 {
                     // Hard stale-offset guard: never allow a new session start to reopen from
                     // log lines at/behind the last definitive lobby-exit offset.
@@ -17823,7 +17976,7 @@ namespace WindroseTextSigns
                     m_definitive_session_last_end_offset = 0;
                     // Anchor at the definitive-start line itself so all immediately-following
                     // lines are guaranteed in-window for this epoch.
-                    open_session_window(definitive_start_signal, m_destroy_signal_log_path, line_start);
+                    open_session_window(definitive_start_signal, active_parse_log_path, line_start);
                     log_line("[session] definitive_start_anchor epoch=" + std::to_string(m_session_epoch) +
                              " signal=" + definitive_start_signal +
                              " startOffset=" + std::to_string(static_cast<unsigned long long>(line_start)));
@@ -17961,9 +18114,9 @@ namespace WindroseTextSigns
                 {
                     if (try_begin_definitive_reset("end", "start_transition_to_lobby", "none"))
                     {
-                        close_session_window("start_transition_to_lobby", m_destroy_signal_log_path, line_end);
+                        close_session_window("start_transition_to_lobby", active_parse_log_path, line_end);
                         m_definitive_session_last_end_seen = now;
-                        m_definitive_session_last_end_log_path = m_destroy_signal_log_path;
+                        m_definitive_session_last_end_log_path = active_parse_log_path;
                         m_definitive_session_last_end_offset = line_end;
                         log_line("[session] definitive_end_detected signal=start_transition_to_lobby");
                         arm_phase7_definitive_teardown("start_transition_to_lobby");
