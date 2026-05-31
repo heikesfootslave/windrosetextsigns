@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.11
+- Improved multiplayer connection reliability, especially for dedicated servers and higher-latency networks.
+- Improved session/log handling so old lobby/session signals are less likely to affect a new session.
+- Improved editor open responsiveness and reduced repeated setup work when opening the sign editor.
+
 ## 0.1.10
 - Improved custom font autosizing and wrapping for sign text so long words and mixed-case text fit more consistently.  Font size is now based on the measured size of each character instead of assuming a fixed width.
 - Fixed an edge case where a very long single word could clear the sign; overlong words are now truncated while preserving the rest of the text.
