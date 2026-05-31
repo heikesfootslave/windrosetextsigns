@@ -12541,6 +12541,10 @@ namespace WindroseTextSigns
                 ack_bridge_role == "dedicatedserver";
             const bool ack_epoch_match =
                 ack_epoch == 0 || ack_epoch == static_cast<uint64_t>(m_session_epoch);
+            const bool ack_session_mismatch =
+                !ack_session.empty() && !m_session_id.empty() && ack_session != m_session_id;
+            const bool ack_epoch_mismatch =
+                ack_epoch != 0 && ack_epoch != static_cast<uint64_t>(m_session_epoch);
             bool ack_candidate_match = false;
             if (!ack_probe_host.empty())
             {
@@ -12573,6 +12577,10 @@ namespace WindroseTextSigns
             {
                 const auto keys_runtime = field_with_alias(fields, {"runtimeRole", "runtime_role", "role"});
                 const auto keys_bridge = field_with_alias(fields, {"bridgeRole", "bridge_role"});
+                const auto result_candidate =
+                    (post_ready_retry_match && !ack_probe_host.empty())
+                        ? ack_probe_host
+                        : (m_bridge_route_probe_host.empty() ? "unknown" : m_bridge_route_probe_host);
                 if (keys_runtime.empty() && keys_bridge.empty() && ack_authoritative.empty())
                 {
                     log_line("[bridge-route] route_probe_ack_parse_missing_fields token=" + (token.empty() ? "none" : token) +
@@ -12586,12 +12594,22 @@ namespace WindroseTextSigns
                          " bridgeRole=" + (keys_bridge.empty() ? "missing" : keys_bridge) +
                          " authoritative=" + (ack_authoritative.empty() ? "missing" : ack_authoritative) +
                          " sessionMismatch=" + std::string{
-                             (!ack_session.empty() && !m_session_id.empty() && ack_session != m_session_id) ? "true" : "false"} +
+                             ack_session_mismatch ? "true" : "false"} +
                          " epochMismatch=" + std::string{
-                             (ack_epoch != 0 && ack_epoch != static_cast<uint64_t>(m_session_epoch)) ? "true" : "false"});
+                             ack_epoch_mismatch ? "true" : "false"});
+                if (ack_session_mismatch || ack_epoch_mismatch)
+                {
+                    log_line("[bridge-route] route_probe_result candidate=" + result_candidate +
+                             ":" + std::to_string(m_bridge_udp_port) +
+                             " result=rejected_session_epoch_mismatch token=" + (token.empty() ? "none" : token) +
+                             " epoch=" + std::to_string(ack_epoch) +
+                             " session=" + (ack_session.empty() ? "none" : ack_session) +
+                             " localEpoch=" + std::to_string(m_session_epoch) +
+                             " localSession=" + (m_session_id.empty() ? "none" : m_session_id));
+                    return;
+                }
                 if (!ack_identity_match && !post_ready_retry_match)
                 {
-                    const auto result_candidate = m_bridge_route_probe_host.empty() ? "unknown" : m_bridge_route_probe_host;
                     log_line("[bridge-route] route_probe_result candidate=" + result_candidate +
                              ":" + std::to_string(m_bridge_udp_port) +
                              " result=rejected_identity_mismatch token=" + (token.empty() ? "none" : token) +
@@ -12613,10 +12631,15 @@ namespace WindroseTextSigns
                              " bridgeRole=" + (ack_bridge_role.empty() ? "none" : ack_bridge_role));
                     return;
                 }
-                const auto result_candidate =
-                    (post_ready_retry_match && !ack_probe_host.empty())
-                        ? ack_probe_host
-                        : (m_bridge_route_probe_host.empty() ? "unknown" : m_bridge_route_probe_host);
+                if (is_hosted_client_authority_context() && ack_runtime_role != "hostedserver")
+                {
+                    log_line("[bridge-route] route_probe_result candidate=" + result_candidate +
+                             ":" + std::to_string(m_bridge_udp_port) +
+                             " result=rejected_wrong_server_role_for_hosted_client runtimeRole=" +
+                             (ack_runtime_role.empty() ? "none" : ack_runtime_role) +
+                             " bridgeRole=" + (ack_bridge_role.empty() ? "none" : ack_bridge_role));
+                    return;
+                }
                 log_line("[bridge-route] route_probe_result candidate=" + result_candidate +
                          ":" + std::to_string(m_bridge_udp_port) +
                          " result=success");
@@ -13628,6 +13651,25 @@ namespace WindroseTextSigns
         if (m_bridge_route_staged_active && !m_bridge_route_staged_host.empty())
         {
             add_candidate(m_bridge_route_staged_host, "staged:" + m_bridge_route_staged_source);
+        }
+
+        if (m_session_window_open)
+        {
+            if (const auto endpoint = try_latest_definitive_route_endpoint_from_log_window(
+                    authority_log_path,
+                    authority_window_start);
+                endpoint.has_value())
+            {
+                add_candidate(endpoint->host, "window:" + endpoint->source);
+            }
+            if (const auto remoteaddr_host = try_latest_remoteaddr_host_from_log_window(
+                    authority_log_path,
+                    authority_window_start);
+                remoteaddr_host.has_value())
+            {
+                add_candidate(*remoteaddr_host, "window:remoteaddr_endpoint");
+            }
+            return candidates;
         }
 
         // Same-machine loopback first only with explicit evidence.
