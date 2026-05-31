@@ -103,6 +103,7 @@ namespace WindroseTextSigns
         auto open_phase7_native_editor_for_selection() -> bool;
         auto close_phase7_native_editor(bool restore_game_input) -> void;
         auto set_phase7_game_and_ui_input_mode(bool enable_ui_mode) -> bool;
+        auto invalidate_phase7_input_mode_function_cache(const std::string& reason) -> void;
         auto cache_phase7_umg_class_pointers() -> bool;
         auto cache_phase7_umg_function_pointers() -> void;
         auto apply_phase7_umg_debug_scales(const char* reason = nullptr) -> void;
@@ -570,6 +571,16 @@ namespace WindroseTextSigns
         bool m_phase7_escape_was_down{false};
         bool m_phase7_shift_was_down{false};
         bool m_phase7_ui_input_mode_active{false};
+        struct Phase7InputModeFunctionCache
+        {
+            bool initialized{false};
+            std::string controller_class_key{};
+            RC::Unreal::UFunction* set_input_mode_ui_only{};
+            RC::Unreal::UFunction* set_input_mode_game_and_ui{};
+            RC::Unreal::UFunction* set_input_mode_game_only{};
+            RC::Unreal::UFunction* set_ignore_look_input{};
+            RC::Unreal::UFunction* set_ignore_move_input{};
+        } m_phase7_input_mode_fn_cache{};
         std::atomic<bool> m_phase7_keyboard_capture_active{false};
         std::atomic<uint64_t> m_phase7_mouse_capture_arm_until_ms{0};
         std::atomic<bool> m_phase7_mouse_first_down_consumed{false};
