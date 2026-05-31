@@ -12504,11 +12504,16 @@ namespace WindroseTextSigns
                 const auto token = unescape_json(fields.count("token") ? fields.at("token") : "");
                 const auto probe_host = unescape_json(fields.count("probeHost") ? fields.at("probeHost") : "");
                 const auto probe_source = unescape_json(fields.count("probeSource") ? fields.at("probeSource") : "");
+                const auto requester_session = unescape_json(field_with_alias(fields, {"requesterSession", "requester_session", "session"}));
+                const auto requester_epoch = field_with_alias(fields, {"requesterEpoch", "requester_epoch", "epoch"});
                 std::ostringstream ack{};
                 ack << "mod=WindroseTextSigns"
                     << ";schema=bridge.v1"
                     << ";type=route_probe_ack"
                     << ";session=" << m_session_id
+                    << ";serverSession=" << m_session_id
+                    << ";requesterSession=" << requester_session
+                    << ";requesterEpoch=" << requester_epoch
                     << ";worldId=" << m_world_folder_id
                     << ";token=" << token
                     << ";probeHost=" << probe_host
@@ -12530,11 +12535,13 @@ namespace WindroseTextSigns
         {
             const auto token = unescape_json(field_with_alias(fields, {"token"}));
             const auto ack_session = unescape_json(field_with_alias(fields, {"session"}));
+            const auto ack_requester_session = unescape_json(field_with_alias(fields, {"requesterSession", "requester_session"}));
             const auto ack_probe_host = unescape_json(field_with_alias(fields, {"probeHost", "probe_host"}));
             const auto ack_runtime_role = lower_ascii(unescape_json(field_with_alias(fields, {"runtimeRole", "runtime_role", "role"})));
             const auto ack_bridge_role = lower_ascii(unescape_json(field_with_alias(fields, {"bridgeRole", "bridge_role"})));
             const auto ack_authoritative = lower_ascii(unescape_json(field_with_alias(fields, {"authoritative", "isAuthoritative"})));
             const auto ack_epoch = parse_u64_field("epoch", 0);
+            const auto ack_requester_epoch = parse_u64_field("requesterEpoch", 0);
             const bool ack_from_server_role =
                 ack_runtime_role == "dedicatedserver" ||
                 ack_runtime_role == "hostedserver" ||
@@ -12545,6 +12552,10 @@ namespace WindroseTextSigns
                 !ack_session.empty() && !m_session_id.empty() && ack_session != m_session_id;
             const bool ack_epoch_mismatch =
                 ack_epoch != 0 && ack_epoch != static_cast<uint64_t>(m_session_epoch);
+            const bool ack_requester_session_mismatch =
+                !ack_requester_session.empty() && !m_session_id.empty() && ack_requester_session != m_session_id;
+            const bool ack_requester_epoch_mismatch =
+                ack_requester_epoch != 0 && ack_requester_epoch != static_cast<uint64_t>(m_session_epoch);
             bool ack_candidate_match = false;
             if (!ack_probe_host.empty())
             {
@@ -12589,6 +12600,8 @@ namespace WindroseTextSigns
                 log_line("[bridge-route] route_probe_ack_parse_ok token=" + (token.empty() ? "none" : token) +
                          " epoch=" + std::to_string(ack_epoch) +
                          " session=" + (ack_session.empty() ? "none" : ack_session) +
+                         " requesterSession=" + (ack_requester_session.empty() ? "none" : ack_requester_session) +
+                         " requesterEpoch=" + std::to_string(ack_requester_epoch) +
                          " probeHost=" + (ack_probe_host.empty() ? "none" : ack_probe_host) +
                          " runtimeRole=" + (keys_runtime.empty() ? "missing" : keys_runtime) +
                          " bridgeRole=" + (keys_bridge.empty() ? "missing" : keys_bridge) +
@@ -12597,7 +12610,18 @@ namespace WindroseTextSigns
                              ack_session_mismatch ? "true" : "false"} +
                          " epochMismatch=" + std::string{
                              ack_epoch_mismatch ? "true" : "false"});
-                if (ack_session_mismatch || ack_epoch_mismatch)
+                if (ack_requester_session_mismatch || ack_requester_epoch_mismatch)
+                {
+                    log_line("[bridge-route] route_probe_result candidate=" + result_candidate +
+                             ":" + std::to_string(m_bridge_udp_port) +
+                             " result=rejected_requester_identity_mismatch token=" + (token.empty() ? "none" : token) +
+                             " requesterSession=" + (ack_requester_session.empty() ? "none" : ack_requester_session) +
+                             " requesterEpoch=" + std::to_string(ack_requester_epoch) +
+                             " localSession=" + (m_session_id.empty() ? "none" : m_session_id) +
+                             " localEpoch=" + std::to_string(m_session_epoch));
+                    return;
+                }
+                if (ack_epoch_mismatch || (ack_session_mismatch && is_hosted_client_authority_context()))
                 {
                     log_line("[bridge-route] route_probe_result candidate=" + result_candidate +
                              ":" + std::to_string(m_bridge_udp_port) +
@@ -13753,6 +13777,8 @@ namespace WindroseTextSigns
                 std::ostringstream payload{};
                 payload << "{\"mod\":\"WindroseTextSigns\",\"schema\":\"bridge.v1\",\"type\":\"route_probe\""
                         << ",\"session\":\"" << escape_json(m_session_id) << "\""
+                        << ",\"requesterSession\":\"" << escape_json(m_session_id) << "\""
+                        << ",\"requesterEpoch\":" << m_session_epoch
                         << ",\"worldId\":\"" << escape_json(m_world_folder_id) << "\""
                         << ",\"token\":\"" << escape_json(token) << "\""
                         << ",\"probeHost\":\"" << escape_json(host) << "\""
@@ -13807,6 +13833,8 @@ namespace WindroseTextSigns
         std::ostringstream payload{};
         payload << "{\"mod\":\"WindroseTextSigns\",\"schema\":\"bridge.v1\",\"type\":\"route_probe\""
                 << ",\"session\":\"" << escape_json(m_session_id) << "\""
+                << ",\"requesterSession\":\"" << escape_json(m_session_id) << "\""
+                << ",\"requesterEpoch\":" << m_session_epoch
                 << ",\"worldId\":\"" << escape_json(m_world_folder_id) << "\""
                 << ",\"token\":\"" << escape_json(m_bridge_route_probe_token) << "\""
                 << ",\"probeHost\":\"" << escape_json(host) << "\""
