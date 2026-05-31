@@ -6526,6 +6526,8 @@ namespace WindroseTextSigns
         m_phase7_fn_set_visibility = nullptr;
         m_phase7_umg_in_viewport = false;
         m_phase7_umg_open_pending = false;
+        m_phase7_umg_prewarm_succeeded = false;
+        m_phase7_umg_prewarm_next_try = {};
         m_phase7_open_sla_violation_logged = false;
         m_phase7_open_pending_since = {};
         m_phase7_ui_input_mode_active = false;
@@ -6800,7 +6802,7 @@ namespace WindroseTextSigns
         cache_phase7_umg_function_pointers();
         apply_phase7_umg_debug_scales("prewarm_init");
 
-        // Prewarm should build the widget tree only; do not add/show during loading/bootstrap.
+        // Build-only here; session-ready prewarm attaches the cached widget collapsed.
         m_phase7_umg_in_viewport = false;
         log_line(std::string{"[phase7-umg] prewarm_result built=true added=false collapsed=true focus=false"} +
                  " style=" + std::string{(title_text && hint_text && status_text && refresh_button_text && input_text && title_color && hint_color && status_color && refresh_label_color && input_color &&
@@ -6841,6 +6843,10 @@ namespace WindroseTextSigns
         {
             // Attach once during prewarm and keep collapsed so F8 only needs
             // visibility/focus work on open.
+            cache_phase7_umg_function_pointers();
+            mark_phase7_status_dirty("prewarm_editor");
+            refresh_phase7_umg_status(true, "prewarm_editor");
+            apply_phase7_umg_debug_scales("prewarm_editor");
             if (!m_phase7_umg_in_viewport)
             {
                 attached = invoke_with_int_param_cached(m_phase7_umg_widget, m_phase7_fn_add_to_viewport, 1000) ||
@@ -6922,11 +6928,23 @@ namespace WindroseTextSigns
         {
             return false;
         }
-        if (!budgeted_step("ensure_phase7_umg_widget_built", [&]() {
+        const bool widget_ready =
+            m_phase7_umg_widget &&
+            m_phase7_umg_text_box &&
+            is_uobject_reflection_safe(m_phase7_umg_widget) &&
+            is_uobject_reflection_safe(m_phase7_umg_text_box);
+        const bool widget_built = widget_ready
+            ? true
+            : budgeted_step("ensure_phase7_umg_widget_built", [&]() {
                 return ensure_phase7_umg_widget_built();
-            }))
+            });
+        if (!widget_built)
         {
             return false;
+        }
+        if (widget_ready)
+        {
+            cache_phase7_umg_function_pointers();
         }
         if (!m_phase7_umg_widget || !m_phase7_umg_text_box || !is_uobject_reflection_safe(m_phase7_umg_widget) || !is_uobject_reflection_safe(m_phase7_umg_text_box))
         {
@@ -6967,12 +6985,24 @@ namespace WindroseTextSigns
 
         // Keep the widget collapsed while we acquire input mode and focus to avoid
         // the first click racing through to gameplay before UI capture is settled.
-        const bool collapsed = budgeted_step("open_collapse", [&]() {
-            return invoke_phase7_set_visibility(1, "open_collapse");
-        });
-        const bool input_mode_pre = budgeted_step("set_input_mode_pre", [&]() {
-            return set_phase7_game_and_ui_input_mode(true);
-        });
+        const bool prewarmed_attached =
+            m_phase7_umg_prewarm_succeeded &&
+            m_phase7_umg_in_viewport &&
+            !m_phase7_last_close_removed;
+        const bool collapsed = prewarmed_attached
+            ? true
+            : budgeted_step("open_collapse", [&]() {
+                return invoke_phase7_set_visibility(1, "open_collapse");
+            });
+        const bool input_mode_pre = m_phase7_ui_input_mode_active
+            ? budgeted_step("set_input_mode_pre_cached", [&]() {
+                install_phase7_keyboard_capture_hook();
+                m_phase7_keyboard_capture_active.store(true);
+                return true;
+            })
+            : budgeted_step("set_input_mode_pre", [&]() {
+                return set_phase7_game_and_ui_input_mode(true);
+            });
         bool added = m_phase7_umg_in_viewport;
         if (!m_phase7_umg_in_viewport)
         {
@@ -7016,6 +7046,7 @@ namespace WindroseTextSigns
                  " readyToShow=" + std::string{ready_to_show ? "true" : "false"} +
                  " visible=" + std::string{visible ? "true" : "false"} +
                  " collapsedFirst=" + std::string{collapsed ? "true" : "false"} +
+                 " prewarmedFastPath=" + std::string{prewarmed_attached ? "true" : "false"} +
                  " inputText=" + std::string{input_text ? "true" : "false"} +
                  " focusKeyboard=" + std::string{focus_keyboard ? "true" : "false"} +
                  " focusWidget=" + std::string{focus_widget ? "true" : "false"} +
@@ -7680,6 +7711,10 @@ namespace WindroseTextSigns
             const bool route_healthy =
                 m_bridge_route_lock_acquired &&
                 !m_bridge_health_unhealthy;
+            const bool route_retrying =
+                !m_bridge_route_lock_acquired &&
+                (m_bridge_route_probe_active ||
+                 m_bridge_route_post_ready_next_probe_due.time_since_epoch().count() != 0);
             const bool snapshot_ready = is_current_world_snapshot_ready();
             const auto now = std::chrono::steady_clock::now();
             constexpr auto k_status_authoritative_rx_grace = std::chrono::seconds(15);
@@ -7690,6 +7725,10 @@ namespace WindroseTextSigns
             if (!connected && m_route_lock_failed_no_reachable_endpoint)
             {
                 return k_route_lock_failed_hint;
+            }
+            if (!connected && route_retrying)
+            {
+                return "Syncing...";
             }
             return connected
                 ? "Connected to Server"
@@ -12359,7 +12398,8 @@ namespace WindroseTextSigns
                              (ack_epoch != 0 && ack_epoch != static_cast<uint64_t>(m_session_epoch)) ? "true" : "false"});
                 if (!ack_identity_match && !post_ready_retry_match)
                 {
-                    log_line("[bridge-route] route_probe_result candidate=" + m_bridge_route_probe_host +
+                    const auto result_candidate = m_bridge_route_probe_host.empty() ? "unknown" : m_bridge_route_probe_host;
+                    log_line("[bridge-route] route_probe_result candidate=" + result_candidate +
                              ":" + std::to_string(m_bridge_udp_port) +
                              " result=rejected_identity_mismatch token=" + (token.empty() ? "none" : token) +
                              " epoch=" + std::to_string(ack_epoch) +
@@ -12369,17 +12409,25 @@ namespace WindroseTextSigns
                 }
                 if (!ack_from_server_role)
                 {
-                    log_line("[bridge-route] route_probe_result candidate=" + m_bridge_route_probe_host +
+                    const auto result_candidate =
+                        (post_ready_retry_match && !ack_probe_host.empty())
+                            ? ack_probe_host
+                            : (m_bridge_route_probe_host.empty() ? "unknown" : m_bridge_route_probe_host);
+                    log_line("[bridge-route] route_probe_result candidate=" + result_candidate +
                              ":" + std::to_string(m_bridge_udp_port) +
                              " result=rejected_non_server_ack runtimeRole=" +
                              (ack_runtime_role.empty() ? "none" : ack_runtime_role) +
                              " bridgeRole=" + (ack_bridge_role.empty() ? "none" : ack_bridge_role));
                     return;
                 }
-                log_line("[bridge-route] route_probe_result candidate=" + m_bridge_route_probe_host +
+                const auto result_candidate =
+                    (post_ready_retry_match && !ack_probe_host.empty())
+                        ? ack_probe_host
+                        : (m_bridge_route_probe_host.empty() ? "unknown" : m_bridge_route_probe_host);
+                log_line("[bridge-route] route_probe_result candidate=" + result_candidate +
                          ":" + std::to_string(m_bridge_udp_port) +
                          " result=success");
-                std::string lock_host = m_bridge_route_probe_host;
+                std::string lock_host = result_candidate;
                 std::string lock_source = m_bridge_route_probe_source.empty() ? "unknown" : m_bridge_route_probe_source;
                 if (post_ready_retry_match && !ack_probe_host.empty())
                 {
@@ -12982,12 +13030,28 @@ namespace WindroseTextSigns
                 return;
             }
 
-            if (!m_bridge_route_retry_consumed)
+            const bool repeated_post_ready_failures = m_bridge_route_post_ready_retry_stage >= 3;
+            if (!m_bridge_route_retry_consumed &&
+                repeated_post_ready_failures &&
+                !m_route_lock_failed_no_reachable_endpoint)
             {
                 m_bridge_route_retry_consumed = true;
                 m_route_lock_failed_no_reachable_endpoint = true;
-                log_line("[bridge-route] route_lock_failed_no_reachable_endpoint details=final_check_after_ready_latched");
+                log_line("[bridge-route] route_lock_failed_no_reachable_endpoint details=post_ready_probe_cycles_exhausted");
                 mark_phase7_status_dirty("route_lock_failed_no_reachable_endpoint");
+            }
+            else if (!m_route_lock_failed_no_reachable_endpoint)
+            {
+                const bool should_log_retrying =
+                    m_bridge_route_wait_last_reason != details ||
+                    m_bridge_route_wait_last_log.time_since_epoch().count() == 0 ||
+                    (now - m_bridge_route_wait_last_log) >= std::chrono::seconds(3);
+                if (should_log_retrying)
+                {
+                    log_line("[bridge-route] route_lock_pending reason=post_ready_probe_retry details=" + details);
+                    m_bridge_route_wait_last_reason = details;
+                    m_bridge_route_wait_last_log = now;
+                }
             }
             if (m_session_ready_latched)
             {
@@ -13039,6 +13103,17 @@ namespace WindroseTextSigns
 
         if (m_bridge_route_probe_waiting_ack && now >= m_bridge_route_probe_deadline)
         {
+            if (m_session_ready_latched &&
+                m_bridge_route_probe_index >= m_bridge_route_probe_candidates.size())
+            {
+                log_line("[bridge-route] route_probe_cycle_result result=timeout candidates=" +
+                         std::to_string(m_bridge_route_probe_candidates.size()) +
+                         " epoch=" + std::to_string(m_session_epoch));
+                m_bridge_route_probe_waiting_ack = false;
+                m_bridge_route_probe_active = false;
+                handle_probe_exhausted("all_candidates_timed_out");
+                return;
+            }
             log_line("[bridge-route] route_probe_result candidate=" + m_bridge_route_probe_host +
                      ":" + std::to_string(m_bridge_udp_port) + " result=timeout");
             m_bridge_route_probe_waiting_ack = false;
@@ -13407,6 +13482,77 @@ namespace WindroseTextSigns
         if (m_bridge_route_probe_index >= m_bridge_route_probe_candidates.size())
         {
             return false;
+        }
+
+        if (m_session_ready_latched)
+        {
+            static const std::array<std::chrono::seconds, 4> k_post_ready_retry_delays{
+                std::chrono::seconds(1),
+                std::chrono::seconds(3),
+                std::chrono::seconds(8),
+                std::chrono::seconds(15)};
+            const size_t stage_index = static_cast<size_t>(std::min<uint32_t>(
+                m_bridge_route_post_ready_retry_stage,
+                static_cast<uint32_t>(k_post_ready_retry_delays.size() - 1)));
+            const auto probe_wait_ms =
+                std::chrono::duration_cast<std::chrono::milliseconds>(k_post_ready_retry_delays[stage_index]);
+            const auto token_base = std::to_string(m_session_epoch) + "-" +
+                std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count()) +
+                "-" + std::to_string(static_cast<unsigned long long>(GetCurrentProcessId()));
+
+            bool any_sent = false;
+            size_t sent_count = 0;
+            size_t failed_count = 0;
+            for (size_t i = 0; i < m_bridge_route_probe_candidates.size(); ++i)
+            {
+                const auto& next = m_bridge_route_probe_candidates[i];
+                const auto& host = next.first;
+                const auto& source = next.second;
+                const auto token = token_base + "-" + std::to_string(i);
+
+                m_bridge_remote_server_host = host;
+                NativeBridge::instance().set_remote_server(m_bridge_remote_server_host, static_cast<uint16_t>(m_bridge_udp_port));
+
+                std::ostringstream payload{};
+                payload << "{\"mod\":\"WindroseTextSigns\",\"schema\":\"bridge.v1\",\"type\":\"route_probe\""
+                        << ",\"session\":\"" << escape_json(m_session_id) << "\""
+                        << ",\"worldId\":\"" << escape_json(m_world_folder_id) << "\""
+                        << ",\"token\":\"" << escape_json(token) << "\""
+                        << ",\"probeHost\":\"" << escape_json(host) << "\""
+                        << ",\"probeSource\":\"" << escape_json(source) << "\""
+                        << ",\"epoch\":" << m_session_epoch
+                        << "}";
+                const bool sent = NativeBridge::instance().send_to_server(payload.str());
+                any_sent = any_sent || sent;
+                sent_count += sent ? 1u : 0u;
+                failed_count += sent ? 0u : 1u;
+                log_line("[bridge-route] route_probe_start epoch=" + std::to_string(m_session_epoch) +
+                         " candidate=" + host + ":" + std::to_string(m_bridge_udp_port) +
+                         " class=" + source +
+                         " sent=" + std::string{sent ? "true" : "false"} +
+                         " waitMs=" + std::to_string(static_cast<long long>(probe_wait_ms.count())) +
+                         " mode=fanout");
+                if (!sent)
+                {
+                    log_line("[bridge-route] route_probe_result candidate=" + host + ":" + std::to_string(m_bridge_udp_port) +
+                             " result=send_failed");
+                }
+            }
+
+            m_bridge_route_probe_index = m_bridge_route_probe_candidates.size();
+            m_bridge_route_probe_host.clear();
+            m_bridge_route_probe_source.clear();
+            m_bridge_route_probe_token = token_base;
+            m_bridge_route_probe_waiting_ack = any_sent;
+            m_bridge_route_probe_active = any_sent;
+            m_bridge_route_probe_deadline = now + probe_wait_ms;
+            log_line("[bridge-route] route_probe_cycle_start epoch=" + std::to_string(m_session_epoch) +
+                     " candidates=" + std::to_string(m_bridge_route_probe_candidates.size()) +
+                     " sent=" + std::to_string(sent_count) +
+                     " failed=" + std::to_string(failed_count) +
+                     " waitMs=" + std::to_string(static_cast<long long>(probe_wait_ms.count())) +
+                     " stage=" + std::to_string(m_bridge_route_post_ready_retry_stage));
+            return any_sent;
         }
 
         const auto& next = m_bridge_route_probe_candidates[m_bridge_route_probe_index];
@@ -17394,8 +17540,27 @@ namespace WindroseTextSigns
             std::regex::icase};
         constexpr uintmax_t k_r5_read_chunk_bytes = 262144;
         constexpr int k_r5_max_chunks_per_tick = 8;
+        constexpr uintmax_t k_r5_bootstrap_max_bytes_per_tick = 16ull * 1024ull * 1024ull;
+        constexpr auto k_r5_bootstrap_time_budget = std::chrono::milliseconds(20);
+        const bool role_pending_in_window = m_session_window_open && !m_role_lock_acquired;
+        const bool ready_pending_after_role = m_role_lock_acquired && !m_session_ready_latched;
+        const bool route_pending_remote =
+            m_bridge_role == BridgeRole::RemoteClient &&
+            (!m_bridge_route_gate_open || !m_bridge_route_lock_acquired);
+        const bool bootstrap_catchup_mode =
+            role_pending_in_window ||
+            ready_pending_after_role ||
+            route_pending_remote ||
+            m_server_role_classification_pending;
+        const int max_chunks_this_tick = bootstrap_catchup_mode
+            ? static_cast<int>(k_r5_bootstrap_max_bytes_per_tick / k_r5_read_chunk_bytes)
+            : k_r5_max_chunks_per_tick;
+        const auto parse_budget_deadline = std::chrono::steady_clock::now() + k_r5_bootstrap_time_budget;
         bool backlog_logged_this_tick = false;
         int chunks_processed = 0;
+        uintmax_t bytes_processed = 0;
+        bool stopped_for_time_budget = false;
+        bool stopped_for_byte_budget = false;
         const auto try_begin_definitive_reset = [&](const std::string& category,
                                                     const std::string& signal,
                                                     const std::string& world_hint) -> bool {
@@ -17420,8 +17585,21 @@ namespace WindroseTextSigns
             return true;
         };
 
-        while (m_destroy_signal_log_offset < size && chunks_processed < k_r5_max_chunks_per_tick)
+        while (m_destroy_signal_log_offset < size && chunks_processed < max_chunks_this_tick)
         {
+            if (bootstrap_catchup_mode &&
+                bytes_processed >= k_r5_bootstrap_max_bytes_per_tick)
+            {
+                stopped_for_byte_budget = true;
+                break;
+            }
+            if (bootstrap_catchup_mode &&
+                chunks_processed > 0 &&
+                std::chrono::steady_clock::now() >= parse_budget_deadline)
+            {
+                stopped_for_time_budget = true;
+                break;
+            }
             const auto chunk_start_offset = m_destroy_signal_log_offset;
             const auto remaining_bytes = size - chunk_start_offset;
             if (!backlog_logged_this_tick && remaining_bytes > k_r5_read_chunk_bytes)
@@ -17432,12 +17610,25 @@ namespace WindroseTextSigns
                          std::to_string(static_cast<unsigned long long>(remaining_bytes)) +
                          " chunkBytes=" + std::to_string(static_cast<unsigned long long>(k_r5_read_chunk_bytes)) +
                          " estimatedChunks=" + std::to_string(chunk_count_estimate) +
-                         " maxChunksThisTick=" + std::to_string(k_r5_max_chunks_per_tick));
+                         " maxChunksThisTick=" + std::to_string(max_chunks_this_tick) +
+                         " mode=" + std::string{bootstrap_catchup_mode ? "bootstrap_catchup" : "normal"});
                 backlog_logged_this_tick = true;
             }
             input.clear();
             input.seekg(static_cast<std::streamoff>(chunk_start_offset), std::ios::beg);
-            const auto bytes_to_read = std::min<uintmax_t>(remaining_bytes, k_r5_read_chunk_bytes);
+            const auto remaining_budget = bootstrap_catchup_mode
+                ? (bytes_processed >= k_r5_bootstrap_max_bytes_per_tick
+                    ? static_cast<uintmax_t>(0)
+                    : k_r5_bootstrap_max_bytes_per_tick - bytes_processed)
+                : k_r5_read_chunk_bytes;
+            const auto bytes_to_read = std::min<uintmax_t>(
+                remaining_bytes,
+                std::min<uintmax_t>(k_r5_read_chunk_bytes, remaining_budget));
+            if (bytes_to_read == 0)
+            {
+                stopped_for_byte_budget = bootstrap_catchup_mode;
+                break;
+            }
             std::string chunk{};
             chunk.resize(static_cast<size_t>(bytes_to_read));
             input.read(chunk.data(), static_cast<std::streamsize>(chunk.size()));
@@ -17448,6 +17639,7 @@ namespace WindroseTextSigns
             }
             m_destroy_signal_log_offset = chunk_start_offset + static_cast<uintmax_t>(chunk.size());
             ++chunks_processed;
+            bytes_processed += static_cast<uintmax_t>(chunk.size());
             if (server_runtime_process)
             {
                 maybe_begin_server_role_classification(m_destroy_signal_log_path, chunk_start_offset);
@@ -17880,13 +18072,18 @@ namespace WindroseTextSigns
             }
             }
         }
-        if (m_destroy_signal_log_offset < size && chunks_processed >= k_r5_max_chunks_per_tick)
+        if (m_destroy_signal_log_offset < size &&
+            (chunks_processed >= max_chunks_this_tick || stopped_for_time_budget || stopped_for_byte_budget))
         {
             const auto remaining = size - m_destroy_signal_log_offset;
             log_line("[save] r5log_backlog_catchup_deferred remainingBytes=" +
                      std::to_string(static_cast<unsigned long long>(remaining)) +
                      " chunksProcessed=" + std::to_string(chunks_processed) +
-                     " maxChunksThisTick=" + std::to_string(k_r5_max_chunks_per_tick));
+                     " bytesProcessed=" + std::to_string(static_cast<unsigned long long>(bytes_processed)) +
+                     " maxChunksThisTick=" + std::to_string(max_chunks_this_tick) +
+                     " mode=" + std::string{bootstrap_catchup_mode ? "bootstrap_catchup" : "normal"} +
+                     " stoppedForTimeBudget=" + std::string{stopped_for_time_budget ? "true" : "false"} +
+                     " stoppedForByteBudget=" + std::string{stopped_for_byte_budget ? "true" : "false"});
         }
         if (server_runtime_process)
         {
